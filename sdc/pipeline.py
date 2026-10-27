@@ -48,6 +48,26 @@ def steps_from_gt(csv_path):
     return steps
 
 
+def sheet_hint(sheet):
+    if not sheet.get("found") or not sheet["reagents"]:
+        return ""
+    names = "; ".join(r["name"] for r in sheet["reagents"])
+    # a hint, not a constraint: a misread sheet must not force wrong names onto correctly seen transfers
+    return (f"\n\nA quick OCR of the protocol sheet on the bench suggests these reagents (may be incomplete or "
+            f"misread, and NOT in the order they are added): {names}. Prefer these names when they fit what "
+            f"you see; water is often omitted from such lists. Each distinct source tube is a distinct reagent.")
+
+
+def apply_sheet(steps, sheet):
+    """Fill volumes the sheet states for a reagent the model named. Sheet volumes beat model guesses."""
+    vols = {tuple(evaluate._norm(r["name"])): r["volume_ul"] for r in sheet.get("reagents", []) if r["volume_ul"]}
+    for s in steps:
+        v = vols.get(tuple(evaluate._norm(s.get("reagent"))))
+        if v and s["action"] == "transfer":
+            s["volume_ul"], s["volume_evidence"] = v, "protocol_sheet"
+    return steps
+
+
 def tip_evidence(tracks, steps, fps=SAM_FPS):
     """Attach SAM evidence to each step: how many sampled frames show the pipette tip inside the step window."""
     for s in steps:
@@ -93,9 +113,12 @@ def run(video, name=None, gt_csv=None, from_gt=False):
     if from_gt:
         steps = steps_from_gt(gt_csv)
     else:
+        stills = meta.frames(video, [2, 10, 20, 35, 50], run_dir / "stills")
+        sheet = _cached(run_dir / "sheet.json", lambda: meta.read_sheet(stills))
         spark_video = meta.shrink(video, run_dir / "spark.mp4", fps=10)
         fid = _cached(run_dir / "spark_file.json", lambda: meta.upload(spark_video))
-        steps = _cached(run_dir / "steps_raw.json", lambda: meta.extract_steps(fid))
+        steps = _cached(run_dir / "steps_raw.json", lambda: meta.extract_steps(fid, sheet_hint(sheet)))
+        steps = apply_sheet(steps, sheet)
         sam_video = meta.shrink(video, run_dir / "sam.mp4", fps=SAM_FPS)
         sam_fid = _cached(run_dir / "sam_file.json", lambda: meta.upload(sam_video))
         tracks = _cached(run_dir / "tracks_tip.json", lambda: meta.track(sam_fid, "pipette tip"))

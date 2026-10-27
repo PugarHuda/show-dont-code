@@ -1,5 +1,6 @@
 """Meta Model API calls: Muse Spark (video -> steps) and SAM 3.1 (video -> tracked boxes)."""
 import asyncio
+import base64
 import json
 import os
 import subprocess
@@ -60,6 +61,27 @@ List every protocol step in the order it happens, with start/end times in second
 - Ignore idle time, adjusting gloves, and looking around."""
 
 
+SHEET_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["found", "reagents", "notes"],
+    "properties": {
+        "found": {"type": "boolean", "description": "a written protocol is legible in the images"},
+        "reagents": {
+            "type": "array",
+            "description": "the recipe the scientist is following, in the order written",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["name", "volume_ul"],
+                "properties": {"name": {"type": "string"}, "volume_ul": {"type": ["number", "null"]}},
+            },
+        },
+        "notes": {"type": "string", "description": "handwritten notes relevant to the run, e.g. number of samples"},
+    },
+}
+
+
 def _key():
     key = os.getenv("MODEL_API_KEY")
     if not key:
@@ -87,6 +109,39 @@ def shrink(src, dst, fps=None, width=640):
 def upload(path):
     with open(path, "rb") as f:
         return client().files.create(file=f, purpose="user_data").id
+
+
+def frames(src, times, dst_dir):
+    """Full-resolution JPEG stills: small print on a bench sheet is unreadable in the downscaled video."""
+    dst_dir = Path(dst_dir)
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    out = []
+    for t in times:
+        p = dst_dir / f"frame_{t:06.1f}.jpg"
+        if not p.exists():
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(t), "-i", str(src), "-frames:v", "1",
+                            "-q:v", "2", str(p)], check=True)
+        out.append(p)
+    return out
+
+
+def read_sheet(images):
+    """Transcribe the paper protocol lying on the bench (reagent recipe + volumes) from video stills."""
+    content = [{"type": "input_text", "text": (
+        "These are stills from a head-mounted camera at a lab bench. A printed or handwritten protocol may be "
+        "lying on the bench. Transcribe the reaction recipe the scientist is following: each reagent and its "
+        "volume per reaction in µL, in the order written. If several recipes are printed, pick the one that is "
+        "highlighted, annotated, or matches the tubes on the bench, and say which in notes. Do not guess "
+        "numbers you cannot read: use null.")}]
+    for p in images:
+        b64 = base64.b64encode(Path(p).read_bytes()).decode()
+        content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{b64}"})
+    r = client().responses.create(
+        model=SPARK,
+        input=[{"role": "user", "content": content}],
+        text={"format": {"type": "json_schema", "name": "sheet", "schema": SHEET_SCHEMA, "strict": True}},
+    )
+    return json.loads(r.output_text)
 
 
 def extract_steps(file_id, extra=""):
