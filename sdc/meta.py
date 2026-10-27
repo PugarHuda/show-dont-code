@@ -3,6 +3,7 @@ import asyncio
 import base64
 import io
 import json
+import re
 import os
 import subprocess
 from pathlib import Path
@@ -172,6 +173,34 @@ def transcribe(video, wav_path, keywords=None):
     r.raise_for_status()
     return [{"start": (t.get("startMs") or 0) / 1000, "end": (t.get("endMs") or 0) / 1000,
              "text": t.get("transcript", "")} for t in r.json().get("turns", []) if t.get("transcript")]
+
+
+VOICE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["answers"],
+    "properties": {"answers": {"type": "array", "items": {
+        "type": "object", "additionalProperties": False, "required": ["key", "value", "heard"],
+        "properties": {"key": {"type": "string"}, "value": {"type": "number"},
+                       "heard": {"type": "string", "description": "the words that gave this value"}}}}},
+}
+
+
+def voice_answers(transcript, questions):
+    """Map what the scientist said to the open questions. questions: [{key, asks}] with keys like '8,9' or '20:cycles'.
+    Only keys from the list survive; nothing is submitted, the UI pre-fills the form for the scientist to confirm."""
+    r = client().responses.create(
+        model=SPARK, max_output_tokens=4000, reasoning={"effort": "low"},
+        input=(f"A scientist answered open questions about a lab protocol out loud.\nOpen questions (JSON): "
+               f"{json.dumps(questions, ensure_ascii=False)}\n"
+               f"Transcript (any language; numbers may be spoken as words, 'one point two five' = 1.25): {transcript}\n"
+               "Return a value for every question the transcript clearly answers: microlitres for volumes, a whole number "
+               "for cycles. Copy each question's key string exactly. Skip questions it does not answer. Never guess."),
+        text={"format": {"type": "json_schema", "name": "voice", "schema": VOICE_SCHEMA, "strict": True}},
+    )
+    norm = lambda k: re.sub(r"[^0-9,:a-z]", "", str(k).lower())  # noqa: E731  ("key 0, 1" -> "0,1")
+    allowed = {norm(q["key"]): q["key"] for q in questions}
+    return [{**a, "key": allowed[norm(a["key"])]} for a in json.loads(r.output_text)["answers"] if norm(a["key"]) in allowed]
 
 
 def extract_steps(file_id, extra=""):

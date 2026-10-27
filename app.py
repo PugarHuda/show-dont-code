@@ -6,7 +6,7 @@ import re
 import shutil
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
 if os.getenv("VERCEL") == "1":  # opentrons writes its config under $HOME at import; only /tmp is writable
@@ -168,6 +168,64 @@ def receipt(name: str):
         "reviewer_findings": len(r.get("review") or []),
         "verify": "sha256 of each file must match; the protocol hash covers protocol.py byte for byte (UTF-8)",
     }
+
+
+@app.post("/api/runs/{name}/voice")
+async def voice(name: str, request: Request):
+    """Spoken answers: Muse Voice Transcribe hears them, Muse Spark maps them to the open questions.
+    Returns pre-fill values only; the scientist still presses Confirm."""
+    import subprocess
+    import tempfile
+
+    from sdc import meta
+
+    d = _run_dir(name)
+    global live_calls_left
+    if not os.getenv("MODEL_API_KEY"):
+        raise HTTPException(503, "live model calls are not configured on this deployment")
+    if live_calls_left <= 0:
+        raise HTTPException(429, "live model calls for this demo are used up; try again later")
+    body = b""
+    async for chunk in request.stream():  # a short voice note; refuse anything long before reading it all
+        body += chunk
+        if len(body) > 5 * 1024 * 1024:
+            raise HTTPException(413, "keep voice answers under a minute")
+    if len(body) < 1000:
+        raise HTTPException(422, "no audio arrived; check the microphone permission")
+    live_calls_left -= 1
+    r = json.loads((d / "result.json").read_text(encoding="utf-8"))
+    groups = {}
+    for q in r["questions"]:
+        s = r["steps"][q["step"]]
+        if q["field"] == "cycles":
+            groups[f"{q['step']}:cycles"] = "number of PCR cycles for the thermocycler"
+        else:
+            label = f"µL per transfer of {s.get('reagent') or s['description']}" + (f" (from {s['source']})" if s.get("source") else "")
+            groups.setdefault(label, []).append(str(q["step"]))
+    questions = [{"key": k, "asks": v} if isinstance(v, str) else {"key": ",".join(v), "asks": k} for k, v in groups.items()]
+    if not questions:
+        raise HTTPException(409, "there are no open questions to answer")
+    with tempfile.TemporaryDirectory() as tmp:
+        clip = Path(tmp) / "voice.webm"
+        clip.write_bytes(body)
+        try:
+            keywords = [s.get("reagent") for s in r["steps"] if s.get("reagent")]
+            turns = meta.transcribe(clip, Path(tmp) / "voice.wav", keywords=sorted(set(keywords))[:20])
+        except (subprocess.CalledProcessError, OSError):
+            raise HTTPException(422, "that recording could not be read; try again")
+        except Exception:
+            log.exception("voice transcription failed for run %s", name)
+            raise HTTPException(502, "the speech model is unavailable; type the answers instead")
+    transcript = " ".join(t["text"] for t in turns).strip()
+    if not transcript:
+        return {"transcript": "", "answers": []}
+    try:
+        answers = meta.voice_answers(transcript, questions)
+    except Exception:
+        log.exception("voice mapping failed for run %s", name)
+        raise HTTPException(502, "the model could not read the answers; type them instead")
+    ok = [a for a in answers if (":cycles" in a["key"] and 1 <= a["value"] <= 99) or (":cycles" not in a["key"] and 0 < a["value"] <= 1000)]
+    return {"transcript": transcript, "answers": ok}
 
 
 @app.post("/api/runs/{name}/answers")

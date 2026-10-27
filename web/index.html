@@ -77,6 +77,10 @@
   footer { padding: 4px 16px 24px; color: var(--muted); font-size: 12px; }
   footer a { color: inherit; }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  .voice { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; flex-wrap: wrap; }
+  .voice .hint { margin: 0; }
+  #voicebtn.rec { background: var(--bad); color: #fff; border-color: var(--bad); }
+  form.q input.heard { outline: 2px solid var(--accent); }
   table.setup { width: 100%; border-collapse: collapse; font-size: 14px; }
   table.setup th, table.setup td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
   table.setup th { color: var(--muted); font-weight: 500; }
@@ -174,6 +178,10 @@
     </section>
     <section id="qbox" hidden>
       <h2>Needs your confirmation</h2>
+      <div class="voice" id="voicebox" hidden>
+        <button type="button" id="voicebtn" class="ghost">Answer by voice</button>
+        <span id="voicemsg" class="hint" aria-live="polite">Say the volumes and the cycle count, e.g. “MilliQ seven point seven five, thirty five cycles”.</span>
+      </div>
       <form class="q" id="qform"></form>
     </section>
     <section id="reviewbox" hidden>
@@ -280,6 +288,7 @@ function render() {
   $("steps").querySelectorAll("li").forEach((li) => li.onclick = () => seek(R.steps[li.dataset.i].start));
 
   $("qbox").hidden = !R.questions.length;
+  $("voicebox").hidden = !window.UPLOADS || !navigator.mediaDevices?.getUserMedia;  // live models + a microphone
   // one question per reagent+source tube, not per transfer: the answer fans out to every step in the group
   const groups = {};
   for (const q of R.questions.filter((q) => q.field === "volume_ul")) {
@@ -501,6 +510,39 @@ cv.addEventListener("click", async (e) => {
 v.addEventListener("timeupdate", tick);
 v.addEventListener("loadedmetadata", () => { timeline(); tick(); });
 (function loop() { if (!v.paused) tick(); requestAnimationFrame(loop); })();
+// --- answer by voice: Muse Voice Transcribe hears it, Muse Spark maps it to the open questions -------------
+let rec = null;
+$("voicebtn").onclick = async () => {
+  if (rec) { rec.stop(); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { $("voicemsg").textContent = "Microphone permission was refused, so type the answers instead."; return; }
+  const chunks = [];
+  rec = new MediaRecorder(stream);
+  rec.ondataavailable = (e) => chunks.push(e.data);
+  rec.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    clearTimeout(rec.limit); rec = null;
+    $("voicebtn").classList.remove("rec"); $("voicebtn").textContent = "Answer by voice"; $("voicebtn").disabled = true;
+    $("voicemsg").textContent = "Muse Voice Transcribe is listening back, then Muse Spark matches your words to the questions…";
+    try {
+      const r = await fetch(`${API}/api/runs/${encodeURIComponent(name)}/voice`, { method: "POST", body: new Blob(chunks, { type: chunks[0]?.type || "audio/webm" }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.detail || r.statusText);
+      let filled = 0;
+      for (const a of j.answers) {
+        const input = $("qform").querySelector(`input[name="${CSS.escape(a.key)}"]`);
+        if (input) { input.value = a.value; input.classList.add("heard"); input.title = `heard: ${a.heard}`; filled++; }
+      }
+      $("voicemsg").textContent = j.transcript ? `Heard “${j.transcript}”. Filled ${filled} answer${filled === 1 ? "" : "s"}; check them, then confirm.` : "Nothing was heard; try again closer to the microphone.";
+    } catch (e) { $("voicemsg").textContent = e.message; }
+    $("voicebtn").disabled = false;
+  };
+  rec.start();
+  rec.limit = setTimeout(() => rec && rec.stop(), 45000);  // the server takes a minute at most
+  $("voicebtn").classList.add("rec"); $("voicebtn").textContent = "Stop and fill the answers";
+  $("voicemsg").textContent = "Recording… say the volumes, then press stop.";
+};
+
 // --- upload your own video (hosted backend only) ---------------------------------------------------
 $("upbtn").hidden = !window.UPLOADS;
 $("upbtn").onclick = () => $("updlg").showModal();
