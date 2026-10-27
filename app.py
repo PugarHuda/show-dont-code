@@ -244,6 +244,31 @@ async def voice(name: str, request: Request):
     return {"transcript": transcript, "answers": ok}
 
 
+@app.post("/api/runs/{name}/review/{k}/apply")
+def apply_fix(name: str, k: int):
+    """Accept the reviewer agent's proposed change for finding k. The agent proposes; only this click changes steps."""
+    d = _run_dir(name)
+    r = json.loads((d / "result.json").read_text(encoding="utf-8"))
+    issues = r.get("review") or []
+    if not 0 <= k < len(issues) or (issues[k].get("fix") or {}).get("kind", "none") == "none":
+        raise HTTPException(404, "no fix to apply for that finding")
+    if issues[k].get("applied"):
+        raise HTTPException(409, "already applied")
+    fix, steps = issues[k]["fix"], r["steps"]
+    for i in fix["steps"]:  # indices were validated against these steps when the review was stored
+        if fix["kind"] == "set_reagent":
+            steps[i].update(reagent=fix["value"], reagent_by="reviewer agent, accepted")
+        elif fix["kind"] == "set_volume":
+            steps[i].update(volume_ul=float(fix["value"]), volume_evidence="reviewer agent, accepted")
+        elif fix["kind"] == "skip_steps":
+            steps[i].update(action="skipped", skipped_from=steps[i]["action"])
+    answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
+    out = pipeline.build(d, steps, answers, review=False)  # keeps the review, so mark this finding done in it
+    out["review"][k]["applied"] = True
+    (d / "result.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+    return result(name)
+
+
 @app.post("/api/runs/{name}/answers")
 def answer(name: str, answers: dict[str, float] = Body(...)):
     d = _run_dir(name)

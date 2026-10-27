@@ -157,6 +157,8 @@ def generate(steps, title="Show, Don't Code protocol"):
                 "    tc.set_block_temperature(4)",
                 "    tc.open_lid()",
             ]
+        elif a == "skipped":  # the scientist accepted that this step never happened
+            L.append("    # skipped: did not happen in the video (reviewed)")
         else:
             L.append(f"    ctx.pause({('Manual step: ' + desc)!r})")
     layout = {n: f"{r}:{w}" for n, (r, w) in {**sources, **dests}.items()}

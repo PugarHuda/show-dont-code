@@ -28,12 +28,23 @@ REVIEW_SCHEMA = {
             "items": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["steps", "severity", "finding", "question"],
+                "required": ["steps", "severity", "finding", "question", "fix"],
                 "properties": {
                     "steps": {"type": "array", "items": {"type": "integer"}, "description": "0-based step indices"},
                     "severity": {"type": "string", "enum": ["block", "check", "info"]},
                     "finding": {"type": "string"},
                     "question": {"type": "string", "description": "one question the scientist can answer quickly"},
+                    "fix": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["kind", "steps", "value"],
+                        "description": "one concrete change the scientist can accept with a click; kind none if unsure",
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["none", "set_reagent", "set_volume", "skip_steps"]},
+                            "steps": {"type": "array", "items": {"type": "integer"}, "description": "0-based steps it changes"},
+                            "value": {"type": "string", "description": "new reagent name, or µL as a number; empty for skip_steps"},
+                        },
+                    },
                 },
             },
         },
@@ -99,7 +110,35 @@ volume is missing in suggested_volumes, not just the ones you changed. Your sugg
 scientist as editable defaults; they decide.
 When something in the steps is doubtful (which tube, which reagent, whether a step happened), call look_at_moment
 on the seconds in question and decide from what you see; mention the second you looked at in your finding.
+For each finding, propose at most one fix the scientist can accept with a click: set_reagent (rename the reagent of
+the listed steps, e.g. a generic "source tube 3" you identified on a frame), set_volume (µL per transfer for the
+listed steps, only if the sheet or the simulator settled it), or skip_steps (steps you are confident did not
+happen, e.g. a preparation invented by the extraction). Use kind none when the scientist has to decide.
 Only report real problems visible in the data or video. severity "block" = robot must not run until answered."""
+
+
+def clean_fix(fix, steps):
+    """Model output is untrusted: keep a fix only if it is one of the three kinds, on existing liquid steps, with a
+    usable value. Anything else becomes kind none, i.e. a finding without a one-click change."""
+    none = {"kind": "none", "steps": [], "value": ""}
+    if not isinstance(fix, dict) or fix.get("kind") not in ("set_reagent", "set_volume", "skip_steps"):
+        return none
+    idx = sorted({i for i in fix.get("steps", []) if isinstance(i, int) and 0 <= i < len(steps)
+                  and steps[i]["action"] in ("transfer", "mix")})
+    value = " ".join(str(fix.get("value", "")).split())[:60]
+    if not idx:
+        return none
+    if fix["kind"] == "set_volume":
+        try:
+            v = float(value)
+        except ValueError:
+            return none
+        if not 1 <= v <= 1000:  # the Flex pipettes' range
+            return none
+        value = f"{v:g}"
+    if fix["kind"] == "set_reagent" and not value:
+        return none
+    return {"kind": fix["kind"], "steps": idx, "value": "" if fix["kind"] == "skip_steps" else value}
 
 
 def client():
@@ -115,8 +154,9 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
 
     Returns {"issues", "suggested_volumes", "tool_log"}.
     """
+    # tip_frames: how many 2 fps frames SAM 3.1 saw the pipette tip in during the step (0 = no visual evidence)
     brief = [{k: s.get(k) for k in ("start", "end", "action", "reagent", "source", "destination", "volume_ul",
-                                    "volume_evidence")} | {"i": i} for i, s in enumerate(steps)]
+                                    "volume_evidence", "tip_frames")} | {"i": i} for i, s in enumerate(steps)]
     content = [{"type": "text", "text": json.dumps({"steps": brief, "bench_sheet": sheet, "simulator": simulator},
                                                     ensure_ascii=False)}]
     if video:
@@ -171,6 +211,7 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
     # model output is untrusted: keep only indices and reagents that exist, volumes a pipette can do
     for it in out["issues"]:
         it["steps"] = [i for i in it["steps"] if isinstance(i, int) and 0 <= i < len(steps)]
+        it["fix"] = clean_fix(it.get("fix"), steps)
     reagents = {s.get("reagent") for s in steps}
     out["suggested_volumes"] = [v for v in out["suggested_volumes"]
                                 if v["reagent"] in reagents and 0 < v["volume_ul"] <= 1000]

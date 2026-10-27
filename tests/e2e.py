@@ -10,6 +10,7 @@ Nothing here costs model calls unless VOICE=1. The one write it makes re-sends a
 import hashlib
 import json
 import os
+import shutil
 import sys
 import time
 import urllib.error
@@ -52,6 +53,10 @@ def main():
         check("landing: pause control works", page.evaluate("() => document.getElementById('hero').paused"))
         check("landing: every image/video has a text alternative",
               page.evaluate("() => [...document.querySelectorAll('img,video')].every(e => e.getAttribute('alt') !== null || e.getAttribute('aria-label'))"))
+        og = page.evaluate("() => ({img: document.querySelector('meta[property=\"og:image\"]')?.content, card: document.querySelector('meta[name=\"twitter:card\"]')?.content})")
+        check("landing: X/OG card uses an absolute 1200x630 image", (og["img"] or "").startswith("https://") and og["card"] == "summary_large_image", og)
+        st, _ = fetch(og["img"] or BASE + "/media/og.jpg")
+        check("landing: the card image is reachable", st == 200, st)
         check("landing: every button and link has an accessible name",
               page.evaluate("() => [...document.querySelectorAll('a,button')].every(e => (e.innerText || e.getAttribute('aria-label') || '').trim())"))
         mobile = b.new_page(viewport={"width": 360, "height": 780})
@@ -80,6 +85,14 @@ def main():
         page.goto(BASE + "/app?run=pcr_3")
         page.wait_for_function("document.querySelectorAll('#steps li').length > 0", timeout=60000)
         page.wait_for_function("document.getElementById('video').readyState >= 1", timeout=60000)
+        labels = page.eval_on_selector_all("#run option", "o => o.map(x => x.textContent)")
+        check("app: runs have readable labels", any("PCR setup" in x for x in labels) and any("human annotations" in x for x in labels), labels)
+        page.focus("#steps li:nth-child(3)")
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(1200)
+        check("app: steps work from the keyboard", page.evaluate("() => document.getElementById('video').currentTime") > 30)
+        sam_tags = page.eval_on_selector_all("#steps small.sam", "xs => xs.length")
+        check("app: steps show SAM 3.1 tip evidence", sam_tags > 0, sam_tags)
         page.click("#steps li:nth-child(5)")
         page.wait_for_timeout(1500)
         t = page.evaluate("() => document.getElementById('video').currentTime")
@@ -117,6 +130,37 @@ def main():
             check(f"download: {path}", st == 200 and needle in data, (st, data[:80]))
         st, _ = fetch(f"{api}/api/runs/pcr_3/protocol.py")
         check("download: protocol refused while questions are open", st == 409, st)
+
+        # ---- reviewer agent: one-click fixes ------------------------------------------------------------
+        fix_runs = []
+        for run in ("pcr_4", "pcr_5", "pcr_2", "pcr_3", "miniprep_7", "pcr_1"):
+            st, body = fetch(f"{api}/api/runs/{run}")
+            if st == 200 and any((i.get("fix") or {}).get("kind", "none") != "none" for i in json.loads(body).get("review") or []):
+                fix_runs.append(run)
+        check("reviewer: at least one run carries a one-click fix", fix_runs, fix_runs)
+        if fix_runs:
+            page.goto(f"{BASE}/app?run={fix_runs[0]}")
+            page.wait_for_function("document.querySelectorAll('#issues li').length > 0", timeout=60000)
+            check("app: fix buttons render", len(page.query_selector_all("#issues button.fix, #issues em.applied")) > 0)
+        st, _ = fetch(f"{api}/api/runs/pcr_1-gt/review/999/apply", "POST")
+        check("api: applying a fix that doesn't exist -> 404", st == 404, st)
+        local = BASE.startswith("http://127.0.0.1") and fix_runs and os.path.isdir(f"out/{fix_runs[0]}")
+        if local:  # mutate a throwaway copy only, never a shared sample run
+            shutil.rmtree("out/e2e_fix", ignore_errors=True)
+            shutil.copytree(f"out/{fix_runs[0]}", "out/e2e_fix", ignore=shutil.ignore_patterns("*.mp4", "stills*", "sam_frames", "*.wav"))
+            before = json.loads(open("out/e2e_fix/result.json", encoding="utf-8").read())
+            k = next(i for i, it in enumerate(before["review"]) if it["fix"]["kind"] != "none" and not it.get("applied"))
+            fix = before["review"][k]["fix"]
+            st, body = fetch(f"{api}/api/runs/e2e_fix/review/{k}/apply", "POST")
+            after = json.loads(body) if st == 200 else {}
+            changed = st == 200 and all(
+                (fix["kind"] == "skip_steps" and after["steps"][i]["action"] == "skipped")
+                or (fix["kind"] == "set_reagent" and after["steps"][i]["reagent"] == fix["value"])
+                or (fix["kind"] == "set_volume" and after["steps"][i]["volume_ul"] == float(fix["value"])) for i in fix["steps"])
+            check(f"api: applying a {fix['kind']} fix changes exactly its steps", changed and after["review"][k].get("applied"), (st, body[:120]))
+            st, _ = fetch(f"{api}/api/runs/e2e_fix/review/{k}/apply", "POST")
+            check("api: applying the same fix twice -> 409", st == 409, st)
+            shutil.rmtree("out/e2e_fix", ignore_errors=True)
 
         # ---- input validation and security edges ----------------------------------------------------
         for bad_answers, why in (({"0": -5}, "negative volume"), ({"99": 5}, "unknown step"), ({"5:cycles": 2.5}, "fractional cycles"),

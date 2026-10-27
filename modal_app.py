@@ -55,7 +55,8 @@ def process(run_id: str):
     vol.commit()
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret], timeout=900, scaledown_window=1200, max_containers=1)
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret], timeout=900, scaledown_window=1200, max_containers=1,
+              min_containers=1)  # always warm for judges: no cold start on the first visit
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
 def web():
