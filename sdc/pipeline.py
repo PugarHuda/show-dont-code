@@ -153,6 +153,8 @@ def build(run_dir, steps, answers=None, review=True):
     try:
         result["protocol"], result["layout"] = protocol.generate(steps)
         result["sim_ok"], result["sim_log"] = protocol.simulate(result["protocol"])
+        if result["sim_ok"]:  # the Opentrons App's own analysis: the file it would accept, and what to load where
+            result["analysis_ok"], result["analysis"] = protocol.analyze(result["protocol"], run_dir / "analysis.json")
     except protocol.NeedsInput as e:
         result["questions"], result["layout"] = e.questions, protocol.layout(steps)
     sim = ("not run yet: waiting for scientist answers" if result["questions"]

@@ -96,6 +96,49 @@ def protocol_file(name: str):
     return PlainTextResponse(r["protocol"], headers={"Content-Disposition": f'attachment; filename="{name}.py"'})
 
 
+@app.get("/api/runs/{name}/analysis.json")
+def analysis_file(name: str):
+    f = _run_dir(name) / "analysis.json"
+    if not f.exists():
+        raise HTTPException(409, "no analysis yet: the protocol has to pass the simulator first")
+    return FileResponse(f, media_type="application/json", filename=f"{name}-opentrons-analysis.json")
+
+
+def _sha256(data: bytes):
+    import hashlib
+
+    return hashlib.sha256(data).hexdigest()
+
+
+@app.get("/api/runs/{name}/receipt.json")
+def receipt(name: str):
+    """Reproducibility receipt: hashes that tie the protocol to the footage it came from, the models that read it,
+    and the human answers that completed it. Anyone with the files can recompute every hash."""
+    from sdc import agent, meta
+
+    d = _run_dir(name)
+    r = json.loads((d / "result.json").read_text(encoding="utf-8"))
+    if not r.get("protocol"):
+        raise HTTPException(409, "no protocol yet: answer the open questions first")
+    files = {f: _sha256((d / f).read_bytes()) for f in ("video.mp4", "steps_raw.json", "steps_stage2.json",
+                                                         "tracks_tip.json", "analysis.json") if (d / f).exists()}
+    answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
+    return {
+        "run": name,
+        "protocol_sha256": _sha256(r["protocol"].encode("utf-8")),
+        "files_sha256": files,
+        "simulator": {"passed": r["sim_ok"], "robot_actions": len(r["sim_log"])},
+        "opentrons_analysis": {"passed": r.get("analysis_ok"), "commands": (r.get("analysis") or {}).get("commands")},
+        # a ground-truth replay never ran the models on its video, so don't claim it did
+        "models": {"steps_and_sheet": meta.SPARK, "tracking": "sam-3.1", "speech": "muse-voice-transcribe-1.0",
+                   "reviewer": agent.MODEL} if (d / "steps_raw.json").exists()
+        else {"note": "steps replayed from BioVL2 human annotations; no model read this video"},
+        "human_input": {"answers": answers, "named_tubes": [t["name"] for t in _tubes(d) if t.get("name")]},
+        "reviewer_findings": len(r.get("review") or []),
+        "verify": "sha256 of each file must match; the protocol hash covers protocol.py byte for byte (UTF-8)",
+    }
+
+
 @app.post("/api/runs/{name}/answers")
 def answer(name: str, answers: dict[str, float] = Body(...)):
     d = _run_dir(name)

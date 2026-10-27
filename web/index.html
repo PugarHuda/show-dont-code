@@ -77,6 +77,12 @@
   footer { padding: 4px 16px 24px; color: var(--muted); font-size: 12px; }
   footer a { color: inherit; }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  table.setup { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.setup th, table.setup td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
+  table.setup th { color: var(--muted); font-weight: 500; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
+  .files { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 0; font-size: 14px; }
+  .files a { color: var(--accent); }
   button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
   dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 20px; }
   dialog::backdrop { background: rgba(0, 0, 0, .45); }
@@ -178,6 +184,12 @@
       <h2>Accuracy vs. ground truth</h2>
       <div class="metrics" id="metrics"></div>
     </section>
+    <section id="setupbox" hidden>
+      <h2>Before you run</h2>
+      <p class="hint" id="analysisline"></p>
+      <table class="setup"><thead><tr><th scope="col">Load</th><th scope="col">Into</th><th scope="col">Volume</th></tr></thead><tbody id="setup"></tbody></table>
+      <p class="files"><a id="f-proto">protocol.py</a> <a id="f-analysis">Opentrons analysis (.json)</a> <a id="f-receipt">Reproducibility receipt (.json)</a></p>
+    </section>
     <section>
       <details><summary>Generated protocol</summary><pre id="code"></pre></details>
     </section>
@@ -235,6 +247,19 @@ function render() {
   else { st.className = "pill bad"; st.textContent = "simulator failed"; }
   $("dl").disabled = !R.protocol;
   $("replaybox").hidden = !R.sim_ok;
+  const an = R.analysis;
+  $("setupbox").hidden = !R.sim_ok;
+  if (R.sim_ok) {
+    const base = `${API}/api/runs/${encodeURIComponent(name)}`;
+    $("analysisline").textContent = !an ? "Opentrons analysis has not run for this protocol yet."
+      : R.analysis_ok ? `Opentrons' own protocol analysis passed: ${an.commands} commands, the same check the Opentrons App runs when you import the file.`
+      : `Opentrons' protocol analysis reported a problem: ${(an.errors || [an.error]).join("; ")}`;
+    $("setup").innerHTML = (an?.liquid_setup || []).map((x) =>
+      `<tr><td><i class="dot" style="background:${esc(x.color)}"></i>${esc(x.liquid)}</td><td>${esc(x.labware)} ${esc(x.well)}</td><td class="t">${esc(x.volume_ul)} µL</td></tr>`).join("");
+    $("f-proto").href = `${base}/protocol.py`;
+    $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
+    $("f-receipt").href = `${base}/receipt.json`;
+  }
   $("download").href = R.protocol ? `${API}/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
   $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";
   $("sim").textContent = R.sim_log.join("\n") || "—";
