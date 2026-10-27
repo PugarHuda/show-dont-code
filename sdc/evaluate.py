@@ -31,8 +31,17 @@ def _norm(s):
     return re.sub(r"[^a-z0-9 ]", " ", s).split()
 
 
+# non-transfer steps are identified by what is done, not by their wording ("Centrifuge at top speed for 5 min")
+ACTION_WORDS = {"centrifuge": r"centrifug|spin down", "invert": r"invert", "incubate": r"incubat",
+                "vortex": r"vortex", "discard": r"discard|decant|remove liquid"}
+
+
 def text_sim(gt_sentence, pred):
-    """Best of: fuzzy match to the description, or the GT's key word (e.g. 'Primer1') appearing in the prediction."""
+    """Best of: same non-transfer action; fuzzy match to the description; or the GT's key word (e.g. 'Primer1')
+    appearing in the prediction."""
+    for action, pat in ACTION_WORDS.items():
+        if re.search(pat, gt_sentence, re.I) and pred.get("action") == action:
+            return 1.0
     g = _norm(gt_sentence)
     p = _norm(" ".join(str(pred.get(k) or "") for k in ("description", "reagent", "source")))
     fuzzy = SequenceMatcher(None, " ".join(g), " ".join(_norm(pred.get("description")))).ratio()
@@ -114,6 +123,9 @@ if __name__ == "__main__":
           {"start": 31, "end": 39, "description": "Add alkaline protease solution", "reagent": "Alkaline Protease", "volume_ul": 100}]
     v = score(vgt, vp)
     assert v["volumes_checked"] == 2 and v["volume_accuracy"] == 0.5, v
+    cgt = [{"sentence": "Centrifuge at top speed for 5 minutes at room temperature", "start": 128, "end": 138}]
+    assert score(cgt, [{"start": 128, "end": 138, "action": "centrifuge", "description": "Spin the tubes"}])["recall"] == 1.0
+    assert score(cgt, [{"start": 128, "end": 138, "action": "transfer", "description": "Add buffer"}])["recall"] == 0.0
     four = [{"start": 60 + 9 * i, "end": 66 + 9 * i, "action": "transfer", "description": "Add primer 1", "reagent": "Primer1"} for i in range(4)]
     g = score(gt, four)
     assert g["pred_steps"] == 1 and g["recall"] == 0.5 and g["precision"] == 1.0, g  # 4 tube fills = 1 protocol step

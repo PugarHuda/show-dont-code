@@ -216,10 +216,10 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.20'}
   <section id="results">
     <div class="wrap">
       <h2>Measured on videos it never saw</h2>
-      <p class="intro">We tuned the prompts on one video and scored the pipeline against human step annotations on three others from the public BioVL2 dataset.</p>
+      <p class="intro">We tuned the prompts on one PCR video and scored the pipeline against human step annotations on videos it never saw from the public BioVL2 dataset, including one protocol it was never developed on.</p>
       <div class="scores">
-        <div><b>0.83</b><span>step recall, held-out mean</span></div>
-        <div><b>0.73</b><span>step precision, held-out mean</span></div>
+        <div><b>0.83</b><span>step recall, held-out PCR videos</span></div>
+        <div><b>0.73</b><span>step precision, held-out PCR videos</span></div>
       </div>
       <table class="runs">
         <thead><tr><th scope="col">Video</th><th scope="col">Recall</th><th scope="col">Precision</th><th scope="col">What went wrong</th></tr></thead>
@@ -227,9 +227,10 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.20'}
           <tr><td>pcr_2</td><td class="n">0.83</td><td class="n">0.62</td><td>one reagent split across two source tubes</td></tr>
           <tr><td>pcr_3</td><td class="n">1.00</td><td class="n">1.00</td><td>nothing at the step level</td></tr>
           <tr><td>pcr_4</td><td class="n">0.67</td><td class="n">0.57</td><td>invented a master-mix step that never happened</td></tr>
+          <tr><td>miniprep_7</td><td class="n">0.28</td><td class="n">0.42</td><td>a different protocol: timing right, but no reagent label was readable</td></tr>
         </tbody>
       </table>
-      <p class="note">About one proposed step in four is extra or mislabelled. That is why the app shows every step next to the footage and asks before it writes code.</p>
+      <p class="note">On PCR, about one proposed step in four is extra or mislabelled; on a protocol it was never developed on, most reagents come out unnamed. That is why the app shows every step next to the footage, lets you name a tube with one click, and asks before it writes code.</p>
     </div>
   </section>
 

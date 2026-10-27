@@ -36,9 +36,12 @@ Then:
 Predicted steps are matched to BioVL2's human step annotations by temporal IoU and content, after grouping
 back-to-back transfers of one reagent into one protocol step (the annotations are per reagent; the robot needs
 one transfer per tube). The same protocol is performed in different orders across videos (Template before or
-after Premix), so reciting a protocol does not score; the model has to watch.
+after Premix), so reciting a protocol does not score; the model has to watch. Non-transfer steps (centrifuge,
+invert, incubate) match on the action itself rather than on wording.
 
-Prompts were developed on `pcr_1` only. `pcr_2`–`pcr_4` are held out and were each run once per pipeline version.
+Prompts were developed on `pcr_1` only. Every other video is held out and was run once per pipeline version.
+`miniprep_7` is a different protocol entirely (plasmid miniprep: lysis, neutralisation, spin columns).
+Regenerate this table with `python scripts/eval_table.py pcr_1 pcr_2 pcr_3 pcr_4 miniprep_7`.
 
 | Video | Stage 1 only: recall / precision / tIoU | **Stage 1 + 2**: recall / precision / tIoU |
 |---|---|---|
@@ -46,10 +49,16 @@ Prompts were developed on `pcr_1` only. `pcr_2`–`pcr_4` are held out and were 
 | pcr_2 (test) | 0.83 / 0.50 / 0.51 | 0.83 / 0.62 / 0.72 |
 | pcr_3 (test) | 0.67 / 0.67 / 0.65 | 1.00 / 1.00 / 0.67 |
 | pcr_4 (test) | 0.33 / 0.25 / 0.52 | 0.67 / 0.57 / 0.56 |
-| **test mean** | 0.61 / 0.47 | **0.83 / 0.73** |
+| **PCR test mean (n=3)** | 0.61 / 0.47 | **0.83 / 0.73** |
+| miniprep_7 (test, unseen protocol) | 0.28 / 0.42 / 0.82 | 0.28 / 0.42 / 0.82 |
 
-Known failure: in `pcr_4`, stage 1 invents a "master mix" preparation that never happens. Stage 2 renames
-events but cannot delete them, so the reviewer agent and the scientist are the last line of defence.
+Known failures:
+- `pcr_4`: stage 1 invents a "master mix" preparation that never happens. Stage 2 renames events but cannot
+  delete them, so the reviewer agent and the scientist are the last line of defence.
+- `miniprep_7`: the timing is right where steps match (tIoU 0.82, the centrifuge step lands on the exact
+  seconds), but no reagent name is readable, so "Add 200 µl of Resuspension Solution" comes out as "transfer
+  liquid from source microtube", and 3-second "invert 4 times" steps are missed. Naming the tubes by
+  click-to-track is the intended fix for this.
 
 ## Run it
 
