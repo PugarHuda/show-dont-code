@@ -17,13 +17,21 @@ this repository was written during the hackathon. The git history starts on Oct 
    engine" becomes the Thermocycler module.
 4. The protocol runs in the **official Opentrons simulator**. Anything the video can't show, like a volume
    nobody said out loud, goes back to the scientist as a question before any code is produced.
-5. The **review UI** plays the human video next to the robot deck, step by step.
+5. A **reviewer agent on Muse Spark Open** (Meta open weights, served by Baseten) cross-checks the extracted
+   steps against the bench protocol sheet (which Muse Spark reads from full-resolution stills) and the simulator.
+   It flags what a careful lab member would catch: reagents missing from the sheet, one reagent drawn from two
+   tubes, reactions that would get an addition twice, and volumes that cannot add up. Every finding becomes a
+   question for the scientist. The agent never edits the protocol itself.
+6. The **review UI** plays the human video next to the robot deck, step by step. It asks one volume question
+   per reagent and source tube, not one per transfer.
 
 ## Run it
 
 ```bash
 uv venv --python 3.12 .venv && uv pip install --python .venv openai meta-sam-parser opentrons fastapi uvicorn python-multipart python-dotenv remotezip
-echo MODEL_API_KEY=... > .env
+printf "MODEL_API_KEY=...
+BASETEN_API_KEY=...
+" > .env
 .venv/Scripts/python scripts/fetch_biovl2.py                              # annotations + pcr_1..4 videos only
 .venv/Scripts/python -m sdc.pipeline data/BioVL2/videos/pcr/pcr_1.mp4     # Muse Spark + SAM 3.1 + simulator
 .venv/Scripts/python app.py                                               # http://127.0.0.1:8000

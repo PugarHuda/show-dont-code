@@ -71,6 +71,12 @@
   .stack { display: grid; gap: 16px; align-content: start; }
   details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
   .empty { color: var(--muted); }
+  ul.issues { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  ul.issues li { border-left: 3px solid var(--muted); background: var(--bg); border-radius: 0 6px 6px 0; padding: 8px 10px; cursor: pointer; }
+  ul.issues li.block { border-color: var(--bad); }
+  ul.issues li.check { border-color: var(--warn); }
+  ul.issues b { display: block; margin-bottom: 2px; }
+  ul.issues span { color: var(--muted); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -108,6 +114,10 @@
     <section id="qbox" hidden>
       <h2>Needs your confirmation</h2>
       <form class="q" id="qform"></form>
+    </section>
+    <section id="reviewbox" hidden>
+      <h2>Reviewer agent · Muse Spark Open</h2>
+      <ul class="issues" id="issues"></ul>
     </section>
     <section id="evalbox" hidden>
       <h2>Accuracy vs. ground truth</h2>
@@ -169,11 +179,25 @@ function render() {
   $("steps").querySelectorAll("li").forEach((li) => li.onclick = () => seek(R.steps[li.dataset.i].start));
 
   $("qbox").hidden = !R.questions.length;
-  $("qform").innerHTML = R.questions.map((q) =>
-    `<label><span>${fmt(R.steps[q.step].start)} — ${esc(q.description)}</span>
-      <input type="number" name="${q.step}" min="0.1" max="1000" step="0.1" placeholder="µL" required></label>`).join("")
+  // one question per reagent+source tube, not per transfer: the answer fans out to every step in the group
+  const groups = {};
+  for (const q of R.questions) {
+    const s = R.steps[q.step], key = `${s.reagent || s.description}|${s.source || ""}`;
+    (groups[key] ||= { s, steps: [] }).steps.push(q.step);
+  }
+  $("qform").innerHTML = Object.values(groups).map((g) =>
+    `<label><span>${esc(g.s.reagent || g.s.description)}${g.s.source ? ` <span class="t">from ${esc(g.s.source)}</span>` : ""} · ${g.steps.length}×</span>
+      <input type="number" name="${g.steps.join(",")}" min="0.1" max="1000" step="0.1" placeholder="µL per transfer" required></label>`).join("")
     + (R.questions.length ? `<button type="submit">Confirm &amp; regenerate</button>` : "");
   $("qform").onsubmit = submitAnswers;
+
+  const issues = R.review || [];
+  $("reviewbox").hidden = !issues.length && !R.review_error;
+  $("issues").innerHTML = R.review_error ? `<li><b>Reviewer unavailable</b><span>${esc(R.review_error)}</span></li>`
+    : issues.map((it, k) => `<li class="${esc(it.severity)}" data-k="${k}"><b>${esc(it.finding)}</b><span>${esc(it.question)}</span></li>`).join("");
+  $("issues").querySelectorAll("li[data-k]").forEach((li) => li.onclick = () => {
+    const s = issues[li.dataset.k].steps; if (s.length) seek(R.steps[s[0]].start);
+  });
 
   $("evalbox").hidden = !R.eval;
   if (R.eval) {
@@ -188,7 +212,7 @@ function render() {
 
 async function submitAnswers(ev) {
   ev.preventDefault();
-  const answers = Object.fromEntries([...new FormData(ev.target)].map(([k, v]) => [k, Number(v)]));
+  const answers = Object.fromEntries([...new FormData(ev.target)].flatMap(([k, v]) => k.split(",").map((i) => [i, Number(v)])));
   try { R = await api(`/api/runs/${encodeURIComponent(name)}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answers) }); render(); }
   catch (e) { alert(e.message); }
 }

@@ -90,6 +90,16 @@ def build(run_dir, steps, answers=None):
         result["sim_ok"], result["sim_log"] = protocol.simulate(result["protocol"])
     except protocol.NeedsInput as e:
         result["questions"] = e.questions
+    sim = ("not run yet: waiting for scientist answers" if result["questions"]
+           else "passed" if result["sim_ok"] else f"failed: {result['sim_log'][-1:]}")
+    sheet_file = run_dir / "sheet.json"
+    sheet = json.loads(sheet_file.read_text(encoding="utf-8")) if sheet_file.exists() else {"found": False}
+    try:
+        from . import agent
+
+        result["review"] = agent.review(steps, sheet, sim)
+    except Exception as e:  # reviewer is advisory; a provider outage must not block protocol generation
+        result["review"], result["review_error"] = [], f"{type(e).__name__}: {e}"[:300]
     gt = run_dir / "gt.csv"
     if gt.exists():
         result["eval"] = evaluate.score(evaluate.load_gt(gt), steps)
