@@ -37,6 +37,12 @@ def _run_dir(name):
 
 
 @app.get("/")
+def landing():
+    page = ROOT / "web" / "landing.html"
+    return FileResponse(page if page.exists() else ROOT / "web" / "index.html")
+
+
+@app.get("/app")
 def index():
     return FileResponse(ROOT / "web" / "index.html")
 

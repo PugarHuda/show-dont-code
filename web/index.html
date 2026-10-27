@@ -210,8 +210,8 @@ function render() {
     (groups[key] ||= { s, steps: [] }).steps.push(q.step);
   }
   // only pre-fill suggestions the robot can actually pipette (>= 1 µL) for reagents still being asked about
-  const asked = new Set(R.questions.map((q) => R.steps[q.step].reagent));
-  const sugg = Object.fromEntries((R.suggested_volumes || []).filter((v) => v.volume_ul >= 1 && asked.has(v.reagent)).map((v) => [v.reagent, v]));
+  const askedReagents = new Set(R.questions.map((q) => R.steps[q.step].reagent));
+  const sugg = Object.fromEntries((R.suggested_volumes || []).filter((v) => v.volume_ul >= 1 && askedReagents.has(v.reagent)).map((v) => [v.reagent, v]));
   $("qform").innerHTML = (Object.keys(sugg).length ? `<p class="hint">Pre-filled by the reviewer agent after it ran the simulator. Check before confirming.</p>` : "")
     + Object.values(groups).map((g) => {
     const sv = sugg[g.s.reagent];
