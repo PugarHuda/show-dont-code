@@ -41,7 +41,7 @@ invert, incubate) match on the action itself rather than on wording.
 
 Prompts were developed on `pcr_1` only. Every other video is held out and was run once per pipeline version.
 `miniprep_7` is a different protocol entirely (plasmid miniprep: lysis, neutralisation, spin columns).
-Regenerate this table with `python scripts/eval_table.py pcr_1 pcr_2 pcr_3 pcr_4 miniprep_7`.
+Regenerate this table with `python scripts/eval_table.py pcr_1 pcr_2 pcr_3 pcr_4 pcr_5 miniprep_7`.
 
 | Video | Stage 1 only: recall / precision / tIoU | **Stage 1 + 2**: recall / precision / tIoU |
 |---|---|---|
@@ -49,12 +49,19 @@ Regenerate this table with `python scripts/eval_table.py pcr_1 pcr_2 pcr_3 pcr_4
 | pcr_2 (test) | 0.83 / 0.50 / 0.51 | 0.83 / 0.62 / 0.72 |
 | pcr_3 (test) | 0.67 / 0.67 / 0.65 | 1.00 / 1.00 / 0.67 |
 | pcr_4 (test) | 0.33 / 0.25 / 0.52 | 0.67 / 0.57 / 0.56 |
-| **PCR test mean (n=3)** | 0.61 / 0.47 | **0.83 / 0.73** |
+| pcr_5 (test) | 0.67 / 0.50 / 0.57 | 0.67 / 0.57 / 0.68 |
+| **PCR test mean (n=4)** | 0.62 / 0.48 | **0.79 / 0.69** |
 | miniprep_7 (test, unseen protocol) | 0.28 / 0.42 / 0.82 | 0.28 / 0.42 / 0.82 |
+
+Evaluator change made after seeing test data, disclosed: `pcr_5` wrote water as "H2O", which the synonym list
+did not know; it was added. Its "PrimeTime mix" was *not* accepted as the PrimeSTAR premix, because it is a
+different product (a hallucinated name).
 
 Known failures:
 - `pcr_4`: stage 1 invents a "master mix" preparation that never happens. Stage 2 renames events but cannot
   delete them, so the reviewer agent and the scientist are the last line of defence.
+- `pcr_5`: the structure is right (2 tubes, thermocycler on the exact seconds), but the model pattern-matches to
+  qPCR: it invents a "probe" and calls the premix "PrimeTime mix", and the primer labels shift by one group.
 - `miniprep_7`: the timing is right where steps match (tIoU 0.82, the centrifuge step lands on the exact
   seconds), but no reagent name is readable, so "Add 200 µl of Resuspension Solution" comes out as "transfer
   liquid from source microtube", and 3-second "invert 4 times" steps are missed. Naming the tubes by

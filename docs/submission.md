@@ -17,7 +17,8 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 > evidence. A reviewer agent on Muse Spark Open watches the same video, runs the simulator as a tool to work out a
 > volume plan that hits the bench sheet's total, and asks the scientist about anything it can't verify. Code
 > generation is deterministic, so model output never becomes executable code. On held-out videos from the public
-> BioVL2 dataset, step recall is 0.83 and precision 0.73 (n=3 test videos).
+> BioVL2 dataset, step recall is 0.79 and precision 0.69 on PCR (n=4 held-out videos), and 0.28 / 0.42 on a
+> protocol it was never developed on (plasmid miniprep).
 
 **Public GitHub repository:** https://github.com/PugarHuda/show-dont-code (make public before submitting)
 **3-minute demo video:** (YouTube link)
@@ -40,7 +41,7 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 > the only piece that can follow one specific tube through a head-mounted camera's motion. Neither is enough alone:
 > SAM jumps to look-alike caps with 0.95 confidence, and Spark mislabels reagents when it only sees the whole video.
 > Combining them (SAM finds, Spark verifies; Spark segments, Spark-on-stills identifies) is what made held-out
-> precision go from 0.47 to 0.73. Running the reviewer on open weights means a lab could keep it on-premise.
+> held-out PCR precision go from 0.48 to 0.69. Running the reviewer on open weights means a lab could keep it on-premise.
 
 **Feedback on Meta products** (honest, short)
 > - The `muse-voice-transcribe` keyword limit (30 characters) isn't in the docs; it returns a 400.
@@ -62,7 +63,7 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 | 1:05–1:35 | Click a tube → SAM mask follows it → reviewer text "tracker jump, ignore" | "Not sure which tube is which? Click it. SAM 3.1 follows it through the whole video, and Muse Spark checks every sighting. Here it catches SAM jumping to a look-alike cap." |
 | 1:35–2:05 | Reviewer agent panel: tool runs, totals 12.5 µL, 0.25 µL warning, 35 cycles from the sheet | "A reviewer agent on Muse Spark Open watches the same video, runs the robot simulator itself, and works out volumes that add up to the sheet's 12.5 microlitres. It flagged a 0.25 µL step the robot can't pipette, and found 35 cycles on a handwritten note." |
 | 2:05–2:25 | Confirm → "simulator passed · 106 robot actions" → download protocol.py → code scroll | "Confirm, and you get a real Opentrons protocol that passes the official simulator." |
-| 2:25–2:45 | Eval table, held-out numbers | "On videos we never tuned on, it finds 83% of the protocol steps. Every model call is cached and every number is reproducible." |
+| 2:25–2:45 | Eval table, held-out numbers | "On PCR videos we never tuned on, it finds 79% of the protocol steps; on a protocol it was never built for, far fewer, and we show that too. Every model call is cached and every number is reproducible." |
 | 2:45–3:00 | Title card + URL | "Show, Don't Code. Built in nine days on Muse Spark, SAM 3.1, Muse Voice Transcribe and Muse Spark Open." |
 
 Recording notes: record the UI at 1080p from the live Vercel link; trim model wait times and say so on screen
@@ -75,7 +76,7 @@ Recording notes: record the UI at 1080p from the live Vercel link; trim model wa
 > Muse Spark finds every pipetting step, SAM 3.1 tracks the tubes, and an agent on Muse Spark Open runs the
 > Opentrons simulator itself until the volumes add up.
 >
-> 83% of steps on videos it never saw. Try it: show-dont-code.vercel.app
+> 79% of PCR steps on videos it never saw. Try it: show-dont-code.vercel.app
 > #MetaAIHackathon @AIatMeta
 
 (Attach a 30–45 s cut: hand pipetting on the left, robot deck lighting up on the right.)

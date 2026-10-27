@@ -17,7 +17,7 @@ def tiou(a, b):
 
 # ponytail: hand-written synonym list for BioVL2's reagents; swap for an LLM judge if the vocabulary grows
 SYNONYMS = [(r"dna polymerase|master ?mix|premix|prime ?star( max)?", "premix"),
-            (r"distilled water|\bdw\b|nuclease.free water|milli.?q|\bmq\b", "water"),
+            (r"distilled water|\bdw\b|nuclease.free water|milli.?q|\bmq\b|\bh2o\b", "water"),  # h2o added after pcr_5
             # sense/antisense = forward/reverse; BioVL2 numbers them Primer1/Primer2
             (r"primer ?1|forward primer|fwd primer|\bse primer|sense primer|\bf primer", "primer1"),
             (r"primer ?2|reverse primer|rev primer|\bas primer|antisense primer|\br primer", "primer2"),
