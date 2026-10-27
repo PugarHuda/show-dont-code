@@ -76,13 +76,13 @@ def web():
         # the worker writes from another container; pick up its commits at most every 2 s
         if request.method == "GET" and time.time() - last_reload[0] > 2:
             try:
-                vol.reload()
+                await asyncio.to_thread(vol.reload)
             except RuntimeError:  # reload refuses while files are open; the next request will retry
                 pass
             last_reload[0] = time.time()
         response = await call_next(request)
         if request.method == "POST":  # answers, tube names: persist them and make them visible to other containers
-            vol.commit()
+            await asyncio.to_thread(vol.commit)
         return response
 
     quota_lock = asyncio.Lock()  # one web container (max_containers=1), so this lock makes the quota atomic
@@ -107,7 +107,7 @@ def web():
         if int(request.headers.get("content-length") or 0) > MAX_BYTES:
             raise HTTPException(413, f"videos up to {MAX_BYTES >> 20} MB")
         async with quota_lock:  # reserve the slot first; refunded below if the upload is rejected
-            if not take_quota(+1):
+            if not await asyncio.to_thread(take_quota, +1):
                 raise HTTPException(429, "today's upload quota for this demo is used up; try a sample run instead")
         run_id = "u-" + secrets.token_urlsafe(12)  # unguessable: the link is the only way to see an upload
         d = Path(RUNS) / run_id
@@ -121,25 +121,29 @@ def web():
                         raise HTTPException(413, f"videos up to {MAX_BYTES >> 20} MB")
                     out.write(chunk)
             # cut to the limit for real: container metadata can claim any duration
-            cut = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(d / "raw"), "-t", str(MAX_SECONDS), "-c", "copy",
-                                  "-movflags", "+faststart", str(d / "input.mp4")], capture_output=True)
-            probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
-                                    str(d / "input.mp4")], capture_output=True, text=True)
+            # off the event loop, with hard timeouts: this is the only web container
+            cut = await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(d / "raw"), "-t",
+                                          str(MAX_SECONDS), "-c", "copy", "-movflags", "+faststart", str(d / "input.mp4")],
+                                          capture_output=True, timeout=120)
+            probe = await asyncio.to_thread(subprocess.run, ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                            "-of", "csv=p=0", str(d / "input.mp4")], capture_output=True, text=True, timeout=30)
             try:
                 seconds = float(probe.stdout.strip()) if cut.returncode == 0 else 0.0
             except ValueError:
                 seconds = 0.0
             if seconds < 5:
                 raise HTTPException(422, "that file isn't a video we can read; upload an MP4 or MOV of at least 5 seconds")
-        except HTTPException:
+        except (HTTPException, subprocess.TimeoutExpired) as e:
             shutil.rmtree(d, ignore_errors=True)
             async with quota_lock:
-                take_quota(-1)
+                await asyncio.to_thread(take_quota, -1)
+            if isinstance(e, subprocess.TimeoutExpired):
+                raise HTTPException(422, "that video took too long to read; try a standard MP4")
             raise
         (d / "raw").unlink()
         webapp.pipeline.progress(d, "upload received", "done")
-        vol.commit()
-        process.spawn(run_id)
+        await asyncio.to_thread(vol.commit)
+        await process.spawn.aio(run_id)
         return {"run": run_id, "seconds": round(seconds, 1), "trimmed": seconds >= MAX_SECONDS - 1}
 
     @api.get("/api/runs/{name}/progress")
