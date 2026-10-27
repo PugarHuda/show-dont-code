@@ -65,7 +65,20 @@ TOOLS = [{
             "required": ["volumes_ul"],
         },
     },
+}, {
+    "type": "function",
+    "function": {
+        "name": "look_at_moment",
+        "description": ("See one frame of the video at a given second, at full detail, to check a tube, a label, a "
+                        "hand or the pipette at that moment. The frame arrives as an image in the next message."),
+        "parameters": {
+            "type": "object",
+            "properties": {"seconds": {"type": "number"}, "why": {"type": "string", "description": "what you want to check"}},
+            "required": ["seconds", "why"],
+        },
+    },
 }]
+MAX_LOOKS = 6
 
 SYSTEM = """You review liquid-handling protocols that were extracted automatically from a video of a scientist
 working by hand, before they run on an Opentrons robot. Find problems a careful lab member would catch:
@@ -84,6 +97,8 @@ you see, call simulate_with_volumes, read the per-tube totals, and adjust until 
 tube reaches the sheet's total. Only suggest volumes you verified this way, and then list EVERY reagent whose
 volume is missing in suggested_volumes, not just the ones you changed. Your suggestions are shown to the
 scientist as editable defaults; they decide.
+When something in the steps is doubtful (which tube, which reagent, whether a step happened), call look_at_moment
+on the seconds in question and decide from what you see; mention the second you looked at in your finding.
 Only report real problems visible in the data or video. severity "block" = robot must not run until answered."""
 
 
@@ -94,8 +109,9 @@ def client():
     return OpenAI(base_url="https://inference.baseten.co/v1", api_key=key)
 
 
-def review(steps, sheet, simulator, video=None, simulate=None):
+def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, fps=2):
     """simulator: status string. simulate: callable(volumes_ul) -> dict, exposed to the model as a tool.
+    frames_dir: <index>.jpg stills of the video at `fps`, exposed as the look_at_moment tool.
 
     Returns {"issues", "suggested_volumes", "tool_log"}.
     """
@@ -107,22 +123,42 @@ def review(steps, sheet, simulator, video=None, simulate=None):
         b64 = base64.b64encode(Path(video).read_bytes()).decode()
         content.append({"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{b64}"}})
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}]
-    log = []
-    for _ in range(MAX_TOOL_TURNS if simulate else 0):
-        m = client().chat.completions.create(model=MODEL, messages=messages, tools=TOOLS, max_tokens=16000).choices[0].message
+    log, looks = [], 0
+    tools = [t for t in TOOLS if (t["function"]["name"] == "simulate_with_volumes" and simulate)
+             or (t["function"]["name"] == "look_at_moment" and frames_dir)]
+    for _ in range(MAX_TOOL_TURNS if tools else 0):
+        m = client().chat.completions.create(model=MODEL, messages=messages, tools=tools, max_tokens=16000).choices[0].message
         if not m.tool_calls:
             break
         messages.append({"role": "assistant", "content": m.content or "",
                          "tool_calls": [tc.model_dump() for tc in m.tool_calls]})
+        images = []
         for tc in m.tool_calls:
             try:
                 args = json.loads(tc.function.arguments or "{}")
-                out = simulate(args.get("volumes_ul") or {}) if tc.function.name == "simulate_with_volumes" \
-                    else {"error": f"unknown tool {tc.function.name}"}
-            except (ValueError, TypeError) as e:  # malformed arguments from the model
+                if tc.function.name == "simulate_with_volumes" and simulate:
+                    out = simulate(args.get("volumes_ul") or {})
+                elif tc.function.name == "look_at_moment" and frames_dir:
+                    sec = float(args["seconds"])
+                    frame = Path(frames_dir) / f"{round(sec * fps):05d}.jpg"
+                    if looks >= MAX_LOOKS:
+                        out = {"error": f"you have used all {MAX_LOOKS} looks; decide from what you have"}
+                    elif not frame.exists():
+                        out = {"error": f"no frame at {sec:g} s"}
+                    else:
+                        looks += 1
+                        images.append((sec, frame))
+                        out = {"ok": f"frame at {sec:g} s attached in the next message"}
+                else:
+                    out = {"error": f"unknown tool {tc.function.name}"}
+            except (ValueError, TypeError, KeyError) as e:  # malformed arguments from the model
                 args, out = {}, {"error": f"bad arguments: {e}"}
             log.append({"tool": tc.function.name, "args": args, "result": out})
             messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(out)})
+        if images:  # tool messages carry text only, so the frames follow as one user message
+            messages.append({"role": "user", "content": [part for sec, f in images for part in (
+                {"type": "text", "text": f"Frame at {sec:g} s:"},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(f.read_bytes()).decode()}})]})
     messages.append({"role": "user", "content": "Give your final review now."})
     r = client().chat.completions.create(
         model=MODEL, messages=messages, max_tokens=16000,

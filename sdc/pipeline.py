@@ -185,8 +185,10 @@ def build(run_dir, steps, answers=None, review=True):
             from . import agent
 
             review_video = run_dir / "review.mp4"
+            frames = run_dir / "sam_frames"
             out = agent.review(steps, sheet, sim, review_video if review_video.exists() else None,
-                               simulate=(lambda vols: simulate_with(steps, vols)) if result["questions"] else None)
+                               simulate=(lambda vols: simulate_with(steps, vols)) if result["questions"] else None,
+                               frames_dir=frames if frames.exists() else None, fps=SAM_FPS)
             result["review"], result["suggested_volumes"], result["agent_log"] = (
                 out["issues"], out["suggested_volumes"], out["tool_log"])
             result["review_saw_video"] = review_video.exists()

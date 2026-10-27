@@ -1,4 +1,5 @@
 """Review UI server: human video next to the generated robot protocol.  Run: python app.py"""
+import asyncio
 import json
 import logging
 import os
@@ -205,14 +206,29 @@ async def voice(name: str, request: Request):
     questions = [{"key": k, "asks": v} if isinstance(v, str) else {"key": ",".join(v), "asks": k} for k, v in groups.items()]
     if not questions:
         raise HTTPException(409, "there are no open questions to answer")
+    # only containers a browser recorder produces, identified by magic bytes, and decoded with that format forced
+    if body[:4] == b"\x1a\x45\xdf\xa3":
+        fmt = "matroska"  # WebM (Chrome, Firefox)
+    elif body[:4] == b"OggS":
+        fmt = "ogg"
+    elif body[4:8] == b"ftyp":
+        fmt = "mov"  # MP4 audio (Safari)
+    elif body[:4] == b"RIFF" and body[8:12] == b"WAVE":
+        fmt = "wav"
+    else:
+        raise HTTPException(415, "send WebM, Ogg, MP4 or WAV audio")
+    keywords = sorted({s.get("reagent") for s in r["steps"] if s.get("reagent")})[:20]
     with tempfile.TemporaryDirectory() as tmp:
-        clip = Path(tmp) / "voice.webm"
+        clip, wav = Path(tmp) / "voice.in", Path(tmp) / "voice.wav"
         clip.write_bytes(body)
         try:
-            keywords = [s.get("reagent") for s in r["steps"] if s.get("reagent")]
-            turns = meta.transcribe(clip, Path(tmp) / "voice.wav", keywords=sorted(set(keywords))[:20])
-        except (subprocess.CalledProcessError, OSError):
+            await asyncio.to_thread(subprocess.run, [
+                "ffmpeg", "-v", "error", "-y", "-protocol_whitelist", "file", "-f", fmt, "-i", str(clip), "-t", "60",
+                "-vn", "-ac", "1", "-ar", "16000", "-sample_fmt", "s16", str(wav)], check=True, capture_output=True, timeout=60)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
             raise HTTPException(422, "that recording could not be read; try again")
+        try:  # transcribe() skips its own ffmpeg step because the wav already exists
+            turns = await asyncio.to_thread(meta.transcribe, clip, wav, keywords)
         except Exception:
             log.exception("voice transcription failed for run %s", name)
             raise HTTPException(502, "the speech model is unavailable; type the answers instead")
@@ -220,7 +236,7 @@ async def voice(name: str, request: Request):
     if not transcript:
         return {"transcript": "", "answers": []}
     try:
-        answers = meta.voice_answers(transcript, questions)
+        answers = await asyncio.to_thread(meta.voice_answers, transcript, questions)
     except Exception:
         log.exception("voice mapping failed for run %s", name)
         raise HTTPException(502, "the model could not read the answers; type them instead")
