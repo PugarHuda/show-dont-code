@@ -46,7 +46,13 @@ Then:
 
 The scientist can also **answer by voice** (browser recording → Muse Voice Transcribe with reagent-name keyword
 bias → Muse Spark maps the words to the open questions → the form is pre-filled, never submitted), and the reviewer
-agent can **look at any second of the video itself** (`look_at_moment`, up to 6 frames) before it decides.
+agent can **look at any second of the video itself** (`look_at_moment`, up to 6 frames) before it decides. Each
+finding can carry **one proposed fix** (rename a reagent, set a volume, skip steps that never happened); the
+server validates it against the steps, and nothing changes until the scientist clicks Apply. Every step shows its
+**SAM 3.1 evidence** (how many frames the pipette tip was tracked in), and steps with none are flagged to the agent.
+
+Note: the participant guide's `meta-models/muse-spark-open-1026` still returned 404 on Baseten on Oct 28, so the
+reviewer uses `meta-models/muse-spark-open` (override with `OPEN_MODEL`).
 
 ## Hosting
 
