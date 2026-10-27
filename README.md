@@ -31,6 +31,37 @@ Then:
    it once and the name is applied everywhere.
 4. The **review UI** plays the human video next to the robot deck, step by step.
 
+## What you get out of a run
+
+- `protocol.py` for the **Opentrons Flex**, with every reagent declared as a liquid (`define_liquid` / `load_liquid`,
+  volume = what the transfers draw + 10 % + the tube's dead volume), so the Opentrons App shows the liquid setup.
+  Tip racks scale with the number of transfers.
+- **Three independent checks** on every confirmed protocol: the Opentrons simulator, Opentrons' own protocol
+  analysis (`opentrons analyze`, what the App runs on import, saved as `analysis.json`), and a **Hamilton STARlet**
+  translation run in **PyLabRobot**'s simulator with volume tracking on, so over-drawing a tube fails there too.
+- `methods.md` (a methods section for a notebook or paper), `autoprotocol.json` (vendor-neutral) and
+  `pylabrobot.py`.
+- A **reproducibility receipt**: SHA-256 of the protocol, the video and every model output, the model IDs, and the
+  scientist's answers. Ground-truth replays say no model read them.
+
+The scientist can also **answer by voice** (browser recording → Muse Voice Transcribe with reagent-name keyword
+bias → Muse Spark maps the words to the open questions → the form is pre-filled, never submitted), and the reviewer
+agent can **look at any second of the video itself** (`look_at_moment`, up to 6 frames) before it decides.
+
+## Hosting
+
+The landing page and app HTML are on Vercel; the API, uploads and the pipeline worker run on Modal
+(`modal_app.py`), with all runs on one Modal Volume. Uploads need an access code (fail closed), are trimmed to
+5 minutes, size-capped while streaming, and private to whoever holds the link.
+
+## Testing
+
+`python tests/e2e.py` drives a real Chrome through the landing page, every sample run, confirm → simulate →
+replay, every download (the receipt hash must equal the SHA-256 of `protocol.py`) and the security edges
+(bad answers, path traversal, script in the URL, wrong upload code, non-audio voice). `BASE=<url>` runs it
+against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
+`python -m sdc.protocol`, `python -m sdc.evaluate`, `python -m sdc.export`.
+
 ## Evaluation
 
 Predicted steps are matched to BioVL2's human step annotations by temporal IoU and content, after grouping

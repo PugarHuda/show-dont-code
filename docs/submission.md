@@ -29,7 +29,11 @@ repo (the code lives in `out/upload_code.txt`, which is gitignored).
 **Features to name in the form:** upload a video and watch each stage run (Modal backend); click-to-track any tube
 (SAM 3.1 + Muse Spark verification); reviewer agent that runs the simulator as a tool (Muse Spark Open on
 Baseten); one question per reagent, pre-filled with a simulator-checked plan; robot replay of the simulator's
-own command log on the deck; downloadable `protocol.py`.
+own command log on the deck; downloadable `protocol.py` with Opentrons liquid definitions; three independent checks
+(Opentrons simulator, official `opentrons analyze`, PyLabRobot Hamilton STARlet simulator with volume tracking);
+Methods / Autoprotocol / PyLabRobot exports; reproducibility receipt (SHA-256 of protocol, video and model outputs);
+answer by voice (Muse Voice Transcribe + Muse Spark); reviewer agent with a `look_at_moment` tool; Playwright QA
+suite (46/46 against production).
 
 **Describe your use of Meta products**
 > - Muse Spark 1.3 (Meta Model API, Files + Responses API, strict JSON schema): video → timestamped protocol steps;
