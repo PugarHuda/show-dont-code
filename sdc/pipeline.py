@@ -105,7 +105,9 @@ def build(run_dir, steps, answers=None):
     try:
         from . import agent
 
-        result["review"] = agent.review(steps, sheet, sim)
+        review_video = run_dir / "review.mp4"
+        result["review"] = agent.review(steps, sheet, sim, review_video if review_video.exists() else None)
+        result["review_saw_video"] = review_video.exists()
     except Exception as e:  # reviewer is advisory; a provider outage must not block protocol generation
         result["review"], result["review_error"] = [], f"{type(e).__name__}: {e}"[:300]
     gt = run_dir / "gt.csv"
@@ -144,6 +146,10 @@ def run(video, name=None, gt_csv=None, from_gt=False):
         sam_fid = _cached(run_dir / "sam_file.json", lambda: meta.upload(sam_video))
         tracks = _cached(run_dir / "tracks_tip.json", lambda: meta.track(sam_fid, "pipette tip"))
         steps = tip_evidence(tracks, steps)
+        from . import agent
+
+        if meta.duration(video) <= agent.MAX_VIDEO_S:  # longer videos: reviewer works from the steps alone
+            meta.shrink(video, run_dir / "review.mp4", fps=2, width=480)
     answers_file = run_dir / "answers.json"
     answers = json.loads(answers_file.read_text()) if answers_file.exists() else {}
     return build(run_dir, steps, answers)

@@ -106,6 +106,12 @@ def shrink(src, dst, fps=None, width=640):
     return dst
 
 
+def duration(path):
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+                         check=True, capture_output=True, text=True).stdout
+    return float(out.strip())
+
+
 def upload(path):
     with open(path, "rb") as f:
         return client().files.create(file=f, purpose="user_data").id

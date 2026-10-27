@@ -4,8 +4,10 @@ It reads what the vision models extracted, what the bench sheet says, and what t
 anything a scientist should check before a robot touches real reagents. It never edits steps itself; every
 finding becomes a question in the UI.
 """
+import base64
 import json
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -43,8 +45,13 @@ working by hand, before they run on an Opentrons robot. Find problems a careful 
 - volumes that are missing, implausible for the pipette, or do not add up to the sheet's total
 - a step order that differs from the sheet in a way that matters chemically (e.g. enzyme before water)
 - simulator errors, explained in plain words
-Only report real problems visible in the data. severity "block" = robot must not run until answered.
+When the video is attached, it is the ground truth: check the steps against it (step timestamps are seconds
+from the start). Flag a step you cannot see happen, an action you see that is missing from the steps, and
+a wrong tube or reagent. Say what you saw and at what time.
+Only report real problems visible in the data or video. severity "block" = robot must not run until answered.
 Answer with JSON only."""
+
+MAX_VIDEO_S = 300  # Baseten Muse Spark Open limit per video (it samples at most 96 frames)
 
 
 def client():
@@ -54,14 +61,19 @@ def client():
     return OpenAI(base_url="https://inference.baseten.co/v1", api_key=key)
 
 
-def review(steps, sheet, simulator):
-    """simulator: 'passed', 'failed: <error>', or 'not run yet: waiting for scientist answers'."""
+def review(steps, sheet, simulator, video=None):
+    """simulator: 'passed', 'failed: <error>', or 'not run yet: waiting for scientist answers'.
+    video: optional small mp4 (<= MAX_VIDEO_S) the reviewer watches to verify the steps."""
     brief = [{k: s.get(k) for k in ("start", "end", "action", "reagent", "source", "destination", "volume_ul",
                                     "volume_evidence")} | {"i": i} for i, s in enumerate(steps)]
-    user = json.dumps({"steps": brief, "bench_sheet": sheet, "simulator": simulator}, ensure_ascii=False)
+    content = [{"type": "text", "text": json.dumps({"steps": brief, "bench_sheet": sheet, "simulator": simulator},
+                                                    ensure_ascii=False)}]
+    if video:
+        b64 = base64.b64encode(Path(video).read_bytes()).decode()
+        content.append({"type": "video_url", "video_url": {"url": f"data:video/mp4;base64,{b64}"}})
     r = client().chat.completions.create(
         model=MODEL,
-        messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
+        messages=[{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}],
         response_format={"type": "json_schema", "json_schema": {"name": "review", "schema": REVIEW_SCHEMA, "strict": True}},
         max_tokens=16000,
     )
