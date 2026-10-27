@@ -76,6 +76,28 @@ def apply_sheet(steps, sheet):
     return steps
 
 
+def simulate_with(steps, volumes_ul):
+    """Tool for the reviewer agent: try a per-reagent volume plan in the real simulator, report per-tube totals."""
+    trial, missing = [dict(s) for s in steps], set()
+    for s in trial:
+        if s["action"] in ("transfer", "mix") and not s.get("volume_ul"):
+            v = volumes_ul.get(s.get("reagent") or "")
+            if isinstance(v, (int, float)) and 0 < v <= 1000:
+                s["volume_ul"] = float(v)
+            else:
+                missing.add(str(s.get("reagent") or s["description"]))
+    if missing:
+        return {"ran": False, "missing_or_invalid_volume_for": sorted(missing)}
+    totals = {}
+    for s in trial:
+        if s["action"] == "transfer":
+            dest = s.get("destination") or "sample tube"
+            totals[dest] = round(totals.get(dest, 0) + s["volume_ul"], 2)
+    src, _ = protocol.generate(trial)
+    ok, log = protocol.simulate(src)
+    return {"ran": ok, "error": None if ok else log[-1], "robot_actions": len(log), "total_ul_per_tube": totals}
+
+
 def tip_evidence(tracks, steps, fps=SAM_FPS):
     """Attach SAM evidence to each step: how many sampled frames show the pipette tip inside the step window."""
     for s in steps:
@@ -106,7 +128,10 @@ def build(run_dir, steps, answers=None):
         from . import agent
 
         review_video = run_dir / "review.mp4"
-        result["review"] = agent.review(steps, sheet, sim, review_video if review_video.exists() else None)
+        out = agent.review(steps, sheet, sim, review_video if review_video.exists() else None,
+                           simulate=(lambda vols: simulate_with(steps, vols)) if result["questions"] else None)
+        result["review"], result["suggested_volumes"], result["agent_log"] = (
+            out["issues"], out["suggested_volumes"], out["tool_log"])
         result["review_saw_video"] = review_video.exists()
     except Exception as e:  # reviewer is advisory; a provider outage must not block protocol generation
         result["review"], result["review_error"] = [], f"{type(e).__name__}: {e}"[:300]

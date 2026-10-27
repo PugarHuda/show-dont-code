@@ -199,9 +199,13 @@ function render() {
     const s = R.steps[q.step], key = `${s.reagent || s.description}|${s.source || ""}`;
     (groups[key] ||= { s, steps: [] }).steps.push(q.step);
   }
-  $("qform").innerHTML = Object.values(groups).map((g) =>
-    `<label><span>${esc(g.s.reagent || g.s.description)}${g.s.source ? ` <span class="t">from ${esc(g.s.source)}</span>` : ""} · ${g.steps.length}×</span>
-      <input type="number" name="${g.steps.join(",")}" min="0.1" max="1000" step="0.1" placeholder="µL per transfer" required></label>`).join("")
+  const sugg = Object.fromEntries((R.suggested_volumes || []).map((v) => [v.reagent, v]));
+  $("qform").innerHTML = (Object.keys(sugg).length ? `<p class="hint">Pre-filled by the reviewer agent after it ran the simulator. Check before confirming.</p>` : "")
+    + Object.values(groups).map((g) => {
+    const sv = sugg[g.s.reagent];
+    return `<label><span>${esc(g.s.reagent || g.s.description)}${g.s.source ? ` <span class="t">from ${esc(g.s.source)}</span>` : ""} · ${g.steps.length}×</span>
+      <input type="number" name="${g.steps.join(",")}" min="0.1" max="1000" step="0.01" placeholder="µL per transfer" ${sv ? `value="${sv.volume_ul}" title="${esc(sv.why)}"` : ""} required></label>`;
+  }).join("")
     + (R.questions.length ? `<button type="submit">Confirm &amp; regenerate</button>` : "");
   $("qform").onsubmit = submitAnswers;
 
@@ -224,8 +228,13 @@ function render() {
 
   const issues = R.review || [];
   $("reviewbox").hidden = !issues.length && !R.review_error;
+  const toolLog = (R.agent_log || []).map((c, k) => {
+    const res = c.result.ran ? `simulator passed · ${Object.entries(c.result.total_ul_per_tube || {}).map(([t, v]) => `${esc(t)} ${v} µL`).join(", ")}`
+      : esc(c.result.error || JSON.stringify(c.result.missing_or_invalid_volume_for || c.result));
+    return `<li class="info"><b>Agent run ${k + 1}: ${esc(c.tool)}</b><span>${esc(Object.entries(c.args.volumes_ul || {}).map(([r, v]) => `${r} ${v} µL`).join(" · "))}<br>→ ${res}</span></li>`;
+  }).join("");
   $("issues").innerHTML = R.review_error ? `<li><b>Reviewer unavailable</b><span>${esc(R.review_error)}</span></li>`
-    : issues.map((it, k) => `<li class="${esc(it.severity)}" data-k="${k}"><b>${esc(it.finding)}</b><span>${esc(it.question)}</span></li>`).join("");
+    : toolLog + issues.map((it, k) => `<li class="${esc(it.severity)}" data-k="${k}"><b>${esc(it.finding)}</b><span>${esc(it.question)}</span></li>`).join("");
   $("issues").querySelectorAll("li[data-k]").forEach((li) => li.onclick = () => {
     const s = issues[li.dataset.k].steps; if (s.length) seek(R.steps[s[0]].start);
   });
