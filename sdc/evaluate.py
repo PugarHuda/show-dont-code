@@ -52,6 +52,7 @@ def score(gt, pred, min_tiou=0.1, min_text=0.5):
         "mean_tiou": sum(t for *_, t in matches) / len(matches) if matches else 0.0,
         "order_correct": order == sorted(order),
         "matches": [{"gt": gt[g]["sentence"], "pred": pred[p]["description"], "tiou": round(t, 2)} for g, p, t in matches],
+        "gt": gt,
     }
 
 

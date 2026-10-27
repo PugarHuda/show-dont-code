@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Show, Don't Code</title>
+<style>
+  :root {
+    --bg: #f4f3ef; --panel: #ffffff; --ink: #1b1d1f; --muted: #6b7075; --line: #dedbd2;
+    --accent: #0f6e5c; --accent-soft: #d6ece6; --src: #c2410c; --dst: #0f6e5c; --warn: #a15c00; --bad: #b42318;
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121416; --panel: #1b1e21; --ink: #e8e6e1; --muted: #9aa0a6; --line: #2e3236;
+            --accent: #4fc3a6; --accent-soft: #163a32; --src: #fb923c; --dst: #4fc3a6; --warn: #f0b429; --bad: #f97066; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; letter-spacing: .2px; }
+  header h1 span { color: var(--accent); }
+  select, button, input { font: inherit; color: inherit; }
+  select, input { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+  .pill.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .pill.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+  main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; padding: 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+  .stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+  .stage video, .stage canvas { display: block; width: 100%; }
+  .stage canvas { position: absolute; inset: 0; height: 100%; pointer-events: none; }
+  .now { margin-top: 10px; min-height: 42px; font-size: 15px; }
+  .now b { color: var(--accent); }
+  .timeline { position: relative; height: 46px; margin-top: 8px; cursor: pointer; }
+  .lane { position: absolute; left: 0; right: 0; height: 18px; background: var(--bg); border-radius: 4px; }
+  .lane.gt { top: 26px; }
+  .seg { position: absolute; top: 0; height: 100%; border-radius: 3px; background: var(--accent); opacity: .75; }
+  .lane.gt .seg { background: var(--muted); opacity: .5; }
+  .seg.manual { background: var(--warn); }
+  .lane-label { position: absolute; right: 100%; margin-right: 6px; font-size: 11px; color: var(--muted); }
+  .cursor { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--bad); }
+  .legend { font-size: 12px; color: var(--muted); display: flex; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  ol.steps { list-style: none; padding: 0; margin: 0; }
+  ol.steps li { display: grid; grid-template-columns: 58px 1fr auto; gap: 8px; padding: 7px 8px; border-radius: 6px; cursor: pointer; align-items: baseline; }
+  ol.steps li:hover { background: var(--bg); }
+  ol.steps li.active { background: var(--accent-soft); }
+  .t { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .tag { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .tag.ask { color: var(--warn); }
+  svg.deck { width: 100%; height: auto; }
+  .slot { fill: var(--bg); stroke: var(--line); }
+  .slot-label { fill: var(--muted); font: 10px var(--mono); }
+  .lw { fill: var(--panel); stroke: var(--muted); }
+  .well { fill: var(--bg); stroke: var(--muted); stroke-width: .6; transition: fill .2s; }
+  .well.src { fill: var(--src); stroke: var(--src); }
+  .well.dst { fill: var(--dst); stroke: var(--dst); }
+  .well.used { stroke: var(--ink); stroke-width: 1.2; }
+  .lw-label { fill: var(--ink); font: 10px system-ui; }
+  form.q { display: grid; gap: 8px; }
+  form.q label { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: center; }
+  pre { font: 12px/1.5 var(--mono); background: var(--bg); border-radius: 6px; padding: 10px; overflow: auto; max-height: 340px; margin: 0; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+  .metric { background: var(--bg); border-radius: 6px; padding: 8px 10px; }
+  .metric b { display: block; font-size: 20px; }
+  .metric span { font-size: 12px; color: var(--muted); }
+  .stack { display: grid; gap: 16px; align-content: start; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Show, <span>Don't Code</span></h1>
+  <select id="run" aria-label="Run"></select>
+  <span id="status" class="pill">loading…</span>
+  <span style="flex:1"></span>
+  <a id="download"><button id="dl" disabled>Download protocol.py</button></a>
+</header>
+<main>
+  <div class="stack">
+    <section>
+      <h2>Human, filmed once</h2>
+      <div class="stage"><video id="video" controls muted playsinline></video><canvas id="overlay"></canvas></div>
+      <div class="now" id="now"></div>
+      <div class="timeline" id="timeline" style="margin-left:34px">
+        <div class="lane" id="lane-pred"><span class="lane-label">model</span></div>
+        <div class="lane gt" id="lane-gt"><span class="lane-label">truth</span></div>
+        <div class="cursor" id="cursor"></div>
+      </div>
+      <div class="legend"><span><i style="background:var(--accent)"></i>robot step</span><span><i style="background:var(--warn)"></i>manual step (robot pauses)</span><span><i style="background:var(--muted)"></i>BioVL2 annotation</span><span><i style="border:2px solid #ffd60a"></i>SAM 3.1 pipette tip</span></div>
+    </section>
+    <section>
+      <h2>Steps</h2>
+      <ol class="steps" id="steps"></ol>
+    </section>
+  </div>
+  <div class="stack">
+    <section>
+      <h2>Robot deck · Opentrons Flex</h2>
+      <svg class="deck" id="deck" viewBox="0 0 448 340" role="img" aria-label="Opentrons Flex deck"></svg>
+      <div class="legend"><span><i style="background:var(--src)"></i>aspirate from</span><span><i style="background:var(--dst)"></i>dispense into</span></div>
+    </section>
+    <section id="qbox" hidden>
+      <h2>Needs your confirmation</h2>
+      <form class="q" id="qform"></form>
+    </section>
+    <section id="evalbox" hidden>
+      <h2>Accuracy vs. ground truth</h2>
+      <div class="metrics" id="metrics"></div>
+    </section>
+    <section>
+      <details><summary>Generated protocol</summary><pre id="code"></pre></details>
+    </section>
+    <section>
+      <details><summary>Simulator log</summary><pre id="sim"></pre></details>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const ROBOT = new Set(["transfer", "mix", "thermocycle"]);
+let R = null, name = null, active = -1;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function init() {
+  const runs = await api("/api/runs");
+  $("run").innerHTML = runs.map((n) => `<option>${esc(n)}</option>`).join("");
+  const want = new URLSearchParams(location.search).get("run");
+  if (want && runs.includes(want)) $("run").value = want;
+  $("run").onchange = () => load($("run").value);
+  if (runs.length) load($("run").value); else $("status").textContent = "no runs yet";
+}
+
+async function load(n) {
+  name = n;
+  R = await api(`/api/runs/${encodeURIComponent(n)}`);
+  $("video").src = `/api/runs/${encodeURIComponent(n)}/video`;
+  render();
+}
+
+function render() {
+  const st = $("status");
+  if (R.questions.length) { st.className = "pill warn"; st.textContent = `${R.questions.length} question(s) before the robot can run`; }
+  else if (R.sim_ok) { st.className = "pill"; st.textContent = `simulator passed · ${R.sim_log.length} robot actions`; }
+  else { st.className = "pill bad"; st.textContent = "simulator failed"; }
+  $("dl").disabled = !R.protocol;
+  $("download").href = R.protocol ? `/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
+  $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";
+  $("sim").textContent = R.sim_log.join("\n") || "—";
+
+  const asked = new Set(R.questions.map((q) => q.step));
+  $("steps").innerHTML = R.steps.map((s, i) => {
+    const tag = asked.has(i) ? `<span class="tag ask">volume?</span>`
+      : s.volume_ul ? `<span class="tag">${s.volume_ul} µL · ${esc(s.volume_evidence)}</span>`
+      : `<span class="tag">${ROBOT.has(s.action) ? esc(s.action) : "manual"}</span>`;
+    return `<li data-i="${i}"><span class="t">${fmt(s.start)}</span><span>${esc(s.description)}</span>${tag}</li>`;
+  }).join("");
+  $("steps").querySelectorAll("li").forEach((li) => li.onclick = () => seek(R.steps[li.dataset.i].start));
+
+  $("qbox").hidden = !R.questions.length;
+  $("qform").innerHTML = R.questions.map((q) =>
+    `<label><span>${fmt(R.steps[q.step].start)} — ${esc(q.description)}</span>
+      <input type="number" name="${q.step}" min="0.1" max="1000" step="0.1" placeholder="µL" required></label>`).join("")
+    + (R.questions.length ? `<button type="submit">Confirm &amp; regenerate</button>` : "");
+  $("qform").onsubmit = submitAnswers;
+
+  $("evalbox").hidden = !R.eval;
+  if (R.eval) {
+    const e = R.eval, pct = (x) => `${Math.round(x * 100)}%`;
+    $("metrics").innerHTML = [["Step recall", pct(e.recall)], ["Step precision", pct(e.precision)],
+      ["Mean tIoU", e.mean_tiou.toFixed(2)], ["Order", e.order_correct ? "correct" : "wrong"]]
+      .map(([k, v]) => `<div class="metric"><b>${v}</b><span>${k}</span></div>`).join("");
+  }
+  timeline();
+  deck(-1);
+}
+
+async function submitAnswers(ev) {
+  ev.preventDefault();
+  const answers = Object.fromEntries([...new FormData(ev.target)].map(([k, v]) => [k, Number(v)]));
+  try { R = await api(`/api/runs/${encodeURIComponent(name)}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answers) }); render(); }
+  catch (e) { alert(e.message); }
+}
+
+const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+const seek = (t) => { $("video").currentTime = t; $("video").play(); };
+const dur = () => $("video").duration || Math.max(...R.steps.map((s) => s.end), 1);
+
+function timeline() {
+  const d = dur(), seg = (s, cls = "") => `<div class="seg ${cls}" style="left:${s.start / d * 100}%;width:${Math.max((s.end - s.start) / d * 100, .4)}%" title="${esc(s.description || s.sentence)}"></div>`;
+  $("lane-pred").innerHTML = `<span class="lane-label">model</span>` + R.steps.map((s) => seg(s, ROBOT.has(s.action) ? "" : "manual")).join("");
+  $("lane-gt").innerHTML = `<span class="lane-label">truth</span>` + (R.eval ? R.eval.gt || [] : []).map((s) => seg(s)).join("");
+  $("lane-gt").style.display = R.eval ? "" : "none";
+}
+$("timeline").onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); seek((e.clientX - r.left) / r.width * dur()); };
+
+// --- deck: Opentrons Flex, 4 rows (A back .. D front) x 3 columns -------------------------------
+const SX = 132, SY = 76, OX = 18, OY = 14;
+const slotXY = (slot) => [OX + (Number(slot[1]) - 1) * (SX + 8), OY + "ABCD".indexOf(slot[0]) * (SY + 6)];
+function grid(x, y, rows, cols, pitch, r, id) {
+  let s = "";
+  for (let c = 0; c < cols; c++) for (let w = 0; w < rows; w++)
+    s += `<circle class="well" data-lw="${id}" data-w="${"ABCDEFGH"[w]}${c + 1}" cx="${x + c * pitch}" cy="${y + w * pitch}" r="${r}"/>`;
+  return s;
+}
+function deck(stepIdx) {
+  const uses = (a) => R.steps.some((s) => s.action === a);
+  let s = "";
+  for (const r of "ABCD") for (const c of "123") { const [x, y] = slotXY(r + c); s += `<rect class="slot" x="${x}" y="${y}" width="${SX}" height="${SY}" rx="6"/><text class="slot-label" x="${x + 4}" y="${y + SY - 4}">${r}${c}</text>`; }
+  let [x, y] = slotXY("C2");
+  s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 14}">reagent tubes</text>` + grid(x + 22, y + 24, 4, 6, 18, 6.5, "reagents");
+  if (uses("thermocycle")) {
+    [x, y] = slotXY("A1");
+    s += `<rect class="lw" x="${x + 4}" y="${y + 4}" width="${SX - 8}" height="${2 * SY + 6 - 8}" rx="6"/><text class="lw-label" x="${x + 10}" y="${y + 16}">thermocycler + PCR plate</text>` + grid(x + 16, y + 40, 8, 12, 9.4, 3.4, "dest");
+  }
+  [x, y] = slotXY("C1"); s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 16}">tips 1000 µL</text>`;
+  if (R.steps.some((t) => t.volume_ul && t.volume_ul <= 50)) { [x, y] = slotXY("D1"); s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 16}">tips 50 µL</text>`; }
+  [x, y] = slotXY("A3"); s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 16}">trash</text>`;
+  $("deck").innerHTML = s;
+
+  const mark = (name, cls) => {
+    const loc = R.layout[name]; if (!loc) return;
+    const [lw, w] = loc.split(":");
+    $("deck").querySelector(`[data-lw="${lw}"][data-w="${w}"]`)?.classList.add(cls);
+  };
+  Object.keys(R.layout).forEach((n) => mark(n, "used"));
+  const st = R.steps[stepIdx];
+  if (st && st.action === "transfer") { mark(st.source || st.reagent || "reagent", "src"); mark(st.destination || "sample tube", "dst"); }
+  if (st && st.action === "mix") mark(st.destination || "sample tube", "dst");
+}
+
+// --- playback sync -------------------------------------------------------------------------------
+const v = $("video"), cv = $("overlay"), ctx = cv.getContext("2d");
+function tick() {
+  if (!R) return;
+  const t = v.currentTime;
+  $("cursor").style.left = `${t / dur() * 100}%`;
+  const i = R.steps.findIndex((s) => t >= s.start && t <= s.end);
+  if (i !== active) {
+    active = i;
+    $("steps").querySelectorAll("li").forEach((li) => li.classList.toggle("active", Number(li.dataset.i) === i));
+    deck(i);
+    const s = R.steps[i];
+    $("now").innerHTML = s ? `<b>${esc(s.action)}</b> · ${esc(s.description)}${s.volume_ul ? ` · ${s.volume_ul} µL` : ""}${ROBOT.has(s.action) ? "" : " · <i>robot pauses for you</i>"}` : "";
+  }
+  cv.width = cv.clientWidth; cv.height = cv.clientHeight;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const boxes = R.tracks[String(Math.round(t * R.sam_fps))] || [];
+  const k = cv.width / 640;  // SAM ran on the 640-px-wide copy
+  ctx.strokeStyle = "#ffd60a"; ctx.lineWidth = 2;
+  for (const [, l, tp, rt, b] of boxes) ctx.strokeRect(l * k, tp * k, (rt - l) * k, (b - tp) * k);
+}
+v.addEventListener("timeupdate", tick);
+v.addEventListener("loadedmetadata", () => { timeline(); tick(); });
+(function loop() { if (!v.paused) tick(); requestAnimationFrame(loop); })();
+init().catch((e) => { $("status").className = "pill bad"; $("status").textContent = e.message; });
+</script>
+</body>
+</html>
