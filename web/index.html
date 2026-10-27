@@ -77,6 +77,11 @@
   footer { padding: 4px 16px 24px; color: var(--muted); font-size: 12px; }
   footer a { color: inherit; }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  .replay { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  #replaycap { font-size: 13px; color: var(--muted); }
+  .head { transition: transform .32s ease-in-out; }
+  @media (prefers-reduced-motion: reduce) { .head { transition: none; } }
+  .well.filled { fill: var(--dst); }
   .stage.picking canvas { pointer-events: auto; cursor: crosshair; }
   ul.tubes { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
   ul.tubes li { background: var(--bg); border-radius: 6px; padding: 10px; border-left: 4px solid var(--c); }
@@ -129,6 +134,10 @@
       <h2>Robot deck · Opentrons Flex</h2>
       <svg class="deck" id="deck" viewBox="0 0 448 340" role="img" aria-label="Opentrons Flex deck"></svg>
       <div class="legend"><span><i style="background:var(--src)"></i>aspirate from</span><span><i style="background:var(--dst)"></i>dispense into</span></div>
+      <div class="replay" id="replaybox" hidden>
+        <button id="replay" type="button">Replay the robot run</button>
+        <span id="replaycap" aria-live="polite"></span>
+      </div>
     </section>
     <section id="qbox" hidden>
       <h2>Needs your confirmation</h2>
@@ -189,6 +198,7 @@ function render() {
   else if (R.sim_ok) { st.className = "pill"; st.textContent = `simulator passed · ${R.sim_log.length} robot actions`; }
   else { st.className = "pill bad"; st.textContent = "simulator failed"; }
   $("dl").disabled = !R.protocol;
+  $("replaybox").hidden = !R.sim_ok;
   $("download").href = R.protocol ? `/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
   $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";
   $("sim").textContent = R.sim_log.join("\n") || "—";
@@ -320,6 +330,54 @@ function deck(stepIdx) {
   if (st && st.action === "mix") mark(st.destination || "sample tube", "dst");
 }
 
+// --- robot replay: animate the simulator's own command log on the deck ---------------------------
+let replaying = null;
+const SLOT_LW = { C2: "reagents", B1: "dest" };  // where generate() puts labware; the thermocycler reports slot B1
+function deckPoint(slot, well) {
+  const lw = SLOT_LW[slot];
+  const el = lw && well && $("deck").querySelector(`[data-lw="${lw}"][data-w="${well}"]`);
+  if (el) return [Number(el.getAttribute("cx")), Number(el.getAttribute("cy")), el];
+  const [x, y] = slotXY(slot);
+  if (!well) return [x + SX / 2, y + SY / 2, null];
+  const row = "ABCDEFGH".indexOf(well[0]), col = Number(well.slice(1)) - 1;  // tip racks are 8 x 12
+  return [x + 14 + col * (SX - 28) / 11, y + 20 + row * (SY - 36) / 7, null];
+}
+function parseCmd(line) {
+  let m;
+  if ((m = line.match(/^Picking up tip from (\w+) of .* on slot (\w+)/))) return { kind: "pick", slot: m[2], well: m[1], say: "Pick up a fresh tip" };
+  if ((m = line.match(/^Aspirating ([\d.]+) uL from (\w+) of (.+?) on slot (\w+)/))) return { kind: "asp", slot: m[4], well: m[2], say: `Aspirate ${m[1]} µL from ${m[3]} ${m[2]}` };
+  if ((m = line.match(/^Dispensing ([\d.]+) uL into (\w+) of .*? on slot (\w+)/))) return { kind: "disp", slot: m[3], well: m[2], say: `Dispense ${m[1]} µL into well ${m[2]}` };
+  if ((m = line.match(/^Dropping tip into Trash Bin on slot (\w+)/))) return { kind: "drop", slot: m[1], well: null, say: "Drop the tip in the trash" };
+  if (/Thermocycler|Pausing/.test(line)) return { kind: "info", slot: null, say: line.replace(/ composed of.*/, "") };
+  return null;
+}
+async function replay() {
+  if (replaying) { replaying.stop = true; return; }
+  const cmds = R.sim_log.map(parseCmd).filter(Boolean);
+  const run = (replaying = { stop: false });
+  $("replay").textContent = "Stop";
+  v.pause();
+  deck(-1);
+  $("deck").insertAdjacentHTML("beforeend", `<g class="head" id="head"><circle r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+    <line x1="-12" x2="12" stroke="currentColor"/><line y1="-12" y2="12" stroke="currentColor"/></g>`);
+  const head = $("head"), fast = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  for (let k = 0; k < cmds.length && !run.stop; k++) {
+    const c = cmds[k];
+    $("replaycap").textContent = `Robot command ${k + 1} of ${cmds.length}: ${c.say}`;
+    if (c.slot) {
+      const [x, y, el] = deckPoint(c.slot, c.well);
+      head.style.transform = `translate(${x}px, ${y}px)`;
+      if (el && c.kind === "asp") { $("deck").querySelectorAll(".well.src").forEach((w) => w.classList.remove("src")); el.classList.add("src"); }
+      if (el && c.kind === "disp") el.classList.add("filled");
+    }
+    await new Promise((r) => setTimeout(r, fast ? 120 : 380));
+  }
+  replaying = null;
+  $("replay").textContent = "Replay the robot run";
+  if (run.stop) { $("replaycap").textContent = ""; deck(active); }
+}
+$("replay").onclick = replay;
+
 // --- playback sync -------------------------------------------------------------------------------
 const v = $("video"), cv = $("overlay"), ctx = cv.getContext("2d");
 function tick() {
@@ -330,7 +388,7 @@ function tick() {
   if (i !== active) {
     active = i;
     $("steps").querySelectorAll("li").forEach((li) => li.classList.toggle("active", Number(li.dataset.i) === i));
-    deck(i);
+    if (!replaying) deck(i);
     const s = R.steps[i];
     $("now").innerHTML = s ? `<b>${esc(s.action)}</b> · ${esc(s.description)}${s.volume_ul ? ` · ${s.volume_ul} µL` : ""}${ROBOT.has(s.action) ? "" : " · <i>robot pauses for you</i>"}` : "";
   }
