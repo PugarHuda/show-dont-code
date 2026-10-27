@@ -207,7 +207,8 @@ async function api(path, opts) {
 async function init() {
   const runs = await api("/api/runs");
   const want = new URLSearchParams(location.search).get("run");
-  const upload = want && want.startsWith("u-") ? want : null;  // uploads are private, so never in the listing
+  // uploads are private, so never in the listing; accept only the exact id shape the server issues
+  const upload = want && /^u-[A-Za-z0-9_-]{16}$/.test(want) ? want : null;
   if (upload) runs.unshift(upload);
   $("run").innerHTML = runs.map((n) => `<option value="${esc(n)}">${esc(n === upload ? "your upload" : n)}</option>`).join("");
   if (want && runs.includes(want)) $("run").value = want;
