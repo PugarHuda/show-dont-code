@@ -71,6 +71,13 @@
   .stack { display: grid; gap: 16px; align-content: start; }
   details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
   .empty { color: var(--muted); }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  .stage.picking canvas { pointer-events: auto; cursor: crosshair; }
+  ul.tubes { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
+  ul.tubes li { background: var(--bg); border-radius: 6px; padding: 10px; border-left: 4px solid var(--c); }
+  ul.tubes form { display: flex; gap: 6px; margin-top: 8px; }
+  ul.tubes input { flex: 1; min-width: 0; }
+  ul.tubes small { display: block; color: var(--muted); margin-top: 4px; }
   ul.issues { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
   ul.issues li { border-left: 3px solid var(--muted); background: var(--bg); border-radius: 0 6px 6px 0; padding: 8px 10px; cursor: pointer; }
   ul.issues li.block { border-color: var(--bad); }
@@ -99,6 +106,13 @@
         <div class="cursor" id="cursor"></div>
       </div>
       <div class="legend"><span><i style="background:var(--accent)"></i>robot step</span><span><i style="background:var(--warn)"></i>manual step (robot pauses)</span><span><i style="background:var(--muted)"></i>BioVL2 annotation</span><span><i style="border:2px solid #ffd60a"></i>SAM 3.1 pipette tip</span></div>
+    </section>
+    <section id="tubebox" hidden>
+      <h2>Tubes · SAM 3.1 tracks, Muse Spark verifies</h2>
+      <p class="hint">Pause on a frame, press the button, then click a tube in the video. SAM 3.1 follows it through
+        the whole recording; Muse Spark checks every sighting is the same tube and finds the steps that use it.</p>
+      <button id="pick">Identify a tube</button> <span id="pickstate" class="t"></span>
+      <ul class="tubes" id="tubes"></ul>
     </section>
     <section>
       <h2>Steps</h2>
@@ -190,6 +204,23 @@ function render() {
       <input type="number" name="${g.steps.join(",")}" min="0.1" max="1000" step="0.1" placeholder="µL per transfer" required></label>`).join("")
     + (R.questions.length ? `<button type="submit">Confirm &amp; regenerate</button>` : "");
   $("qform").onsubmit = submitAnswers;
+
+  $("tubebox").hidden = !R.can_track;
+  $("tubes").innerHTML = (R.tubes || []).map((tb) => {
+    const list = (a) => a.length ? a.map((i) => `${fmt(R.steps[i].start)}`).join(", ") : "none";
+    return `<li style="--c:${COLORS[tb.id % COLORS.length]}">
+      <b>${esc(tb.name || `Tube #${tb.id + 1}`)}</b> <span class="t">clicked at ${fmt(tb.t)}</span>
+      <small>drawn from at: ${list(tb.source_steps)} · filled at: ${list(tb.destination_steps)}</small>
+      <small>${esc(tb.reasoning)}</small>
+      <form data-id="${tb.id}"><input name="label" placeholder="What is in this tube? e.g. Primer 1" value="${esc(tb.name || "")}" required>
+      <button>Apply</button></form></li>`;
+  }).join("");
+  $("tubes").querySelectorAll("form").forEach((f) => f.onsubmit = async (ev) => {
+    ev.preventDefault();
+    f.querySelector("button").disabled = true;
+    try { R = await api(`/api/runs/${encodeURIComponent(name)}/tubes/${f.dataset.id}/name`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: f.label.value }) }); render(); }
+    catch (e) { alert(e.message); f.querySelector("button").disabled = false; }
+  });
 
   const issues = R.review || [];
   $("reviewbox").hidden = !issues.length && !R.review_error;
@@ -284,7 +315,36 @@ function tick() {
   const k = cv.width / 640;  // SAM ran on the 640-px-wide copy
   ctx.strokeStyle = "#ffd60a"; ctx.lineWidth = 2;
   for (const [, l, tp, rt, b] of boxes) ctx.strokeRect(l * k, tp * k, (rt - l) * k, (b - tp) * k);
+  ctx.font = "bold 12px system-ui";
+  for (const tb of R.tubes || []) {  // clicked tubes, followed by SAM 3.1
+    const o = (tb.track[String(Math.round(t * R.sam_fps))] || [])[0];
+    if (!o) continue;
+    const [, l, tp, rt, b] = o, c = COLORS[tb.id % COLORS.length];
+    ctx.strokeStyle = c; ctx.fillStyle = c;
+    ctx.strokeRect(l * k - 3, tp * k - 3, (rt - l) * k + 6, (b - tp) * k + 6);
+    ctx.fillText(tb.name || `#${tb.id + 1}`, l * k, tp * k - 6);
+  }
 }
+const COLORS = ["#ff4d6d", "#4dabf7", "#b197fc", "#63e6be", "#ffa94d", "#f783ac"];
+
+let picking = false;
+$("pick").onclick = () => {
+  picking = !picking; v.pause();
+  $("video").parentElement.classList.toggle("picking", picking);
+  $("pickstate").textContent = picking ? "click a tube in the video…" : "";
+};
+cv.addEventListener("click", async (e) => {
+  if (!picking) return;
+  picking = false; $("video").parentElement.classList.remove("picking");
+  const x = e.offsetX / cv.clientWidth * 640, y = e.offsetY / cv.clientHeight * 360;
+  $("pickstate").textContent = "SAM 3.1 is tracking, then Muse Spark checks each sighting… (~1 min)";
+  $("pick").disabled = true;
+  try {
+    R = await api(`/api/runs/${encodeURIComponent(name)}/tubes`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ t: v.currentTime, x, y }) });
+    $("pickstate").textContent = ""; render(); tick();
+  } catch (err) { $("pickstate").textContent = err.message; }
+  $("pick").disabled = false;
+});
 v.addEventListener("timeupdate", tick);
 v.addEventListener("loadedmetadata", () => { timeline(); tick(); });
 (function loop() { if (!v.paused) tick(); requestAnimationFrame(loop); })();

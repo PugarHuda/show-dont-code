@@ -7,7 +7,8 @@ import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
-from meta_sam_parser import parse_responses_stream, video_segmentation_format
+from meta_sam_parser import (FramePrompt, PromptObject, PromptPoint, build_object_prompt, parse_responses_stream,
+                             video_segmentation_format)
 from openai import AsyncOpenAI, OpenAI
 
 load_dotenv()
@@ -184,15 +185,15 @@ def extract_steps(file_id, extra=""):
     return json.loads(r.output_text)["steps"]
 
 
-async def _track(file_id, phrase):
+async def _track(file_id, prompt, metadata):
     c = AsyncOpenAI(base_url=BASE_URL, api_key=_key())
     stream = await c.responses.create(
         model="sam-3.1",
         input=[{"role": "user", "content": [
-            {"type": "input_text", "text": phrase},
+            {"type": "input_text", "text": prompt},
             {"type": "input_video", "file_id": file_id},
         ]}],
-        metadata={"include_confidence": "true"},
+        metadata={"include_confidence": "true", **metadata},
         stream=True,
     )
     parsed = parse_responses_stream(stream, video_segmentation_format())
@@ -201,9 +202,84 @@ async def _track(file_id, phrase):
     return await parsed.final_result()
 
 
-def track(file_id, phrase):
-    """{frame_index: [(object_id, left, top, right, bottom, confidence)]} for one noun phrase."""
-    result = asyncio.run(_track(file_id, phrase))
+def track_point(file_id, frame, x, y, size):
+    """Track the object under one clicked point, forward and backward from that frame. size=(w, h) of the video."""
+    prompt = build_object_prompt(size=size, objects=[PromptObject(id=1, prompts=[
+        FramePrompt(frame=int(frame), points=[PromptPoint(x=int(x), y=int(y))])])])
+    return track(file_id, prompt, {"propagation_direction": "both"})
+
+
+USES_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["source_steps", "destination_steps", "reasoning"],
+    "properties": {
+        "source_steps": {"type": "array", "items": {"type": "integer"}, "description": "pipette draws liquid FROM it"},
+        "destination_steps": {"type": "array", "items": {"type": "integer"}, "description": "pipette dispenses INTO it"},
+        "reasoning": {"type": "string"},
+    },
+}
+
+
+def _jpeg_with_box(cap, frame, box, label):
+    import cv2
+
+    cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame))
+    ok, img = cap.read()
+    if not ok:
+        return None
+    _, l, t, r, b, *_ = box
+    cv2.rectangle(img, (int(l) - 3, int(t) - 3), (int(r) + 3, int(b) + 3), (0, 0, 255), 2)
+    cv2.putText(img, label, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+    return base64.b64encode(cv2.imencode(".jpg", img)[1].tobytes()).decode()
+
+
+def steps_using(video, track_frames, steps, fps, click_frame):
+    """SAM says where the tube is; Muse Spark checks it is the same tube and says when it is used."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(video))
+    ref = track_frames.get(str(click_frame)) or track_frames.get(click_frame)
+    content = [{"type": "input_text", "text": (
+        "The first image shows a tube outlined in red, selected by the scientist. Each later image is a moment "
+        "from one pipetting step of the same first-person video, with the same tube outlined in red where a "
+        "tracker found it. The tracker can jump to a different object that looks similar (e.g. another cap of "
+        "the same colour), so first compare each outlined object with the reference: same size, shape, cap and "
+        "label? If it is a different object, ignore that step. Then list the steps where the pipette aspirates "
+        "FROM the reference tube (source_steps) and where it dispenses INTO it (destination_steps). A tube held "
+        "in the hand next to the pipette tip is usually in use. Ignore steps where it only sits in the background.")}]
+    if ref:
+        content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{_jpeg_with_box(cap, click_frame, ref[0], 'selected tube')}"})
+    for i, s in enumerate(steps):
+        if s["action"] != "transfer":
+            continue
+        lo, hi = int(s["start"] * fps), int(s["end"] * fps)
+        seen = [f for f in range(lo, hi + 1) if track_frames.get(str(f)) or track_frames.get(f)]
+        if not seen:
+            continue
+        early = [f for f in seen if f <= lo + (hi - lo) * 0.6] or seen  # aspiration happens early in a step
+        f = early[len(early) // 2]
+        img = _jpeg_with_box(cap, f, (track_frames.get(str(f)) or track_frames.get(f))[0], f"step {i}")
+        if img:
+            content.append({"type": "input_text", "text": f"Step {i} ({s['start']:.0f}-{s['end']:.0f} s): {s['description']}"})
+            content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{img}"})
+    if len(content) <= 2:
+        return {"source_steps": [], "destination_steps": [], "reasoning": "the tracker never saw this tube during a transfer step"}
+    r = client().responses.create(
+        model=SPARK, input=[{"role": "user", "content": content}], max_output_tokens=16000,
+        text={"format": {"type": "json_schema", "name": "uses", "schema": USES_SCHEMA, "strict": True}},
+    )
+    if not r.output_text:
+        raise RuntimeError(f"Muse Spark returned no text: status={r.status} {r.incomplete_details}")
+    out = json.loads(r.output_text)
+    for k in ("source_steps", "destination_steps"):  # model output is untrusted
+        out[k] = [i for i in out[k] if isinstance(i, int) and 0 <= i < len(steps) and steps[i]["action"] == "transfer"]
+    return out
+
+
+def track(file_id, prompt, metadata=None):
+    """{frame_index: [(object_id, left, top, right, bottom, confidence)]} for a noun phrase or an object prompt."""
+    result = asyncio.run(_track(file_id, prompt, metadata or {}))
     frames = {}
     for r in result.records:
         if r.kind == "box" and r.frame is not None:
