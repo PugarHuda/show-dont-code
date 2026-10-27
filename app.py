@@ -76,11 +76,15 @@ def protocol_file(name: str):
 def answer(name: str, answers: dict[str, float] = Body(...)):
     d = _run_dir(name)
     old = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
-    if any(v <= 0 or v > 1000 for v in answers.values()):
-        raise HTTPException(422, "volumes must be in (0, 1000] µL")
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
-    if any(not k.isdigit() or int(k) >= len(steps) for k in answers):
-        raise HTTPException(422, "unknown step")
+    for k, v in answers.items():
+        m = re.fullmatch(r"(\d+)(:cycles)?", k)
+        if not m or int(m[1]) >= len(steps):
+            raise HTTPException(422, f"unknown step {k!r}")
+        if m[2] and not (1 <= v <= 99 and v == int(v)):
+            raise HTTPException(422, "cycles must be a whole number from 1 to 99")
+        if not m[2] and not 0 < v <= 1000:
+            raise HTTPException(422, "volumes must be in (0, 1000] µL")
     pipeline.build(d, steps, {**old, **answers}, review=REVIEW_ON_EDIT)
     return result(name)
 

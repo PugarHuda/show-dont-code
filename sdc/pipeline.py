@@ -80,6 +80,8 @@ def simulate_with(steps, volumes_ul):
     """Tool for the reviewer agent: try a per-reagent volume plan in the real simulator, report per-tube totals."""
     trial, missing = [dict(s) for s in steps], set()
     for s in trial:
+        if s["action"] == "thermocycle" and not s.get("cycles"):
+            s["cycles"] = 30  # the tool checks volumes; the real cycle count is the scientist's answer
         if s["action"] in ("transfer", "mix") and not s.get("volume_ul"):
             v = volumes_ul.get(s.get("reagent") or "")
             if isinstance(v, (int, float)) and 0 < v <= 1000:
@@ -93,7 +95,10 @@ def simulate_with(steps, volumes_ul):
         if s["action"] == "transfer":
             dest = s.get("destination") or "sample tube"
             totals[dest] = round(totals.get(dest, 0) + s["volume_ul"], 2)
-    src, _ = protocol.generate(trial)
+    try:
+        src, _ = protocol.generate(trial)
+    except protocol.NeedsInput as e:  # e.g. a planned volume below the pipette minimum
+        return {"ran": False, "rejected": [q["reason"] or q["field"] for q in e.questions]}
     ok, log = protocol.simulate(src)
     return {"ran": ok, "error": None if ok else log[-1], "robot_actions": len(log), "total_ul_per_tube": totals}
 
@@ -116,9 +121,13 @@ def build(run_dir, steps, answers=None, review=True):
     prev_file = run_dir / "result.json"
     prev = json.loads(prev_file.read_text(encoding="utf-8")) if prev_file.exists() else {}
     steps = [dict(s) for s in steps]
-    for i, v in (answers or {}).items():
-        steps[int(i)]["volume_ul"] = float(v)
-        steps[int(i)]["volume_evidence"] = "confirmed"
+    for key, v in (answers or {}).items():  # "7" -> volume of step 7, "20:cycles" -> cycle count of step 20
+        i, _, field = key.partition(":")
+        if field == "cycles":
+            steps[int(i)]["cycles"] = int(v)
+        else:
+            steps[int(i)]["volume_ul"] = float(v)
+            steps[int(i)]["volume_evidence"] = "confirmed"
     result = {"steps": steps, "questions": [], "protocol": None, "layout": {}, "sim_ok": False, "sim_log": []}
     try:
         result["protocol"], result["layout"] = protocol.generate(steps)

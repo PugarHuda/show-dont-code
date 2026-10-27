@@ -64,6 +64,8 @@
   .lw-label { fill: var(--ink); font: 10px system-ui; }
   form.q { display: grid; gap: 8px; }
   form.q label { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: center; }
+  form.q small { display: block; color: var(--muted); font-size: 12px; }
+  form.q small.ask { color: var(--warn); }
   pre { font: 12px/1.5 var(--mono); background: var(--bg); border-radius: 6px; padding: 10px; overflow: auto; max-height: 340px; margin: 0; }
   .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
   .metric { background: var(--bg); border-radius: 6px; padding: 8px 10px; }
@@ -203,17 +205,23 @@ function render() {
   $("qbox").hidden = !R.questions.length;
   // one question per reagent+source tube, not per transfer: the answer fans out to every step in the group
   const groups = {};
-  for (const q of R.questions) {
+  for (const q of R.questions.filter((q) => q.field === "volume_ul")) {
     const s = R.steps[q.step], key = `${s.reagent || s.description}|${s.source || ""}`;
     (groups[key] ||= { s, steps: [] }).steps.push(q.step);
   }
-  const sugg = Object.fromEntries((R.suggested_volumes || []).map((v) => [v.reagent, v]));
+  // only pre-fill suggestions the robot can actually pipette (>= 1 µL) for reagents still being asked about
+  const asked = new Set(R.questions.map((q) => R.steps[q.step].reagent));
+  const sugg = Object.fromEntries((R.suggested_volumes || []).filter((v) => v.volume_ul >= 1 && asked.has(v.reagent)).map((v) => [v.reagent, v]));
   $("qform").innerHTML = (Object.keys(sugg).length ? `<p class="hint">Pre-filled by the reviewer agent after it ran the simulator. Check before confirming.</p>` : "")
     + Object.values(groups).map((g) => {
     const sv = sugg[g.s.reagent];
-    return `<label><span>${esc(g.s.reagent || g.s.description)}${g.s.source ? ` <span class="t">from ${esc(g.s.source)}</span>` : ""} · ${g.steps.length}×</span>
+    const reason = R.questions.find((q) => q.step === g.steps[0])?.reason;
+    return `<label><span>${esc(g.s.reagent || g.s.description)}${g.s.source ? ` <span class="t">from ${esc(g.s.source)}</span>` : ""} · ${g.steps.length}×${reason ? `<small class="ask">${esc(reason)}</small>` : ""}</span>
       <input type="number" name="${g.steps.join(",")}" min="0.1" max="1000" step="0.01" placeholder="µL per transfer" ${sv ? `value="${sv.volume_ul}" title="${esc(sv.why)}"` : ""} required></label>`;
   }).join("")
+    + R.questions.filter((q) => q.field === "cycles").map((q) =>
+      `<label><span>${esc(q.description)} <span class="t">at ${fmt(R.steps[q.step].start)}</span><small>${esc(q.reason)}: how many PCR cycles?</small></span>
+      <input type="number" name="${q.step}:cycles" min="1" max="99" step="1" placeholder="cycles" required></label>`).join("")
     + (R.questions.length ? `<button type="submit">Confirm &amp; regenerate</button>` : "");
   $("qform").onsubmit = submitAnswers;
 

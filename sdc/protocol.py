@@ -22,12 +22,24 @@ class NeedsInput(Exception):
         self.questions = questions
 
 
+MIN_UL = 1.0  # smallest volume of the Flex 1-channel 50 µL pipette; the simulator does not enforce it
+
+
 def missing_inputs(steps):
-    return [
-        {"step": i, "field": "volume_ul", "description": s["description"]}
-        for i, s in enumerate(steps)
-        if s["action"] in ("transfer", "mix") and not s.get("volume_ul")
-    ]
+    q = []
+    for i, s in enumerate(steps):
+        if s["action"] in ("transfer", "mix"):
+            v = s.get("volume_ul")
+            if not v:
+                q.append({"step": i, "field": "volume_ul", "description": s["description"], "reason": ""})
+            elif v < MIN_UL:
+                q.append({"step": i, "field": "volume_ul", "description": s["description"],
+                          "reason": f"{v:g} µL is below the robot pipette's {MIN_UL:g} µL minimum: dilute the stock "
+                                    f"and enter the new volume"})
+        elif s["action"] == "thermocycle" and not s.get("cycles"):
+            q.append({"step": i, "field": "cycles", "description": s["description"],
+                      "reason": "the video can't show the cycling program"})
+    return q
 
 
 def generate(steps, title="Show, Don't Code protocol"):
@@ -98,13 +110,14 @@ def generate(steps, title="Show, Don't Code protocol"):
             dst = loc(dests[s.get("destination") or "sample tube"])
             L += [f"    {pip}.pick_up_tip()", f"    {pip}.mix(3, {v}, {dst})", f"    {pip}.drop_tip()"]
         elif a == "thermocycle":
-            # ponytail: video can't show the cycling program; scientist edits this block
+            # ponytail: cycle count comes from the scientist; temperatures are a PrimeSTAR-style 3-step default,
+            # editable in the downloaded file until the UI asks for them too
             L += [
                 "    tc.close_lid()",
                 "    tc.set_lid_temperature(105)",
                 "    tc.execute_profile(steps=[{'temperature': 98, 'hold_time_seconds': 10},"
                 " {'temperature': 55, 'hold_time_seconds': 5}, {'temperature': 72, 'hold_time_seconds': 5}],"
-                " repetitions=30, block_max_volume=50)",
+                f" repetitions={int(s['cycles'])}, block_max_volume=50)",
                 "    tc.set_block_temperature(4)",
                 "    tc.open_lid()",
             ]
@@ -132,13 +145,15 @@ if __name__ == "__main__":
         {"start": 190, "end": 238, "action": "transfer", "description": "Add premix", "reagent": "PrimeSTAR Max Premix", "volume_ul": 25, "destination": "PCR tube"},
         {"start": 239, "end": 250, "action": "mix", "description": "Pipette to mix", "volume_ul": 20, "destination": "PCR tube"},
         {"start": 251, "end": 255, "action": "centrifuge", "description": "Spin down"},
-        {"start": 260, "end": 266, "action": "thermocycle", "description": "Set in DNA engine"},
+        {"start": 260, "end": 266, "action": "thermocycle", "description": "Set in DNA engine", "cycles": 35},
     ]
-    try:
-        generate([{**demo[0], "volume_ul": None}])
-        raise AssertionError("missing volume must raise")
-    except NeedsInput as e:
-        assert e.questions[0]["field"] == "volume_ul"
+    for bad, field in (({**demo[0], "volume_ul": None}, "volume_ul"), ({**demo[0], "volume_ul": 0.25}, "volume_ul"),
+                       ({**demo[5], "cycles": None}, "cycles")):
+        try:
+            generate([bad])
+            raise AssertionError(f"{bad} must raise")
+        except NeedsInput as e:
+            assert e.questions[0]["field"] == field, e.questions
     evil, _ = generate([{**demo[4], "description": "x\nimport os; os.system('calc')"}])
     assert "\nimport os" not in evil, "description must stay inside the comment/string"
     src, layout = generate(demo)
@@ -146,4 +161,5 @@ if __name__ == "__main__":
     assert ok, log
     assert any("Primer1" not in l and "Transferring 1.0" in l for l in log), log
     assert layout["Primer1"] == "reagents:B1", layout
+    assert "repetitions=35" in src
     print(json.dumps(layout), f"\n{len(log)} simulator lines OK")
