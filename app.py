@@ -112,7 +112,7 @@ def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: floa
     fid = json.loads((d / "sam_file.json").read_text())
     track = {str(k): v for k, v in meta.track_point(fid, frame, x, y, (640, 360)).items()}
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
-    uses = meta.steps_using(d / "sam.mp4", track, steps, pipeline.SAM_FPS, frame)
+    uses = meta.steps_using(d / "sam_frames", track, steps, pipeline.SAM_FPS, frame)
     tubes = _tubes(d)
     tubes.append({"id": len(tubes), "t": t, "x": x, "y": y, "name": None, "track": track, **uses})
     (d / "tubes.json").write_text(json.dumps(tubes), encoding="utf-8")

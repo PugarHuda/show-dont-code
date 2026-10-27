@@ -1,6 +1,7 @@
 """Meta Model API calls: Muse Spark (video -> steps) and SAM 3.1 (video -> tracked boxes)."""
 import asyncio
 import base64
+import io
 import json
 import os
 import subprocess
@@ -279,15 +280,20 @@ def identify_sources(video, steps, sheet, still_dir):
     return steps
 
 
+def _jpeg_bytes(img, quality=85):
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=quality)
+    return buf.getvalue()
+
+
 def _small_jpeg(path, width=960):
     """Full-res stills are ~1 MB; 960 px keeps tube labels legible at a quarter of the tokens."""
-    import cv2
+    from PIL import Image
 
-    img = cv2.imread(str(path))
-    h, w = img.shape[:2]
-    if w > width:
-        img = cv2.resize(img, (width, int(h * width / w)))
-    return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+    img = Image.open(path).convert("RGB")
+    if img.width > width:
+        img = img.resize((width, round(img.height * width / img.width)))
+    return _jpeg_bytes(img)
 
 
 USES_SCHEMA = {
@@ -302,24 +308,32 @@ USES_SCHEMA = {
 }
 
 
-def _jpeg_with_box(cap, frame, box, label):
-    import cv2
+def sam_frames(sam_video, frames_dir):
+    """Every frame of the SAM copy as a JPEG named by SAM's frame index (no video decoding needed at serve time)."""
+    frames_dir = Path(frames_dir)
+    if not frames_dir.exists():
+        frames_dir.mkdir(parents=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-i", str(sam_video), "-q:v", "4", "-start_number", "0",
+                        str(frames_dir / "%05d.jpg")], check=True)
+    return frames_dir
 
-    cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame))
-    ok, img = cap.read()
-    if not ok:
+
+def _jpeg_with_box(frames_dir, frame, box, label):
+    from PIL import Image, ImageDraw
+
+    path = Path(frames_dir) / f"{int(frame):05d}.jpg"
+    if not path.exists():
         return None
+    img = Image.open(path).convert("RGB")
+    draw = ImageDraw.Draw(img)
     _, l, t, r, b, *_ = box
-    cv2.rectangle(img, (int(l) - 3, int(t) - 3), (int(r) + 3, int(b) + 3), (0, 0, 255), 2)
-    cv2.putText(img, label, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    return base64.b64encode(cv2.imencode(".jpg", img)[1].tobytes()).decode()
+    draw.rectangle([l - 3, t - 3, r + 3, b + 3], outline=(255, 0, 0), width=2)
+    draw.text((8, 8), label, fill=(255, 255, 255))
+    return base64.b64encode(_jpeg_bytes(img)).decode()
 
 
-def steps_using(video, track_frames, steps, fps, click_frame):
+def steps_using(frames_dir, track_frames, steps, fps, click_frame):
     """SAM says where the tube is; Muse Spark checks it is the same tube and says when it is used."""
-    import cv2
-
-    cap = cv2.VideoCapture(str(video))
     ref = track_frames.get(str(click_frame)) or track_frames.get(click_frame)
     content = [{"type": "input_text", "text": (
         "The first image shows a tube outlined in red, selected by the scientist. Each later image is a moment "
@@ -330,7 +344,7 @@ def steps_using(video, track_frames, steps, fps, click_frame):
         "FROM the reference tube (source_steps) and where it dispenses INTO it (destination_steps). A tube held "
         "in the hand next to the pipette tip is usually in use. Ignore steps where it only sits in the background.")}]
     if ref:
-        content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{_jpeg_with_box(cap, click_frame, ref[0], 'selected tube')}"})
+        content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{_jpeg_with_box(frames_dir, click_frame, ref[0], 'selected tube')}"})
     for i, s in enumerate(steps):
         if s["action"] != "transfer":
             continue
@@ -340,7 +354,7 @@ def steps_using(video, track_frames, steps, fps, click_frame):
             continue
         early = [f for f in seen if f <= lo + (hi - lo) * 0.6] or seen  # aspiration happens early in a step
         f = early[len(early) // 2]
-        img = _jpeg_with_box(cap, f, (track_frames.get(str(f)) or track_frames.get(f))[0], f"step {i}")
+        img = _jpeg_with_box(frames_dir, f, (track_frames.get(str(f)) or track_frames.get(f))[0], f"step {i}")
         if img:
             content.append({"type": "input_text", "text": f"Step {i} ({s['start']:.0f}-{s['end']:.0f} s): {s['description']}"})
             content.append({"type": "input_image", "image_url": f"data:image/jpeg;base64,{img}"})

@@ -17,10 +17,14 @@ OUT = Path(__file__).resolve().parent.parent / "out"
 SAM_FPS = 2  # ponytail: 2 fps is enough to see a tip enter a tube; raise if steps are shorter than ~1 s
 
 
-def _cached(path, fn):
+def _cached(path, fn, label=None):
     path = Path(path)
     if path.exists():
+        if label:
+            print(f"  {label} (cached)", flush=True)
         return json.loads(path.read_text(encoding="utf-8"))
+    if label:
+        print(f"  {label} ...", flush=True)
     value = fn()
     path.write_text(json.dumps(value, indent=1), encoding="utf-8")
     return value
@@ -177,23 +181,24 @@ def run(video, name=None, gt_csv=None, from_gt=False):
         steps = steps_from_gt(gt_csv)
     else:
         stills = meta.frames(video, [2, 10, 20, 35, 50], run_dir / "stills")
-        sheet = _cached(run_dir / "sheet.json", lambda: meta.read_sheet(stills))
+        sheet = _cached(run_dir / "sheet.json", lambda: meta.read_sheet(stills), "Muse Spark reads the bench protocol sheet")
         spark_video = meta.shrink(video, run_dir / "spark.mp4", fps=10)
-        fid = _cached(run_dir / "spark_file.json", lambda: meta.upload(spark_video))
+        fid = _cached(run_dir / "spark_file.json", lambda: meta.upload(spark_video), "upload video to Meta Model API")
         try:  # speech is an optional hint; a transcription failure must not stop the run
             speech = _cached(run_dir / "speech.json", lambda: meta.transcribe(
-                video, run_dir / "audio.wav", keywords=[r["name"] for r in sheet.get("reagents", [])] or None))
+                video, run_dir / "audio.wav", keywords=[r["name"] for r in sheet.get("reagents", [])] or None), "Muse Voice Transcribe listens")
         except Exception as e:
             print(f"speech transcription skipped: {e}")
             speech = []
         steps = _cached(run_dir / "steps_raw.json",
-                        lambda: meta.extract_steps(fid, sheet_hint(sheet) + speech_hint(speech)))
+                        lambda: meta.extract_steps(fid, sheet_hint(sheet) + speech_hint(speech)), "Muse Spark watches the video: steps + timestamps")
         steps = _cached(run_dir / "steps_stage2.json",
-                        lambda: meta.identify_sources(video, steps, sheet, run_dir / "stills_src"))
+                        lambda: meta.identify_sources(video, steps, sheet, run_dir / "stills_src"), "Muse Spark stage 2: which tube did each transfer draw from")
         steps = apply_sheet(steps, sheet)
         sam_video = meta.shrink(video, run_dir / "sam.mp4", fps=SAM_FPS)
-        sam_fid = _cached(run_dir / "sam_file.json", lambda: meta.upload(sam_video))
-        tracks = _cached(run_dir / "tracks_tip.json", lambda: meta.track(sam_fid, "pipette tip"))
+        sam_fid = _cached(run_dir / "sam_file.json", lambda: meta.upload(sam_video), "upload video for SAM 3.1")
+        meta.sam_frames(sam_video, run_dir / "sam_frames")  # click-to-track reads these, no decoder needed
+        tracks = _cached(run_dir / "tracks_tip.json", lambda: meta.track(sam_fid, "pipette tip"), "SAM 3.1 tracks the pipette tip")
         steps = tip_evidence(tracks, steps)
         from . import agent
 
@@ -201,6 +206,7 @@ def run(video, name=None, gt_csv=None, from_gt=False):
             meta.shrink(video, run_dir / "review.mp4", fps=2, width=480)
     answers_file = run_dir / "answers.json"
     answers = json.loads(answers_file.read_text()) if answers_file.exists() else {}
+    print("  Opentrons simulator + Muse Spark Open reviewer agent ...", flush=True)
     return build(run_dir, steps, answers)
 
 
