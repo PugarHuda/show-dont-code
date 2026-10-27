@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Show, Don't Code</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230f6e5c'/><path d='M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z' fill='white'/></svg>">
 <style>
   :root {
     --bg: #f4f3ef; --panel: #ffffff; --ink: #1b1d1f; --muted: #6b7075; --line: #dedbd2;
@@ -71,6 +72,8 @@
   .stack { display: grid; gap: 16px; align-content: start; }
   details summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
   .empty { color: var(--muted); }
+  footer { padding: 4px 16px 24px; color: var(--muted); font-size: 12px; }
+  footer a { color: inherit; }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
   .stage.picking canvas { pointer-events: auto; cursor: crosshair; }
   ul.tubes { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
@@ -145,6 +148,11 @@
     </section>
   </div>
 </main>
+<footer>
+  Lab videos and step annotations: <a href="https://zenodo.org/records/21495188">BioVL2 dataset</a>
+  (Nishimura et al., Kyoto University), <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, re-encoded for display.
+  Models: Muse Spark, SAM 3.1, Muse Voice Transcribe (Meta Model API) and Muse Spark Open (Baseten).
+</footer>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

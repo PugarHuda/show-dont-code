@@ -8,7 +8,11 @@ from pathlib import Path
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 
-from sdc import pipeline
+if os.getenv("VERCEL") == "1":  # opentrons writes its config under $HOME at import; only /tmp is writable
+    os.environ.setdefault("OT_API_CONFIG_DIR", "/tmp/opentrons")
+    os.environ["HOME"] = "/tmp"
+
+from sdc import pipeline  # noqa: E402  (must follow the env setup above)
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Show, Don't Code")
@@ -55,7 +59,7 @@ def result(name: str):
 @app.get("/api/runs/{name}/video")
 def video(name: str):
     d = _run_dir(name)
-    if (ROOT / "public" / "runs" / name / "video.mp4").exists():  # hosted: served by the CDN, not the function
+    if ON_VERCEL:  # public/ is served by the CDN and is not inside the function bundle
         return RedirectResponse(f"/runs/{name}/video.mp4")
     return FileResponse(d / "video.mp4", media_type="video/mp4")
 

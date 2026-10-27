@@ -5,3 +5,5 @@ out
 .env
 scripts
 __pycache__
+.env.local
+.vercel
