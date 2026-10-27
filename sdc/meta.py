@@ -139,9 +139,30 @@ def read_sheet(images):
     r = client().responses.create(
         model=SPARK,
         input=[{"role": "user", "content": content}],
+        max_output_tokens=16000,  # reasoning shares this budget; too low returns empty JSON
         text={"format": {"type": "json_schema", "name": "sheet", "schema": SHEET_SCHEMA, "strict": True}},
     )
     return json.loads(r.output_text)
+
+
+def transcribe(video, wav_path, keywords=None):
+    """Muse Voice Transcribe on the video's audio track. Returns [{start, end, text}] speech turns."""
+    import requests
+
+    wav_path = Path(wav_path)
+    if not wav_path.exists():
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000",
+                        "-sample_fmt", "s16", str(wav_path)], check=True)
+    req = {"mode": "ENDPOINTING", "model": "muse-voice-transcribe-1.0", "audioEncoding": "WAV"}
+    if keywords:
+        req["keywords"] = keywords
+    with open(wav_path, "rb") as audio:
+        r = requests.post("https://api.meta.ai/v1/asr/transcribe", headers={"Authorization": f"Bearer {_key()}"},
+                          files={"request": (None, json.dumps(req), "application/json"),
+                                 "audio": (wav_path.name, audio)}, timeout=300)
+    r.raise_for_status()
+    return [{"start": (t.get("startMs") or 0) / 1000, "end": (t.get("endMs") or 0) / 1000,
+             "text": t.get("transcript", "")} for t in r.json().get("turns", []) if t.get("transcript")]
 
 
 def extract_steps(file_id, extra=""):
@@ -151,6 +172,7 @@ def extract_steps(file_id, extra=""):
             {"type": "input_text", "text": PROMPT + extra},
             {"type": "input_file", "file_id": file_id},
         ]}],
+        max_output_tokens=16000,
         text={"format": {"type": "json_schema", "name": "steps", "schema": STEP_SCHEMA, "strict": True}},
     )
     return json.loads(r.output_text)["steps"]

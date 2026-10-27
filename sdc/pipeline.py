@@ -58,6 +58,14 @@ def sheet_hint(sheet):
             f"you see; water is often omitted from such lists. Each distinct source tube is a distinct reagent.")
 
 
+def speech_hint(speech):
+    """Muse Voice Transcribe turns, timestamped. Spark 1.3 hears audio poorly, so we hand it the words."""
+    if not speech:
+        return ""
+    lines = "\n".join(f"[{t['start']:.0f}-{t['end']:.0f}s] {t['text']}" for t in speech)
+    return f"\n\nSpeech heard in the video (any language; volumes or reagent names said aloud are evidence):\n{lines}"
+
+
 def apply_sheet(steps, sheet):
     """Fill volumes the sheet states for a reagent the model named. Sheet volumes beat model guesses."""
     vols = {tuple(evaluate._norm(r["name"])): r["volume_ul"] for r in sheet.get("reagents", []) if r["volume_ul"]}
@@ -127,7 +135,10 @@ def run(video, name=None, gt_csv=None, from_gt=False):
         sheet = _cached(run_dir / "sheet.json", lambda: meta.read_sheet(stills))
         spark_video = meta.shrink(video, run_dir / "spark.mp4", fps=10)
         fid = _cached(run_dir / "spark_file.json", lambda: meta.upload(spark_video))
-        steps = _cached(run_dir / "steps_raw.json", lambda: meta.extract_steps(fid, sheet_hint(sheet)))
+        speech = _cached(run_dir / "speech.json", lambda: meta.transcribe(
+            video, run_dir / "audio.wav", keywords=[r["name"] for r in sheet.get("reagents", [])] or None))
+        steps = _cached(run_dir / "steps_raw.json",
+                        lambda: meta.extract_steps(fid, sheet_hint(sheet) + speech_hint(speech)))
         steps = apply_sheet(steps, sheet)
         sam_video = meta.shrink(video, run_dir / "sam.mp4", fps=SAM_FPS)
         sam_fid = _cached(run_dir / "sam_file.json", lambda: meta.upload(sam_video))
