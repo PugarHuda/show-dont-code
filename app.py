@@ -64,7 +64,8 @@ def index():
 
 @app.get("/api/runs")
 def runs():
-    return sorted(p.parent.name for p in pipeline.OUT.glob("*/result.json"))
+    # uploads (u-*) are private: reachable only through the link their uploader got
+    return sorted(p.parent.name for p in pipeline.OUT.glob("*/result.json") if not p.parent.name.startswith("u-"))
 
 
 @app.get("/api/runs/{name}")

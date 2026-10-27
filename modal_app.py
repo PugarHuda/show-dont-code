@@ -6,10 +6,12 @@ All runs, demo and uploaded, live on one Modal Volume, so answers and named tube
   modal deploy modal_app.py
   modal volume put sdc-runs out/pcr_3 /pcr_3        # seed demo runs
 """
+import asyncio
 import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -27,7 +29,8 @@ image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg")
     .pip_install_from_requirements("requirements.txt")
-    .env({"OT_API_CONFIG_DIR": "/tmp/opentrons", "PYTHONIOENCODING": "utf-8", "UPLOADS": "1"})
+    .env({"OT_API_CONFIG_DIR": "/tmp/opentrons", "PYTHONIOENCODING": "utf-8", "UPLOADS": "1",
+          "REVIEW_ON_EDIT": "0", "LIVE_CALL_LIMIT": "30"})
     .add_local_python_source("sdc")
     .add_local_file("app.py", "/root/app.py")
     .add_local_dir("web", "/root/web")
@@ -51,11 +54,11 @@ def process(run_id: str):
     vol.commit()
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret], timeout=900, scaledown_window=1200)
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret], timeout=900, scaledown_window=1200, max_containers=1)
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
 def web():
-    from fastapi import File, Form, HTTPException, UploadFile
+    from fastapi import HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
 
     from sdc import pipeline
@@ -65,7 +68,7 @@ def web():
 
     api = webapp.app
     api.add_middleware(CORSMiddleware, allow_origins=["https://show-dont-code.vercel.app", "http://127.0.0.1:8000"],
-                       allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+                       allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Upload-Code"])
     last_reload = [0.0]
 
     @api.middleware("http")
@@ -82,43 +85,62 @@ def web():
             vol.commit()
         return response
 
-    @api.post("/api/upload")
-    async def upload(file: UploadFile = File(...), code: str = Form("")):
-        want = os.getenv("UPLOAD_CODE", "")
-        if want and not secrets.compare_digest(code, want):
-            raise HTTPException(403, "this demo needs an access code to upload")
-        today = time.strftime("%Y-%m-%d")
-        counter = Path(RUNS) / f".uploads-{today}"
+    quota_lock = asyncio.Lock()  # one web container (max_containers=1), so this lock makes the quota atomic
+
+    def take_quota(delta):
+        counter = Path(RUNS) / f".uploads-{time.strftime('%Y-%m-%d')}"
         used = int(counter.read_text()) if counter.exists() else 0
-        if used >= DAILY_UPLOADS:
-            raise HTTPException(429, "today's upload quota for this demo is used up; try a sample run instead")
-        run_id = f"u-{time.strftime('%m%d')}-{secrets.token_hex(3)}"
+        if delta > 0 and used >= DAILY_UPLOADS:
+            return False
+        counter.write_text(str(max(0, used + delta)))
+        vol.commit()
+        return True
+
+    @api.post("/api/upload")
+    async def upload(request: Request):
+        """Raw video body (not multipart), so size is enforced while streaming, before anything is spooled."""
+        want = os.getenv("UPLOAD_CODE", "")
+        if not want:  # fail closed: no code configured means uploads are off
+            raise HTTPException(403, "uploads are switched off on this deployment")
+        if not secrets.compare_digest(request.headers.get("x-upload-code", ""), want):
+            raise HTTPException(403, "that access code isn't right")
+        if int(request.headers.get("content-length") or 0) > MAX_BYTES:
+            raise HTTPException(413, f"videos up to {MAX_BYTES >> 20} MB")
+        async with quota_lock:  # reserve the slot first; refunded below if the upload is rejected
+            if not take_quota(+1):
+                raise HTTPException(429, "today's upload quota for this demo is used up; try a sample run instead")
+        run_id = "u-" + secrets.token_urlsafe(12)  # unguessable: the link is the only way to see an upload
         d = Path(RUNS) / run_id
         d.mkdir(parents=True)
-        size = 0
-        with open(d / "input.mp4", "wb") as out:
-            while chunk := await file.read(1 << 20):
-                size += len(chunk)
-                if size > MAX_BYTES:
-                    out.close()
-                    subprocess.run(["rm", "-rf", str(d)])
-                    raise HTTPException(413, f"videos up to {MAX_BYTES >> 20} MB")
-                out.write(chunk)
-        probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
-                                str(d / "input.mp4")], capture_output=True, text=True)
         try:
-            seconds = float(probe.stdout.strip())
-        except ValueError:
-            subprocess.run(["rm", "-rf", str(d)])
-            raise HTTPException(422, "that file isn't a video we can read; upload an MP4 or MOV")
-        if seconds > MAX_SECONDS:
-            subprocess.run(["rm", "-rf", str(d)])
-            raise HTTPException(422, f"videos up to {MAX_SECONDS // 60} minutes; this one is {seconds / 60:.1f}")
-        counter.write_text(str(used + 1))
+            size = 0
+            with open(d / "raw", "wb") as out:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > MAX_BYTES:
+                        raise HTTPException(413, f"videos up to {MAX_BYTES >> 20} MB")
+                    out.write(chunk)
+            # cut to the limit for real: container metadata can claim any duration
+            cut = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(d / "raw"), "-t", str(MAX_SECONDS), "-c", "copy",
+                                  "-movflags", "+faststart", str(d / "input.mp4")], capture_output=True)
+            probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                    str(d / "input.mp4")], capture_output=True, text=True)
+            try:
+                seconds = float(probe.stdout.strip()) if cut.returncode == 0 else 0.0
+            except ValueError:
+                seconds = 0.0
+            if seconds < 5:
+                raise HTTPException(422, "that file isn't a video we can read; upload an MP4 or MOV of at least 5 seconds")
+        except HTTPException:
+            shutil.rmtree(d, ignore_errors=True)
+            async with quota_lock:
+                take_quota(-1)
+            raise
+        (d / "raw").unlink()
         webapp.pipeline.progress(d, "upload received", "done")
         vol.commit()
         process.spawn(run_id)
-        return {"run": run_id, "seconds": round(seconds, 1)}
+        return {"run": run_id, "seconds": round(seconds, 1), "trimmed": seconds >= MAX_SECONDS - 1}
 
     @api.get("/api/runs/{name}/progress")
     def run_progress(name: str):

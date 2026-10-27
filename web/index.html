@@ -122,9 +122,9 @@
     <h2 id="uptitle">Analyse your own lab video</h2>
     <p class="hint">An MP4 or MOV up to 5 minutes, filmed from your point of view while you pipette. It takes about
       5 to 8 minutes: Muse Spark watches it, SAM 3.1 tracks the pipette, Muse Voice Transcribe listens, and a
-      Muse Spark Open agent checks the result in the Opentrons simulator. Uploaded videos are stored for this demo.</p>
+      Muse Spark Open agent checks the result in the Opentrons simulator. Uploaded videos are stored for this demo and only people with the link can open the result.</p>
     <label>Video <input type="file" name="video" accept="video/mp4,video/quicktime" required></label>
-    <label>Access code, if you were given one <input type="text" name="code" autocomplete="off"></label>
+    <label>Access code <input type="text" name="code" autocomplete="off" required></label>
     <div class="upbar" hidden><div id="upfill"></div></div>
     <ol class="upsteps" id="upsteps"></ol>
     <p id="upmsg" role="status"></p>
@@ -471,9 +471,9 @@ $("upform").onsubmit = (ev) => {
   ev.preventDefault();
   const f = ev.target.video.files[0];
   if (!f) return;
-  const fd = new FormData(); fd.append("file", f); fd.append("code", ev.target.code.value);
   const xhr = new XMLHttpRequest();
   xhr.open("POST", API + "/api/upload");
+  xhr.setRequestHeader("X-Upload-Code", ev.target.code.value);
   $("upgo").disabled = true; document.querySelector(".upbar").hidden = false; $("upmsg").textContent = "Uploading…";
   xhr.upload.onprogress = (e) => { if (e.lengthComputable) $("upfill").style.width = `${e.loaded / e.total * 100}%`; };
   xhr.onload = () => {
@@ -483,7 +483,7 @@ $("upform").onsubmit = (ev) => {
     follow(j.run);
   };
   xhr.onerror = () => { $("upmsg").textContent = "Upload failed: check your connection and try again."; $("upgo").disabled = false; };
-  xhr.send(fd);
+  xhr.send(f);  // raw body: the server caps the size while streaming
 };
 async function follow(run) {
   $("upmsg").textContent = "Analysing. You can keep this tab open; the run will open by itself when it's done.";
