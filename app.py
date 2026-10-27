@@ -1,5 +1,6 @@
 """Review UI server: human video next to the generated robot protocol.  Run: python app.py"""
 import json
+import logging
 import os
 import re
 import shutil
@@ -16,6 +17,7 @@ from sdc import pipeline  # noqa: E402  (must follow the env setup above)
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Show, Don't Code")
+log = logging.getLogger("show-dont-code")
 
 ON_VERCEL = os.getenv("VERCEL") == "1"
 if ON_VERCEL:  # the bundle is read-only: work on a /tmp copy of the exported demo runs (scripts/export_demo.py)
@@ -116,8 +118,11 @@ def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: floa
     try:
         track = {str(k): v for k, v in meta.track_point(fid, frame, x, y, (640, 360)).items()}
         uses = meta.steps_using(d / "sam_frames", track, steps, pipeline.SAM_FPS, frame)
-    except Exception as e:  # provider errors (expired file id, rate limit) come back as a readable message
-        raise HTTPException(502, f"model call failed: {type(e).__name__}: {str(e)[:200]}")
+    except Exception as e:  # details go to the server log only; provider messages can carry ids and internals
+        log.exception("tube tracking failed for run %s", name)
+        busy = "RateLimit" in type(e).__name__ or "429" in str(e)
+        raise HTTPException(502, "the model provider is busy; try again in a minute" if busy
+                            else "model call failed; please try again later")
     tubes = _tubes(d)
     tubes.append({"id": len(tubes), "t": t, "x": x, "y": y, "name": None, "track": track, **uses})
     (d / "tubes.json").write_text(json.dumps(tubes), encoding="utf-8")
