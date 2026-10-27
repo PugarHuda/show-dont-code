@@ -210,6 +210,86 @@ def track_point(file_id, frame, x, y, size):
     return track(file_id, prompt, {"propagation_direction": "both"})
 
 
+SOURCES_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["events", "groups"],
+    "properties": {
+        "events": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["step", "source_tube", "group"],
+            "properties": {
+                "step": {"type": "integer"},
+                "source_tube": {"type": "string", "description": "type, cap colour, label, where it sits/is held"},
+                "group": {"type": "integer", "description": "same number = same physical source tube"},
+            }}},
+        "groups": {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["group", "reagent", "evidence"],
+            "properties": {
+                "group": {"type": "integer"},
+                "reagent": {"type": "string", "description": "name from the sheet if it fits, else a description"},
+                "evidence": {"type": "string"},
+            }}},
+    },
+}
+
+
+def identify_sources(video, steps, sheet, still_dir):
+    """Stage 2: look closely at each transfer's aspiration moment, group transfers by physical source tube, name groups.
+
+    Stage 1 (extract_steps) finds *when* transfers happen reliably but often mislabels *what* is transferred;
+    deciding the source per event from full-resolution stills, then naming whole groups, is far more consistent.
+    """
+    idx = [i for i, s in enumerate(steps) if s["action"] == "transfer"]
+    if not idx:
+        return steps
+    times = []
+    for i in idx:  # aspiration happens early in a transfer step
+        s, e = steps[i]["start"], steps[i]["end"]
+        times += [round(s + 0.15 * (e - s), 1), round(s + 0.4 * (e - s), 1)]
+    stills = frames(video, times, still_dir)
+    names = [r["name"] for r in sheet.get("reagents", [])] if sheet.get("found") else []
+    content = [{"type": "input_text", "text": (
+        "First-person video of a scientist pipetting. Below are two stills from the start of each liquid transfer "
+        "(when the pipette draws liquid from its SOURCE tube). For every transfer, describe the source tube the "
+        "pipette tip is in or has just left: tube type, cap colour, label, where it sits or which hand holds it. "
+        "Then give the same group number to transfers that use the same physical source tube; when the source "
+        "changes, use a new group. Consecutive transfers usually share a source. Finally name each group's "
+        "reagent." + (f" The bench protocol sheet suggests these reagents (may be misread or incomplete; water is "
+                      f"often left off): {'; '.join(names)}." if names else "")
+        + " Do not invent reagents or preparation steps you cannot see.")}]
+    for k, i in enumerate(idx):
+        content.append({"type": "input_text", "text": f"Transfer step {i} ({steps[i]['start']:.0f}-{steps[i]['end']:.0f} s):"})
+        for p in stills[2 * k: 2 * k + 2]:
+            content.append({"type": "input_image", "image_url": "data:image/jpeg;base64," + base64.b64encode(
+                _small_jpeg(p)).decode()})
+    r = client().responses.create(
+        model=SPARK, input=[{"role": "user", "content": content}], max_output_tokens=16000,
+        text={"format": {"type": "json_schema", "name": "sources", "schema": SOURCES_SCHEMA, "strict": True}},
+    )
+    if not r.output_text:
+        raise RuntimeError(f"Muse Spark returned no text: status={r.status} {r.incomplete_details}")
+    out = json.loads(r.output_text)
+    names_by_group = {g["group"]: g["reagent"] for g in out["groups"]}
+    steps = [dict(s) for s in steps]
+    for ev in out["events"]:
+        i = ev["step"]
+        if i in idx and ev["group"] in names_by_group:  # model output is untrusted
+            steps[i].update(reagent=names_by_group[ev["group"]], source=f"source tube {ev['group'] + 1}",
+                            source_desc=ev["source_tube"][:160])
+    return steps
+
+
+def _small_jpeg(path, width=960):
+    """Full-res stills are ~1 MB; 960 px keeps tube labels legible at a quarter of the tokens."""
+    import cv2
+
+    img = cv2.imread(str(path))
+    h, w = img.shape[:2]
+    if w > width:
+        img = cv2.resize(img, (width, int(h * width / w)))
+    return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+
+
 USES_SCHEMA = {
     "type": "object",
     "additionalProperties": False,

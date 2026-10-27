@@ -170,6 +170,8 @@ def run(video, name=None, gt_csv=None, from_gt=False):
             speech = []
         steps = _cached(run_dir / "steps_raw.json",
                         lambda: meta.extract_steps(fid, sheet_hint(sheet) + speech_hint(speech)))
+        steps = _cached(run_dir / "steps_stage2.json",
+                        lambda: meta.identify_sources(video, steps, sheet, run_dir / "stills_src"))
         steps = apply_sheet(steps, sheet)
         sam_video = meta.shrink(video, run_dir / "sam.mp4", fps=SAM_FPS)
         sam_fid = _cached(run_dir / "sam_file.json", lambda: meta.upload(sam_video))
