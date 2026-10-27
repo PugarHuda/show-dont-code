@@ -58,6 +58,11 @@ def group(pred):
     return out
 
 
+def gt_volume(sentence):
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[μu]l\b", sentence, re.I)
+    return float(m.group(1)) if m else None
+
+
 def score(gt, pred, min_tiou=0.1, min_text=0.5):
     """Greedy one-to-one matching on grouped steps. A match needs temporal overlap AND the right content."""
     pred = group(pred)
@@ -74,7 +79,12 @@ def score(gt, pred, min_tiou=0.1, min_text=0.5):
             used.add(best[1])
             matches.append((gi, best[1], best[2]))
     order = [pred[pi]["start"] for _, pi, _ in matches]  # GT order vs predicted timing
+    # volume accuracy, only where the annotation states one ("Add 250 μl of ..."): exact match within 1%
+    vols = [(gt_volume(gt[g]["sentence"]), pred[p].get("volume_ul")) for g, p, _ in matches]
+    vols = [(want, got) for want, got in vols if want]
     return {
+        "volumes_checked": len(vols),
+        "volume_accuracy": sum(bool(got) and abs(got - want) <= 0.01 * want for want, got in vols) / len(vols) if vols else None,
         "gt_steps": len(gt),
         "pred_steps": len(pred),
         "recall": len(matches) / len(gt) if gt else 0.0,
@@ -97,6 +107,13 @@ if __name__ == "__main__":
     assert r["recall"] == 1.0 and abs(r["precision"] - 2 / 3) < 1e-9 and r["order_correct"], r
     assert score(gt, list(reversed(pred[:2])))["order_correct"] is True  # matching is by time+content, not list position
     assert score(gt, [{**pred[0], "start": 200, "end": 210}])["recall"] == 0.0  # right content, wrong time
+    assert r["volumes_checked"] == 0 and r["volume_accuracy"] is None  # no volumes in these annotations
+    vgt = [{"sentence": "Add 250 μl of Cell Lysis Solution", "start": 10, "end": 20},
+           {"sentence": "Add 10 μl of Alkaline Protease Solution", "start": 30, "end": 40}]
+    vp = [{"start": 11, "end": 19, "description": "Add cell lysis solution", "reagent": "Cell Lysis Solution", "volume_ul": 250},
+          {"start": 31, "end": 39, "description": "Add alkaline protease solution", "reagent": "Alkaline Protease", "volume_ul": 100}]
+    v = score(vgt, vp)
+    assert v["volumes_checked"] == 2 and v["volume_accuracy"] == 0.5, v
     four = [{"start": 60 + 9 * i, "end": 66 + 9 * i, "action": "transfer", "description": "Add primer 1", "reagent": "Primer1"} for i in range(4)]
     g = score(gt, four)
     assert g["pred_steps"] == 1 and g["recall"] == 0.5 and g["precision"] == 1.0, g  # 4 tube fills = 1 protocol step
