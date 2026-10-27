@@ -161,6 +161,7 @@ def transcribe(video, wav_path, keywords=None):
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000",
                         "-sample_fmt", "s16", str(wav_path)], check=True)
     req = {"mode": "ENDPOINTING", "model": "muse-voice-transcribe-1.0", "audioEncoding": "WAV"}
+    keywords = [k for k in keywords or [] if len(k) <= 30]  # API rejects keywords over 30 characters
     if keywords:
         req["keywords"] = keywords
     with open(wav_path, "rb") as audio:

@@ -162,8 +162,12 @@ def run(video, name=None, gt_csv=None, from_gt=False):
         sheet = _cached(run_dir / "sheet.json", lambda: meta.read_sheet(stills))
         spark_video = meta.shrink(video, run_dir / "spark.mp4", fps=10)
         fid = _cached(run_dir / "spark_file.json", lambda: meta.upload(spark_video))
-        speech = _cached(run_dir / "speech.json", lambda: meta.transcribe(
-            video, run_dir / "audio.wav", keywords=[r["name"] for r in sheet.get("reagents", [])] or None))
+        try:  # speech is an optional hint; a transcription failure must not stop the run
+            speech = _cached(run_dir / "speech.json", lambda: meta.transcribe(
+                video, run_dir / "audio.wav", keywords=[r["name"] for r in sheet.get("reagents", [])] or None))
+        except Exception as e:
+            print(f"speech transcription skipped: {e}")
+            speech = []
         steps = _cached(run_dir / "steps_raw.json",
                         lambda: meta.extract_steps(fid, sheet_hint(sheet) + speech_hint(speech)))
         steps = apply_sheet(steps, sheet)
