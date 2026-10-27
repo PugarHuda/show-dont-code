@@ -104,15 +104,20 @@ def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: floa
         raise HTTPException(409, "this run has no SAM video (ground-truth replays can't track)")
     if not (0 <= x < 640 and 0 <= y < 360 and t >= 0):
         raise HTTPException(422, "click outside the frame")
+    if not os.getenv("MODEL_API_KEY"):
+        raise HTTPException(503, "live model calls are not configured on this deployment")
     global live_calls_left
     if live_calls_left <= 0:
         raise HTTPException(429, "live model calls for this demo are used up; try again later")
     live_calls_left -= 1
     frame = round(t * pipeline.SAM_FPS)
     fid = json.loads((d / "sam_file.json").read_text())
-    track = {str(k): v for k, v in meta.track_point(fid, frame, x, y, (640, 360)).items()}
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
-    uses = meta.steps_using(d / "sam_frames", track, steps, pipeline.SAM_FPS, frame)
+    try:
+        track = {str(k): v for k, v in meta.track_point(fid, frame, x, y, (640, 360)).items()}
+        uses = meta.steps_using(d / "sam_frames", track, steps, pipeline.SAM_FPS, frame)
+    except Exception as e:  # provider errors (expired file id, rate limit) come back as a readable message
+        raise HTTPException(502, f"model call failed: {type(e).__name__}: {str(e)[:200]}")
     tubes = _tubes(d)
     tubes.append({"id": len(tubes), "t": t, "x": x, "y": y, "name": None, "track": track, **uses})
     (d / "tubes.json").write_text(json.dumps(tubes), encoding="utf-8")
