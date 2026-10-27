@@ -188,7 +188,10 @@
       <h2>Before you run</h2>
       <p class="hint" id="analysisline"></p>
       <table class="setup"><thead><tr><th scope="col">Load</th><th scope="col">Into</th><th scope="col">Volume</th></tr></thead><tbody id="setup"></tbody></table>
-      <p class="files"><a id="f-proto">protocol.py</a> <a id="f-analysis">Opentrons analysis (.json)</a> <a id="f-receipt">Reproducibility receipt (.json)</a></p>
+      <p class="hint" id="plrline"></p>
+      <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
+        <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
+        <a id="f-receipt">Reproducibility receipt (.json)</a></p>
     </section>
     <section>
       <details><summary>Generated protocol</summary><pre id="code"></pre></details>
@@ -259,6 +262,9 @@ function render() {
     $("f-proto").href = `${base}/protocol.py`;
     $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
     $("f-receipt").href = `${base}/receipt.json`;
+    $("f-plr").href = `${base}/pylabrobot.py`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
+    $("plrline").textContent = R.plr_ok === true ? `Also translated for a Hamilton STARlet and run in PyLabRobot's simulator with volume tracking: ${R.plr.actions} aspirate/dispense actions, no errors.`
+      : R.plr_ok === false ? `The Hamilton STARlet translation failed in PyLabRobot's simulator: ${(R.plr?.tail || []).slice(-1)[0] || "see the file"}` : "";
   }
   $("download").href = R.protocol ? `${API}/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
   $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";

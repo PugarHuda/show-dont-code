@@ -9,6 +9,7 @@ Usage:
 import argparse
 import json
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -124,6 +125,20 @@ def simulate_with(steps, volumes_ul):
     return {"ran": ok, "error": None if ok else log[-1], "robot_actions": len(log), "total_ul_per_tube": totals}
 
 
+def _second_robot(steps):
+    """Translate to PyLabRobot (Hamilton STARlet) and run it in PyLabRobot's simulator: an independent second check."""
+    from . import export
+
+    try:
+        import pylabrobot  # noqa: F401  (optional dependency: present on the hosted backend and locally)
+    except ImportError:
+        return None, {"note": "PyLabRobot is not installed here"}
+    try:
+        return export.run_pylabrobot(export.pylabrobot_script(steps))
+    except (ValueError, subprocess.TimeoutExpired) as e:
+        return False, {"tail": [str(e)[:200]]}
+
+
 def tip_evidence(tracks, steps, fps=SAM_FPS):
     """Attach SAM evidence to each step: how many sampled frames show the pipette tip inside the step window."""
     for s in steps:
@@ -155,6 +170,7 @@ def build(run_dir, steps, answers=None, review=True):
         result["sim_ok"], result["sim_log"] = protocol.simulate(result["protocol"])
         if result["sim_ok"]:  # the Opentrons App's own analysis: the file it would accept, and what to load where
             result["analysis_ok"], result["analysis"] = protocol.analyze(result["protocol"], run_dir / "analysis.json")
+            result["plr_ok"], result["plr"] = _second_robot(steps)
     except protocol.NeedsInput as e:
         result["questions"], result["layout"] = e.questions, protocol.layout(steps)
     sim = ("not run yet: waiting for scientist answers" if result["questions"]

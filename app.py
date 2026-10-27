@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
 if os.getenv("VERCEL") == "1":  # opentrons writes its config under $HOME at import; only /tmp is writable
     os.environ.setdefault("OT_API_CONFIG_DIR", "/tmp/opentrons")
@@ -94,6 +94,37 @@ def protocol_file(name: str):
     if not r["protocol"]:
         raise HTTPException(409, "protocol not generated yet: answer the open questions first")
     return PlainTextResponse(r["protocol"], headers={"Content-Disposition": f'attachment; filename="{name}.py"'})
+
+
+def _confirmed_steps(name):
+    r = json.loads((_run_dir(name) / "result.json").read_text(encoding="utf-8"))
+    if not r.get("protocol"):
+        raise HTTPException(409, "no protocol yet: answer the open questions first")
+    return r["steps"]
+
+
+@app.get("/api/runs/{name}/methods.md")
+def methods_file(name: str):
+    from sdc import export
+
+    return PlainTextResponse(export.methods_markdown(_confirmed_steps(name), f"Show, Don't Code run {name}"),
+                             media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="{name}-methods.md"'})
+
+
+@app.get("/api/runs/{name}/autoprotocol.json")
+def autoprotocol_file(name: str):
+    from sdc import export
+
+    return JSONResponse(export.autoprotocol(_confirmed_steps(name)),
+                        headers={"Content-Disposition": f'attachment; filename="{name}-autoprotocol.json"'})
+
+
+@app.get("/api/runs/{name}/pylabrobot.py")
+def pylabrobot_file(name: str):
+    from sdc import export
+
+    return PlainTextResponse(export.pylabrobot_script(_confirmed_steps(name)),
+                             headers={"Content-Disposition": f'attachment; filename="{name}-pylabrobot.py"'})
 
 
 @app.get("/api/runs/{name}/analysis.json")
