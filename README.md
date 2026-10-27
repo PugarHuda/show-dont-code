@@ -29,9 +29,7 @@ this repository was written during the hackathon. The git history starts on Oct 
 
 ```bash
 uv venv --python 3.12 .venv && uv pip install --python .venv openai meta-sam-parser opentrons fastapi uvicorn python-multipart python-dotenv remotezip
-printf "MODEL_API_KEY=...
-BASETEN_API_KEY=...
-" > .env
+printf 'MODEL_API_KEY=...\nBASETEN_API_KEY=...\n' > .env
 .venv/Scripts/python scripts/fetch_biovl2.py                              # annotations + pcr_1..4 videos only
 .venv/Scripts/python -m sdc.pipeline data/BioVL2/videos/pcr/pcr_1.mp4     # Muse Spark + SAM 3.1 + simulator
 .venv/Scripts/python app.py                                               # http://127.0.0.1:8000
