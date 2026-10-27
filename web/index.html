@@ -77,6 +77,18 @@
   footer { padding: 4px 16px 24px; color: var(--muted); font-size: 12px; }
   footer a { color: inherit; }
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 20px; }
+  dialog::backdrop { background: rgba(0, 0, 0, .45); }
+  dialog h2 { font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--ink); }
+  dialog label { display: grid; gap: 4px; margin: 12px 0; font-size: 14px; }
+  .upbar { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin: 10px 0; }
+  #upfill { height: 100%; width: 0; background: var(--accent); }
+  .upsteps { margin: 10px 0; padding-left: 20px; font-size: 14px; }
+  .upsteps li.done::marker { color: var(--accent); }
+  .upsteps li.error { color: var(--bad); }
+  .upbtns { display: flex; justify-content: flex-end; gap: 8px; }
+  [hidden] { display: none !important; }  /* author display rules must not un-hide */
   .replay { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
   #replaycap { font-size: 13px; color: var(--muted); }
   .head { transition: transform .32s ease-in-out; }
@@ -102,8 +114,23 @@
   <select id="run" aria-label="Run"></select>
   <span id="status" class="pill">loading…</span>
   <span style="flex:1"></span>
+  <button id="upbtn" type="button" class="ghost">Upload your video</button>
   <a id="download"><button id="dl" disabled>Download protocol.py</button></a>
 </header>
+<dialog id="updlg" aria-labelledby="uptitle">
+  <form id="upform" method="dialog">
+    <h2 id="uptitle">Analyse your own lab video</h2>
+    <p class="hint">An MP4 or MOV up to 5 minutes, filmed from your point of view while you pipette. It takes about
+      5 to 8 minutes: Muse Spark watches it, SAM 3.1 tracks the pipette, Muse Voice Transcribe listens, and a
+      Muse Spark Open agent checks the result in the Opentrons simulator. Uploaded videos are stored for this demo.</p>
+    <label>Video <input type="file" name="video" accept="video/mp4,video/quicktime" required></label>
+    <label>Access code, if you were given one <input type="text" name="code" autocomplete="off"></label>
+    <div class="upbar" hidden><div id="upfill"></div></div>
+    <ol class="upsteps" id="upsteps"></ol>
+    <p id="upmsg" role="status"></p>
+    <div class="upbtns"><button type="button" id="upclose" class="ghost">Close</button><button id="upgo">Upload and analyse</button></div>
+  </form>
+</dialog>
 <main>
   <div class="stack">
     <section>
@@ -165,13 +192,14 @@
   Models: Muse Spark, SAM 3.1, Muse Voice Transcribe (Meta Model API) and Muse Spark Open (Baseten).
 </footer>
 <script>
+const API = window.API_BASE || "";  // hosted: the Modal backend; local: same origin
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ROBOT = new Set(["transfer", "mix", "thermocycle"]);
 let R = null, name = null, active = -1;
 
 async function api(path, opts) {
-  const r = await fetch(path, opts);
+  const r = await fetch(API + path, opts);
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.json();
 }
@@ -181,6 +209,7 @@ async function init() {
   $("run").innerHTML = runs.map((n) => `<option>${esc(n)}</option>`).join("");
   const want = new URLSearchParams(location.search).get("run");
   if (want && runs.includes(want)) $("run").value = want;
+  else if (want && want.startsWith("u-")) { $("updlg").showModal(); follow(want); }  // an upload still running
   $("run").onchange = () => load($("run").value);
   if (runs.length) load($("run").value); else $("status").textContent = "no runs yet";
 }
@@ -188,7 +217,7 @@ async function init() {
 async function load(n) {
   name = n;
   R = await api(`/api/runs/${encodeURIComponent(n)}`);
-  $("video").src = `/api/runs/${encodeURIComponent(n)}/video`;
+  $("video").src = `${API}/api/runs/${encodeURIComponent(n)}/video`;
   render();
 }
 
@@ -199,7 +228,7 @@ function render() {
   else { st.className = "pill bad"; st.textContent = "simulator failed"; }
   $("dl").disabled = !R.protocol;
   $("replaybox").hidden = !R.sim_ok;
-  $("download").href = R.protocol ? `/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
+  $("download").href = R.protocol ? `${API}/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
   $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";
   $("sim").textContent = R.sim_log.join("\n") || "—";
 
@@ -434,6 +463,43 @@ cv.addEventListener("click", async (e) => {
 v.addEventListener("timeupdate", tick);
 v.addEventListener("loadedmetadata", () => { timeline(); tick(); });
 (function loop() { if (!v.paused) tick(); requestAnimationFrame(loop); })();
+// --- upload your own video (hosted backend only) ---------------------------------------------------
+$("upbtn").hidden = !window.UPLOADS;
+$("upbtn").onclick = () => $("updlg").showModal();
+$("upclose").onclick = () => $("updlg").close();
+$("upform").onsubmit = (ev) => {
+  ev.preventDefault();
+  const f = ev.target.video.files[0];
+  if (!f) return;
+  const fd = new FormData(); fd.append("file", f); fd.append("code", ev.target.code.value);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", API + "/api/upload");
+  $("upgo").disabled = true; document.querySelector(".upbar").hidden = false; $("upmsg").textContent = "Uploading…";
+  xhr.upload.onprogress = (e) => { if (e.lengthComputable) $("upfill").style.width = `${e.loaded / e.total * 100}%`; };
+  xhr.onload = () => {
+    let j = {}; try { j = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status !== 200) { $("upmsg").textContent = j.detail || `Upload failed (${xhr.status})`; $("upgo").disabled = false; return; }
+    history.replaceState(null, "", `?run=${encodeURIComponent(j.run)}`);
+    follow(j.run);
+  };
+  xhr.onerror = () => { $("upmsg").textContent = "Upload failed: check your connection and try again."; $("upgo").disabled = false; };
+  xhr.send(fd);
+};
+async function follow(run) {
+  $("upmsg").textContent = "Analysing. You can keep this tab open; the run will open by itself when it's done.";
+  for (;;) {
+    let p;
+    try { p = await api(`/api/runs/${encodeURIComponent(run)}/progress`); } catch (e) { $("upmsg").textContent = e.message; return; }
+    const last = {};
+    for (const e of p.events) last[e.stage] = e.state;
+    $("upsteps").innerHTML = Object.entries(last).filter(([k]) => k !== "finished")
+      .map(([k, st]) => `<li class="${st === "running" ? "" : st === "error" ? "error" : "done"}">${esc(k)}${st === "running" ? " …" : st === "error" ? ": failed" : ""}</li>`).join("");
+    if (p.ready) { location.search = `?run=${encodeURIComponent(run)}`; return; }
+    if (Object.values(last).includes("error")) { $("upmsg").textContent = "The analysis failed. Try a shorter or brighter video, or open one of the sample runs."; return; }
+    await new Promise((r) => setTimeout(r, 4000));
+  }
+}
+
 init().catch((e) => { $("status").className = "pill bad"; $("status").textContent = e.message; });
 </script>
 </body>

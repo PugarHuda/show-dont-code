@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse
 
 if os.getenv("VERCEL") == "1":  # opentrons writes its config under $HOME at import; only /tmp is writable
     os.environ.setdefault("OT_API_CONFIG_DIR", "/tmp/opentrons")
@@ -52,7 +52,14 @@ def landing():
 
 @app.get("/app")
 def index():
-    return FileResponse(ROOT / "web" / "index.html")
+    page = ROOT / "web" / "index.html"
+    api = os.getenv("API_BASE", "")  # hosted: the API lives on Modal; empty = same origin (local, Modal itself)
+    if not re.fullmatch(r"(https://[\w.-]+)?", api):
+        raise HTTPException(500, "API_BASE must be an https origin")
+    uploads = "true" if api or os.getenv("UPLOADS") == "1" else "false"  # only the Modal backend can take uploads
+    html = page.read_text(encoding="utf-8").replace(
+        "</head>", f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n</head>', 1)
+    return HTMLResponse(html)
 
 
 @app.get("/api/runs")

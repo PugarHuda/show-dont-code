@@ -9,6 +9,7 @@ Usage:
 import argparse
 import json
 import re
+import time
 from pathlib import Path
 
 from . import evaluate, protocol
@@ -17,16 +18,32 @@ OUT = Path(__file__).resolve().parent.parent / "out"
 SAM_FPS = 2  # ponytail: 2 fps is enough to see a tip enter a tube; raise if steps are shorter than ~1 s
 
 
+on_progress = None  # optional callback after each progress write (the hosted worker commits its volume here)
+
+
+def progress(run_dir, stage, state):
+    """Append a stage event to <run>/progress.json so a UI can show the run as it happens."""
+    f = Path(run_dir) / "progress.json"
+    events = json.loads(f.read_text(encoding="utf-8")) if f.exists() else []
+    events.append({"stage": stage, "state": state, "t": round(time.time(), 1)})
+    f.write_text(json.dumps(events), encoding="utf-8")
+    print(f"  {stage} {'...' if state == 'running' else f'({state})'}", flush=True)
+    if on_progress:
+        on_progress()
+
+
 def _cached(path, fn, label=None):
     path = Path(path)
     if path.exists():
         if label:
-            print(f"  {label} (cached)", flush=True)
+            progress(path.parent, label, "cached")
         return json.loads(path.read_text(encoding="utf-8"))
     if label:
-        print(f"  {label} ...", flush=True)
+        progress(path.parent, label, "running")
     value = fn()
     path.write_text(json.dumps(value, indent=1), encoding="utf-8")
+    if label:
+        progress(path.parent, label, "done")
     return value
 
 
@@ -180,7 +197,8 @@ def run(video, name=None, gt_csv=None, from_gt=False):
     if from_gt:
         steps = steps_from_gt(gt_csv)
     else:
-        stills = meta.frames(video, [2, 10, 20, 35, 50], run_dir / "stills")
+        length = meta.duration(video)  # uploads can be short: only sample stills that exist
+        stills = meta.frames(video, [t for t in (2, 10, 20, 35, 50) if t < length - 0.5] or [0], run_dir / "stills")
         sheet = _cached(run_dir / "sheet.json", lambda: meta.read_sheet(stills), "Muse Spark reads the bench protocol sheet")
         spark_video = meta.shrink(video, run_dir / "spark.mp4", fps=10)
         fid = _cached(run_dir / "spark_file.json", lambda: meta.upload(spark_video), "upload video to Meta Model API")
@@ -202,12 +220,14 @@ def run(video, name=None, gt_csv=None, from_gt=False):
         steps = tip_evidence(tracks, steps)
         from . import agent
 
-        if meta.duration(video) <= agent.MAX_VIDEO_S:  # longer videos: reviewer works from the steps alone
+        if length <= agent.MAX_VIDEO_S:  # longer videos: reviewer works from the steps alone
             meta.shrink(video, run_dir / "review.mp4", fps=2, width=480)
     answers_file = run_dir / "answers.json"
     answers = json.loads(answers_file.read_text()) if answers_file.exists() else {}
-    print("  Opentrons simulator + Muse Spark Open reviewer agent ...", flush=True)
-    return build(run_dir, steps, answers)
+    progress(run_dir, "Opentrons simulator + Muse Spark Open reviewer agent", "running")
+    result = build(run_dir, steps, answers)
+    progress(run_dir, "finished", "done")
+    return result
 
 
 if __name__ == "__main__":
