@@ -299,7 +299,7 @@ function deck(stepIdx) {
   let s = "";
   for (const r of "ABCD") for (const c of "123") { const [x, y] = slotXY(r + c); s += `<rect class="slot" x="${x}" y="${y}" width="${SX}" height="${SY}" rx="6"/><text class="slot-label" x="${x + 4}" y="${y + SY - 4}">${r}${c}</text>`; }
   let [x, y] = slotXY("C2");
-  s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 14}">reagent tubes</text>` + grid(x + 22, y + 24, 4, 6, 18, 6.5, "reagents");
+  s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 14}">reagent tubes</text>` + grid(x + 24, y + 22, 4, 6, 12, 4.5, "reagents");
   if (uses("thermocycle")) {
     [x, y] = slotXY("A1");
     s += `<rect class="lw" x="${x + 4}" y="${y + 4}" width="${SX - 8}" height="${2 * SY + 6 - 8}" rx="6"/><text class="lw-label" x="${x + 10}" y="${y + 16}">thermocycler + PCR plate</text>` + grid(x + 16, y + 40, 8, 12, 9.4, 3.4, "dest");
@@ -342,6 +342,9 @@ function tick() {
   for (const [, l, tp, rt, b] of boxes) ctx.strokeRect(l * k, tp * k, (rt - l) * k, (b - tp) * k);
   ctx.font = "bold 12px system-ui";
   for (const tb of R.tubes || []) {  // clicked tubes, followed by SAM 3.1
+    // draw only sightings Muse Spark verified (its steps) and the moment of the click; elsewhere SAM may have jumped
+    const used = [...tb.source_steps, ...tb.destination_steps].some((i) => t >= R.steps[i].start && t <= R.steps[i].end);
+    if (!used && Math.abs(t - tb.t) > 1) continue;
     const o = (tb.track[String(Math.round(t * R.sam_fps))] || [])[0];
     if (!o) continue;
     const [, l, tp, rt, b] = o, c = COLORS[tb.id % COLORS.length];

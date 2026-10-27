@@ -42,12 +42,14 @@ def missing_inputs(steps):
     return q
 
 
-def generate(steps, title="Show, Don't Code protocol"):
-    """Return (python_source, layout). layout maps each reagent/tube name to a deck location."""
-    questions = missing_inputs(steps)
-    if questions:
-        raise NeedsInput(questions)
+def layout(steps):
+    """Deck placement for every source and destination name. Needs no volumes, so the UI can show the deck
+    while questions are still open."""
+    sources, dests, _ = _plan(steps)
+    return {n: f"{r}:{w}" for n, (r, w) in {**sources, **dests}.items()}
 
+
+def _plan(steps):
     uses_tc = any(s["action"] == "thermocycle" for s in steps)
     sources, dests = {}, {}
     for s in steps:
@@ -61,6 +63,15 @@ def generate(steps, title="Show, Don't Code protocol"):
         sources[name] = ("reagents", well)
     for i, name in enumerate(dests):
         dests[name] = ("dest", f"{'ABCDEFGH'[i % 8]}{i // 8 + 1}") if uses_tc else ("reagents", RACK_WELLS[len(sources) + i])
+    return sources, dests, uses_tc
+
+
+def generate(steps, title="Show, Don't Code protocol"):
+    """Return (python_source, layout). layout maps each reagent/tube name to a deck location."""
+    questions = missing_inputs(steps)
+    if questions:
+        raise NeedsInput(questions)
+    sources, dests, uses_tc = _plan(steps)
 
     small = any(s.get("volume_ul", 0) <= 50 for s in steps if s["action"] in ("transfer", "mix"))
     L = [

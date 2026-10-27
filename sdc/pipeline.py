@@ -137,7 +137,7 @@ def build(run_dir, steps, answers=None, review=True):
         result["protocol"], result["layout"] = protocol.generate(steps)
         result["sim_ok"], result["sim_log"] = protocol.simulate(result["protocol"])
     except protocol.NeedsInput as e:
-        result["questions"] = e.questions
+        result["questions"], result["layout"] = e.questions, protocol.layout(steps)
     sim = ("not run yet: waiting for scientist answers" if result["questions"]
            else "passed" if result["sim_ok"] else f"failed: {result['sim_log'][-1:]}")
     sheet_file = run_dir / "sheet.json"
