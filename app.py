@@ -1,15 +1,27 @@
 """Review UI server: human video next to the generated robot protocol.  Run: python app.py"""
 import json
+import os
 import re
+import shutil
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, RedirectResponse
 
 from sdc import pipeline
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Show, Don't Code")
+
+ON_VERCEL = os.getenv("VERCEL") == "1"
+if ON_VERCEL:  # the bundle is read-only: work on a /tmp copy of the exported demo runs (scripts/export_demo.py)
+    if not Path("/tmp/out").exists():
+        shutil.copytree(ROOT / "demo", "/tmp/out")
+    pipeline.OUT = Path("/tmp/out")
+# re-running the reviewer agent takes minutes; on the hosted demo, edits keep the last review
+REVIEW_ON_EDIT = os.getenv("REVIEW_ON_EDIT", "0" if ON_VERCEL else "1") == "1"
+# ponytail: per-instance counter so a public link can't drain API credits; use a shared store if abused
+live_calls_left = int(os.getenv("LIVE_CALL_LIMIT", "1000000"))
 
 
 def _run_dir(name):
@@ -42,7 +54,10 @@ def result(name: str):
 
 @app.get("/api/runs/{name}/video")
 def video(name: str):
-    return FileResponse(_run_dir(name) / "video.mp4", media_type="video/mp4")
+    d = _run_dir(name)
+    if (ROOT / "public" / "runs" / name / "video.mp4").exists():  # hosted: served by the CDN, not the function
+        return RedirectResponse(f"/runs/{name}/video.mp4")
+    return FileResponse(d / "video.mp4", media_type="video/mp4")
 
 
 @app.get("/api/runs/{name}/protocol.py")
@@ -62,7 +77,7 @@ def answer(name: str, answers: dict[str, float] = Body(...)):
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
     if any(not k.isdigit() or int(k) >= len(steps) for k in answers):
         raise HTTPException(422, "unknown step")
-    pipeline.build(d, steps, {**old, **answers})
+    pipeline.build(d, steps, {**old, **answers}, review=REVIEW_ON_EDIT)
     return result(name)
 
 
@@ -81,6 +96,10 @@ def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: floa
         raise HTTPException(409, "this run has no SAM video (ground-truth replays can't track)")
     if not (0 <= x < 640 and 0 <= y < 360 and t >= 0):
         raise HTTPException(422, "click outside the frame")
+    global live_calls_left
+    if live_calls_left <= 0:
+        raise HTTPException(429, "live model calls for this demo are used up; try again later")
+    live_calls_left -= 1
     frame = round(t * pipeline.SAM_FPS)
     fid = json.loads((d / "sam_file.json").read_text())
     track = {str(k): v for k, v in meta.track_point(fid, frame, x, y, (640, 360)).items()}
@@ -109,7 +128,7 @@ def name_tube(name: str, tube_id: int, label: str = Body(..., embed=True)):
         steps[i]["destination"] = label
     (d / "tubes.json").write_text(json.dumps(tubes), encoding="utf-8")
     answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
-    pipeline.build(d, steps, answers)
+    pipeline.build(d, steps, answers, review=REVIEW_ON_EDIT)
     return result(name)
 
 

@@ -107,9 +107,14 @@ def tip_evidence(tracks, steps, fps=SAM_FPS):
     return steps
 
 
-def build(run_dir, steps, answers=None):
-    """Apply scientist answers, generate the protocol, simulate. Returns the result dict (also saved)."""
+def build(run_dir, steps, answers=None, review=True):
+    """Apply scientist answers, generate the protocol, simulate. Returns the result dict (also saved).
+
+    review=False keeps the previous reviewer output instead of re-running the agent (it takes minutes).
+    """
     run_dir = Path(run_dir)
+    prev_file = run_dir / "result.json"
+    prev = json.loads(prev_file.read_text(encoding="utf-8")) if prev_file.exists() else {}
     steps = [dict(s) for s in steps]
     for i, v in (answers or {}).items():
         steps[int(i)]["volume_ul"] = float(v)
@@ -124,17 +129,21 @@ def build(run_dir, steps, answers=None):
            else "passed" if result["sim_ok"] else f"failed: {result['sim_log'][-1:]}")
     sheet_file = run_dir / "sheet.json"
     sheet = json.loads(sheet_file.read_text(encoding="utf-8")) if sheet_file.exists() else {"found": False}
-    try:
-        from . import agent
+    keep = ("review", "suggested_volumes", "agent_log", "review_saw_video", "review_error")
+    if not review:
+        result.update({k: prev[k] for k in keep if k in prev})
+    else:
+        try:
+            from . import agent
 
-        review_video = run_dir / "review.mp4"
-        out = agent.review(steps, sheet, sim, review_video if review_video.exists() else None,
-                           simulate=(lambda vols: simulate_with(steps, vols)) if result["questions"] else None)
-        result["review"], result["suggested_volumes"], result["agent_log"] = (
-            out["issues"], out["suggested_volumes"], out["tool_log"])
-        result["review_saw_video"] = review_video.exists()
-    except Exception as e:  # reviewer is advisory; a provider outage must not block protocol generation
-        result["review"], result["review_error"] = [], f"{type(e).__name__}: {e}"[:300]
+            review_video = run_dir / "review.mp4"
+            out = agent.review(steps, sheet, sim, review_video if review_video.exists() else None,
+                               simulate=(lambda vols: simulate_with(steps, vols)) if result["questions"] else None)
+            result["review"], result["suggested_volumes"], result["agent_log"] = (
+                out["issues"], out["suggested_volumes"], out["tool_log"])
+            result["review_saw_video"] = review_video.exists()
+        except Exception as e:  # reviewer is advisory; a provider outage must not block protocol generation
+            result["review"], result["review_error"] = [], f"{type(e).__name__}: {e}"[:300]
     gt = run_dir / "gt.csv"
     if gt.exists():
         result["eval"] = evaluate.score(evaluate.load_gt(gt), steps)
