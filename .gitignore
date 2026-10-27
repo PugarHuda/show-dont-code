@@ -4,3 +4,4 @@ data/
 __pycache__/
 out/
 *.pyc
+.playwright-mcp/

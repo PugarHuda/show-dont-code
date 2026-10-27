@@ -82,16 +82,18 @@ def generate(steps, title="Show, Don't Code protocol"):
         return f"{rack}[{well!r}]"
 
     for i, s in enumerate(steps):
-        L.append(f"    # step {i + 1} [{s['start']:.0f}-{s['end']:.0f}s]: {s['description']}")
+        # model output never reaches the source raw: one-line comment, numbers forced to float
+        desc = " ".join(str(s["description"]).split())
+        L.append(f"    # step {i + 1} [{float(s['start']):.0f}-{float(s['end']):.0f}s]: {desc}")
         a = s["action"]
         if a == "transfer":
-            v = s["volume_ul"]
+            v = float(s["volume_ul"])
             pip = "p50" if v <= 50 else "p1000"
             src = loc(sources[s.get("source") or s.get("reagent") or "reagent"])
             dst = loc(dests[s.get("destination") or "sample tube"])
             L.append(f"    {pip}.transfer({v}, {src}, {dst}, new_tip='always')")
         elif a == "mix":
-            v = s["volume_ul"]
+            v = float(s["volume_ul"])
             pip = "p50" if v <= 50 else "p1000"
             dst = loc(dests[s.get("destination") or "sample tube"])
             L += [f"    {pip}.pick_up_tip()", f"    {pip}.mix(3, {v}, {dst})", f"    {pip}.drop_tip()"]
@@ -107,7 +109,7 @@ def generate(steps, title="Show, Don't Code protocol"):
                 "    tc.open_lid()",
             ]
         else:
-            L.append(f"    ctx.pause({('Manual step: ' + s['description'])!r})")
+            L.append(f"    ctx.pause({('Manual step: ' + desc)!r})")
     layout = {n: f"{r}:{w}" for n, (r, w) in {**sources, **dests}.items()}
     return "\n".join(L) + "\n", layout
 
@@ -137,6 +139,8 @@ if __name__ == "__main__":
         raise AssertionError("missing volume must raise")
     except NeedsInput as e:
         assert e.questions[0]["field"] == "volume_ul"
+    evil, _ = generate([{**demo[4], "description": "x\nimport os; os.system('calc')"}])
+    assert "\nimport os" not in evil, "description must stay inside the comment/string"
     src, layout = generate(demo)
     ok, log = simulate(src)
     assert ok, log
