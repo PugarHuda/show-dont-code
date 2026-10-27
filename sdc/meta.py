@@ -46,8 +46,14 @@ STEP_SCHEMA = {
 PROMPT = """You are watching a first-person video of a scientist performing a wet-lab protocol by hand.
 List every protocol step in the order it happens, with start/end times in seconds.
 - One liquid transfer (aspirate from a source, dispense into a destination) is one "transfer" step.
-- Name reagents exactly as written on tube labels, the paper protocol on the bench, or as spoken aloud.
-- Use the same destination name for every step that targets the same tube.
+  If the same reagent goes into several tubes, that is one transfer step per tube.
+- Identify each reagent: read tube labels and the printed/handwritten protocol sheet on the bench, and listen
+  to speech. Typical PCR setup reagents are water, primers, template DNA and a polymerase premix/master mix.
+  Never write a generic name like "stock solution" when a specific one is visible or inferable from the sheet;
+  if it truly cannot be identified, use the cap colour and position (e.g. "orange-cap tube, front rack").
+- Destination tubes are physical objects: count how many distinct reaction tubes are being filled and name
+  them "tube 1", "tube 2", ... by their left-to-right position. Reuse the same name every time that tube is
+  filled again. Do not invent a new tube for every transfer.
 - Only give volume_ul if you can see it on the pipette dial, read it on the protocol sheet, or hear it; else null.
 - Steps a liquid handler cannot do (centrifuge, vortex, invert, placing tubes in a machine) still get listed.
 - Placing tubes into a PCR machine / thermal cycler / "DNA engine" is action "thermocycle".

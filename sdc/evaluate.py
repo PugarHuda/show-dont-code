@@ -15,8 +15,17 @@ def tiou(a, b):
     return inter / union if union > 0 else 0.0
 
 
+# ponytail: hand-written synonym list for BioVL2's reagents; swap for an LLM judge if the vocabulary grows
+SYNONYMS = [(r"master ?mix|premix|primestar", "premix"), (r"distilled water|\bdw\b|nuclease.free water", "water"),
+            (r"primer ?1|forward primer|fwd primer", "primer1"), (r"primer ?2|reverse primer|rev primer", "primer2"),
+            (r"template dna", "template")]
+
+
 def _norm(s):
-    return re.sub(r"[^a-z0-9 ]", " ", (s or "").lower()).split()
+    s = (s or "").lower()
+    for pat, canon in SYNONYMS:
+        s = re.sub(pat, canon, s)
+    return re.sub(r"[^a-z0-9 ]", " ", s).split()
 
 
 def text_sim(gt_sentence, pred):
@@ -29,8 +38,26 @@ def text_sim(gt_sentence, pred):
     return max(fuzzy, overlap)
 
 
+def group(pred):
+    """Merge back-to-back transfers of the same reagent into one protocol step ('Add Primer1' to 4 tubes = 1 step).
+
+    BioVL2 annotates per reagent; the robot needs per-tube transfers. Scoring happens at the protocol level.
+    """
+    out = []
+    for p in sorted(pred, key=lambda p: p["start"]):
+        prev = out[-1] if out else None
+        key = (p.get("action"), (p.get("reagent") or "").lower(), (p.get("source") or "").lower())
+        if prev and key[1] and key == (prev.get("action"), (prev.get("reagent") or "").lower(), (prev.get("source") or "").lower()):
+            prev["end"] = max(prev["end"], p["end"])
+            prev["n"] = prev.get("n", 1) + 1
+        else:
+            out.append(dict(p))
+    return out
+
+
 def score(gt, pred, min_tiou=0.1, min_text=0.5):
-    """Greedy one-to-one matching. A match needs temporal overlap AND the right content."""
+    """Greedy one-to-one matching on grouped steps. A match needs temporal overlap AND the right content."""
+    pred = group(pred)
     used, matches = set(), []
     for gi, g in enumerate(gt):
         best = None
@@ -67,4 +94,7 @@ if __name__ == "__main__":
     assert r["recall"] == 1.0 and abs(r["precision"] - 2 / 3) < 1e-9 and r["order_correct"], r
     assert score(gt, list(reversed(pred[:2])))["order_correct"] is True  # matching is by time+content, not list position
     assert score(gt, [{**pred[0], "start": 200, "end": 210}])["recall"] == 0.0  # right content, wrong time
+    four = [{"start": 60 + 9 * i, "end": 66 + 9 * i, "action": "transfer", "description": "Add primer 1", "reagent": "Primer1"} for i in range(4)]
+    g = score(gt, four)
+    assert g["pred_steps"] == 1 and g["recall"] == 0.5 and g["precision"] == 1.0, g  # 4 tube fills = 1 protocol step
     print("evaluate self-check OK")
