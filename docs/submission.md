@@ -22,7 +22,14 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 
 **Public GitHub repository:** https://github.com/PugarHuda/show-dont-code (make public before submitting)
 **3-minute demo video:** (YouTube link)
-**Live demo:** https://show-dont-code.vercel.app
+**Live demo:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (seven sample runs).
+Uploading your own video needs the access code; put it in the description field of the form, never in this
+repo (the code lives in `out/upload_code.txt`, which is gitignored).
+
+**Features to name in the form:** upload a video and watch each stage run (Modal backend); click-to-track any tube
+(SAM 3.1 + Muse Spark verification); reviewer agent that runs the simulator as a tool (Muse Spark Open on
+Baseten); one question per reagent, pre-filled with a simulator-checked plan; robot replay of the simulator's
+own command log on the deck; downloadable `protocol.py`.
 
 **Describe your use of Meta products**
 > - Muse Spark 1.3 (Meta Model API, Files + Responses API, strict JSON schema): video → timestamped protocol steps;
