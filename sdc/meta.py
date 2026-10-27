@@ -361,7 +361,7 @@ def steps_using(frames_dir, track_frames, steps, fps, click_frame):
     if len(content) <= 2:
         return {"source_steps": [], "destination_steps": [], "reasoning": "the tracker never saw this tube during a transfer step"}
     r = client().responses.create(
-        model=SPARK, input=[{"role": "user", "content": content}], max_output_tokens=16000,
+        model=SPARK, input=[{"role": "user", "content": content}], max_output_tokens=32000, reasoning={"effort": "low"},  # many images; keep reasoning short
         text={"format": {"type": "json_schema", "name": "uses", "schema": USES_SCHEMA, "strict": True}},
     )
     if not r.output_text:
