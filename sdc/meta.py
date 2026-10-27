@@ -257,7 +257,8 @@ def identify_sources(video, steps, sheet, still_dir):
         "changes, use a new group. Consecutive transfers usually share a source. Finally name each group's "
         "reagent." + (f" The bench protocol sheet suggests these reagents (may be misread or incomplete; water is "
                       f"often left off): {'; '.join(names)}." if names else "")
-        + " Do not invent reagents or preparation steps you cannot see.")}]
+        + " Do not invent reagents or preparation steps you cannot see. A reagent name is at most 6 words; if "
+          "you cannot identify it, name it like 'unknown, orange-cap tube'.")}]
     for k, i in enumerate(idx):
         content.append({"type": "input_text", "text": f"Transfer step {i} ({steps[i]['start']:.0f}-{steps[i]['end']:.0f} s):"})
         for p in stills[2 * k: 2 * k + 2]:

@@ -206,11 +206,17 @@ async function api(path, opts) {
 
 async function init() {
   const runs = await api("/api/runs");
-  $("run").innerHTML = runs.map((n) => `<option>${esc(n)}</option>`).join("");
   const want = new URLSearchParams(location.search).get("run");
+  const upload = want && want.startsWith("u-") ? want : null;  // uploads are private, so never in the listing
+  if (upload) runs.unshift(upload);
+  $("run").innerHTML = runs.map((n) => `<option value="${esc(n)}">${esc(n === upload ? "your upload" : n)}</option>`).join("");
   if (want && runs.includes(want)) $("run").value = want;
-  else if (want && want.startsWith("u-")) { $("updlg").showModal(); follow(want); }  // an upload still running
   $("run").onchange = () => load($("run").value);
+  if (upload) {
+    try { await load(upload); }  // finished: open it
+    catch { $("status").textContent = "analysing your video…"; $("updlg").showModal(); follow(upload); }  // still running
+    return;
+  }
   if (runs.length) load($("run").value); else $("status").textContent = "no runs yet";
 }
 
