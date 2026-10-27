@@ -360,7 +360,7 @@ async function submitAnswers(ev) {
 }
 
 const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
-const seek = (t) => { $("video").currentTime = t; $("video").play(); };
+const seek = (t) => { $("video").currentTime = t; $("video").play().catch(() => {}); };  // a pause right after is fine
 const dur = () => $("video").duration || Math.max(...R.steps.map((s) => s.end), 1);
 
 function timeline() {

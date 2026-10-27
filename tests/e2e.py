@@ -152,7 +152,8 @@ def main():
             vp.goto(BASE + "/app?run=pcr_3")
             vp.wait_for_selector("#voicebtn", state="visible", timeout=60000)
             vp.click("#voicebtn"); vp.wait_for_timeout(15000); vp.click("#voicebtn")
-            vp.wait_for_function("!document.getElementById('voicebtn').disabled", timeout=180000)
+            # wait for the outcome message, not the button: onstop disables it asynchronously
+            vp.wait_for_function("/^(Heard|Nothing|The |send|that|keep|live)/.test(document.getElementById('voicemsg').textContent)", timeout=180000)
             filled = vp.eval_on_selector_all("#qform input.heard", "xs => xs.length")
             check("voice: spoken answers fill the form", filled >= 3, vp.inner_text("#voicemsg"))
             vb.close()
