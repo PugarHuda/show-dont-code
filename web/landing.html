@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Show, Don't Code</title>
+<meta name="description" content="Film yourself running a lab protocol once. Get an Opentrons robot protocol that passes the official simulator. Built on Muse Spark, SAM 3.1, Muse Voice Transcribe and Muse Spark Open.">
+<meta property="og:title" content="Show, Don't Code">
+<meta property="og:description" content="Pipette it once on camera. Get the robot protocol.">
+<meta property="og:image" content="/media/hero.jpg">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232f63d8'/><path d='M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z' fill='white'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Palette from the footage itself: clean-bench white, lab-coat navy ink, nitrile-glove blue. */
+  :root {
+    --bg: #f5f7f9; --surface: #ffffff; --ink: #142130; --muted: #566676; --rule: #d6dee5;
+    --glove: #2f63d8; --glove-ink: #ffffff; --glove-soft: #e3ebfb; --well: #0f7a5c;
+    --sans: "Schibsted Grotesk", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d141b; --surface: #141d26; --ink: #e5ecf2; --muted: #92a3b3; --rule: #243240;
+      --glove: #7aa6ff; --glove-ink: #0d141b; --glove-soft: #1a2a45; --well: #4fd1a5;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d141b; --surface: #141d26; --ink: #e5ecf2; --muted: #92a3b3; --rule: #243240;
+    --glove: #7aa6ff; --glove-ink: #0d141b; --glove-soft: #1a2a45; --well: #4fd1a5;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 18px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible, video:focus-visible { outline: 3px solid var(--glove); outline-offset: 3px; border-radius: 6px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  @media (max-width: 600px) { .wrap { padding: 0 16px; } body { font-size: 17px; } }
+
+  /* header */
+  .top { display: flex; align-items: center; gap: 28px; padding-top: 22px; padding-bottom: 22px; }
+  .mark { font-weight: 800; font-size: 19px; letter-spacing: -0.01em; text-decoration: none; display: flex; align-items: center; gap: 10px; }
+  .mark svg { width: 26px; height: 26px; }
+  .top nav { margin-left: auto; display: flex; gap: 26px; align-items: center; font-size: 16px; }
+  .top nav a { text-decoration: none; color: var(--muted); }
+  .top nav a:hover { color: var(--ink); }
+  @media (max-width: 720px) { .top nav a.sec { display: none; } }
+
+  .btn { display: inline-block; padding: 13px 22px; border-radius: 999px; font-weight: 700; font-size: 17px; text-decoration: none; border: 2px solid var(--glove); }
+  .btn.solid { background: var(--glove); color: var(--glove-ink); }
+  .btn.solid:hover { filter: brightness(1.08); }
+  .btn.line { color: var(--glove); }
+  .btn.line:hover { background: var(--glove-soft); }
+  .top .btn { padding: 9px 18px; font-size: 15px; }
+
+  /* hero */
+  .hero { padding-top: 56px; }  /* top only: .wrap owns the side gutters */
+  .hero h1 { font-weight: 800; font-size: clamp(44px, 7.4vw, 96px); line-height: 0.98; letter-spacing: -0.035em; margin: 0; max-width: 13ch; }
+  .hero .lede { font-size: clamp(19px, 1.8vw, 22px); color: var(--muted); max-width: 40em; margin: 28px 0 32px; }
+  .hero .lede strong { color: var(--ink); font-weight: 500; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+  .stage { margin: 56px 0 0; position: relative; }
+  .stage video, .stage img { display: block; width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--rule); background: #000; }
+  .stage figcaption { color: var(--muted); font-size: 15px; margin-top: 12px; max-width: 70ch; }
+  .stage .toggle { position: absolute; right: 14px; top: 14px; background: rgba(13, 20, 27, .72); color: #fff; border: 0; border-radius: 999px; padding: 7px 14px; font: 500 14px var(--sans); cursor: pointer; }
+
+  section { padding: 104px 0 0; }
+  section > .wrap > h2 { font-weight: 800; font-size: clamp(32px, 4vw, 48px); line-height: 1.05; letter-spacing: -0.025em; margin: 0 0 18px; max-width: 18ch; }
+  section > .wrap > .intro { color: var(--muted); max-width: 38em; margin: 0 0 48px; }
+
+  /* the pipeline: a real sequence, numbered as wells filling left to right */
+  ol.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-top: 1px solid var(--rule); }
+  ol.flow li { padding: 26px 26px 6px 0; }
+  ol.flow li + li { padding-left: 26px; border-left: 1px solid var(--rule); }
+  .well { width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--well); display: grid; place-items: center; font-weight: 700; font-size: 15px; color: var(--well); margin-bottom: 18px; position: relative; }
+  .well::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--well); clip-path: inset(var(--fill) 0 0 0); opacity: .22; }
+  ol.flow h3 { font-size: 21px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  ol.flow .model { color: var(--glove); font-weight: 500; font-size: 15px; margin: 0 0 12px; }
+  ol.flow p { color: var(--muted); font-size: 16.5px; margin: 0 0 14px; }
+  @media (max-width: 920px) { ol.flow { grid-template-columns: 1fr 1fr; } ol.flow li:nth-child(3) { padding-left: 0; border-left: 0; } ol.flow li { border-bottom: 1px solid var(--rule); } }
+  @media (max-width: 560px) { ol.flow { grid-template-columns: 1fr; } ol.flow li, ol.flow li + li { padding-left: 0; border-left: 0; } }
+
+  /* output */
+  .out { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+  @media (max-width: 900px) { .out { grid-template-columns: 1fr; } }
+  pre.code { margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 22px 24px; overflow-x: auto; font: 400 13.5px/1.7 var(--mono); color: var(--ink); }
+  pre.code .c { color: var(--muted); }
+  pre.code .k { color: var(--glove); }
+  .facts { margin: 0; padding: 0; list-style: none; }
+  .facts li { padding: 0 0 22px; margin: 0 0 22px; border-bottom: 1px solid var(--rule); }
+  .facts li:last-child { border: 0; }
+  .facts b { display: block; font-size: 22px; letter-spacing: -0.01em; margin-bottom: 4px; }
+  .facts span { color: var(--muted); font-size: 16.5px; }
+
+  /* results: printed plainly, never animated */
+  .scores { display: flex; flex-wrap: wrap; gap: 56px; margin: 0 0 40px; }
+  .scores div { min-width: 0; }
+  .scores b { display: block; font-weight: 800; font-size: clamp(56px, 8vw, 104px); line-height: 1; letter-spacing: -0.04em; }
+  .scores span { color: var(--muted); font-size: 16px; }
+  table.runs { border-collapse: collapse; width: 100%; max-width: 760px; font-size: 16px; }
+  table.runs th, table.runs td { text-align: left; padding: 11px 16px 11px 0; border-bottom: 1px solid var(--rule); }
+  table.runs th { font-weight: 500; color: var(--muted); }
+  table.runs td.n { font-variant-numeric: tabular-nums; }
+  .note { color: var(--muted); max-width: 38em; margin: 26px 0 0; font-size: 16.5px; }
+
+  /* limits */
+  .limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 48px; max-width: 980px; }
+  .limits div { border-top: 1px solid var(--rule); padding: 22px 0 26px; }
+  .limits b { display: block; font-size: 19px; margin-bottom: 6px; }
+  .limits span { color: var(--muted); font-size: 16.5px; }
+  @media (max-width: 720px) { .limits { grid-template-columns: 1fr; } }
+
+  /* closing */
+  .close { padding-top: 120px; padding-bottom: 96px; }
+  .close h2 { font-weight: 800; font-size: clamp(36px, 5vw, 64px); letter-spacing: -0.03em; line-height: 1.02; margin: 0 0 28px; max-width: 16ch; }
+  footer { border-top: 1px solid var(--rule); padding: 28px 0 44px; color: var(--muted); font-size: 14.5px; }
+  footer p { margin: 0 0 8px; max-width: 80ch; }
+</style>
+</head>
+<body>
+<header class="wrap top">
+  <a class="mark" href="/" aria-label="Show, Don't Code home">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--glove)"/><path d="M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z" fill="var(--glove-ink)"/></svg>
+    Show, Don't Code
+  </a>
+  <nav aria-label="Page">
+    <a class="sec" href="#how">How it works</a>
+    <a class="sec" href="#results">Results</a>
+    <a class="btn solid" href="/app?run=pcr_3">Open the app</a>
+  </nav>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <h1>Pipette it once. Get the robot protocol.</h1>
+    <p class="lede">Film yourself running a protocol at the bench. Show, Don't Code watches the video, works out every transfer,
+      and writes an <strong>Opentrons Flex protocol that passes the official simulator</strong>. You check each step against your own
+      footage before anything touches a reagent.</p>
+    <div class="ctas">
+      <a class="btn solid" href="/app?run=pcr_3">Open a real PCR run</a>
+      <a class="btn line" href="https://github.com/PugarHuda/show-dont-code">Read the code</a>
+    </div>
+    <figure class="stage">
+      <video id="hero" src="/media/hero.mp4" poster="/media/hero.jpg" autoplay muted loop playsinline
+             aria-label="The app playing a lab video next to the robot deck: each transfer lights up its source tube and destination well"></video>
+      <button class="toggle" id="toggle" type="button">Pause</button>
+      <figcaption>A real 4-minute PCR setup from the BioVL2 dataset. Muse Spark found 18 transfers into 4 tubes; as the
+        scientist pipettes, the robot deck lights the source tube and the well it lands in.</figcaption>
+    </figure>
+  </div>
+
+  <section id="how">
+    <div class="wrap">
+      <h2>What happens to your video</h2>
+      <p class="intro">Four Meta models, each doing the part it is best at. Nothing reaches the robot until the simulator has run it and you have seen it.</p>
+      <ol class="flow">
+        <li>
+          <div class="well" style="--fill: 75%">1</div>
+          <h3>Watch</h3>
+          <p class="model">Muse Spark 1.3</p>
+          <p>Reads the whole video and the protocol sheet lying on the bench, then looks again at each moment liquid is drawn up to tell which tube it came from.</p>
+        </li>
+        <li>
+          <div class="well" style="--fill: 50%">2</div>
+          <h3>Track</h3>
+          <p class="model">SAM 3.1</p>
+          <p>Follows the pipette tip through the recording. Click any tube and it follows that tube too, while Muse Spark throws out the frames where it jumped to a look-alike cap.</p>
+        </li>
+        <li>
+          <div class="well" style="--fill: 25%">3</div>
+          <h3>Listen</h3>
+          <p class="model">Muse Voice Transcribe</p>
+          <p>Anything you say while you work, like “fifty microlitres of primer”, becomes timestamped evidence, biased toward the reagent names on your sheet.</p>
+        </li>
+        <li>
+          <div class="well" style="--fill: 0%">4</div>
+          <h3>Check</h3>
+          <p class="model">Muse Spark Open</p>
+          <p>A reviewer agent watches the same video, runs the Opentrons simulator itself until the volumes add up, and asks you about whatever the footage can't prove.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="output">
+    <div class="wrap">
+      <h2>The output is code a robot runs</h2>
+      <p class="intro">The models decide what happened. Plain, deterministic code decides how the robot does it, so model output never becomes executable code.</p>
+      <div class="out">
+<pre class="code" aria-label="Excerpt of a generated protocol"><span class="c"># Generated by Show, Don't Code from a video of a human performing the protocol.</span>
+requirements = {'robotType': 'Flex', 'apiLevel': '2.20'}
+
+<span class="k">def</span> run(ctx):
+    reagents = ctx.load_labware('opentrons_24_tuberack_eppendorf_1.5ml_safelock_snapcap', 'C2')
+    tc = ctx.load_module('thermocyclerModuleV2')
+    dest = tc.load_labware('opentrons_96_wellplate_200ul_pcr_full_skirt')
+    p50 = ctx.load_instrument('flex_1channel_50', 'left', tip_racks=[tips50])
+    <span class="c"># step 1 [31-35s]: Transfer MilliQ to tube 1</span>
+    p50.transfer(7.75, reagents['A1'], dest['A1'], new_tip='always')
+    <span class="c"># step 2 [35-39s]: Transfer MilliQ to tube 2</span>
+    p50.transfer(7.75, reagents['A1'], dest['B1'], new_tip='always')
+    <span class="c"># step 5 [59-72s]: Transfer SE primer to tube 1</span>
+    p50.transfer(1.25, reagents['B1'], dest['A1'], new_tip='always')
+    <span class="c"># …</span>
+    tc.execute_profile(steps=[…], repetitions=35, block_max_volume=50)</pre>
+        <ul class="facts">
+          <li><b>Passes the official simulator</b><span>The pcr_3 protocol runs to the end in Opentrons' own simulator: 96 robot actions, one fresh tip per transfer.</span></li>
+          <li><b>Every line points back to the video</b><span>Each step carries the seconds it happened in your footage, so you can replay the moment before you trust it.</span></li>
+          <li><b>Hand-offs where a robot can't help</b><span>Spinning down or inverting a tube becomes a pause that hands the run back to you.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="results">
+    <div class="wrap">
+      <h2>Measured on videos it never saw</h2>
+      <p class="intro">We tuned the prompts on one video and scored the pipeline against human step annotations on three others from the public BioVL2 dataset.</p>
+      <div class="scores">
+        <div><b>0.83</b><span>step recall, held-out mean</span></div>
+        <div><b>0.73</b><span>step precision, held-out mean</span></div>
+      </div>
+      <table class="runs">
+        <thead><tr><th scope="col">Video</th><th scope="col">Recall</th><th scope="col">Precision</th><th scope="col">What went wrong</th></tr></thead>
+        <tbody>
+          <tr><td>pcr_2</td><td class="n">0.83</td><td class="n">0.62</td><td>one reagent split across two source tubes</td></tr>
+          <tr><td>pcr_3</td><td class="n">1.00</td><td class="n">1.00</td><td>nothing at the step level</td></tr>
+          <tr><td>pcr_4</td><td class="n">0.67</td><td class="n">0.57</td><td>invented a master-mix step that never happened</td></tr>
+        </tbody>
+      </table>
+      <p class="note">About one proposed step in four is extra or mislabelled. That is why the app shows every step next to the footage and asks before it writes code.</p>
+    </div>
+  </section>
+
+  <section id="limits">
+    <div class="wrap">
+      <h2>Where it still needs you</h2>
+      <p class="intro">A camera can't see everything a protocol needs. The app asks once, in plain words, instead of guessing.</p>
+      <div class="limits">
+        <div><b>Volumes nobody said out loud</b><span>One question per reagent, pre-filled with a plan the reviewer agent checked in the simulator. You decide.</span></div>
+        <div><b>Anything under 1 µL</b><span>Below the Flex pipette's minimum, so it asks you to dilute the stock and enter the new volume.</span></div>
+        <div><b>The thermocycler program</b><span>The video shows the tubes going in, not the program, so you type the cycle count.</span></div>
+        <div><b>Tubes that look alike</b><span>Click a tube to name it once. SAM 3.1 follows it and Muse Spark checks every sighting is really that tube.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap close">
+    <h2>See it on a real lab video</h2>
+    <div class="ctas">
+      <a class="btn solid" href="/app?run=pcr_3">Open the app</a>
+      <a class="btn line" href="https://github.com/PugarHuda/show-dont-code">Read the code</a>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Built for the Meta Global AI Developer Hackathon 2026 on Muse Spark, SAM 3.1 and Muse Voice Transcribe (Meta Model API) and Muse Spark Open (served by Baseten).</p>
+    <p>Lab videos and step annotations: <a href="https://zenodo.org/records/21495188">BioVL2 dataset</a> (Nishimura et al., Kyoto University),
+      <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, re-encoded for display. Opentrons and Flex are trademarks of Opentrons Labworks.</p>
+  </div>
+</footer>
+<script>
+  // One moving thing on the page: the hero. Honour reduced motion and give a visible pause control.
+  const v = document.getElementById("hero"), b = document.getElementById("toggle");
+  const set = (play) => { (play ? v.play() : (v.pause(), Promise.resolve())).catch(() => {}); b.textContent = play ? "Pause" : "Play"; };
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) set(false);
+  b.addEventListener("click", () => set(v.paused));
+</script>
+</body>
+</html>

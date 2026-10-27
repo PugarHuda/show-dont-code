@@ -36,6 +36,14 @@ def _run_dir(name):
     return pipeline.OUT / name
 
 
+@app.get("/media/{name}")
+def media(name: str):  # local preview only; on Vercel public/media is served by the CDN before this runs
+    path = ROOT / "public" / "media" / name
+    if not re.fullmatch(r"[\w.-]+", name) or not path.exists():
+        raise HTTPException(404, "no such file")
+    return FileResponse(path)
+
+
 @app.get("/")
 def landing():
     page = ROOT / "web" / "landing.html"
