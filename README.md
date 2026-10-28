@@ -134,7 +134,7 @@ Known failures:
 ## Run it
 
 ```bash
-uv venv --python 3.12 .venv && uv pip install --python .venv -r requirements.txt remotezip PyLabRobot==0.2.2 playwright
+uv venv --python 3.12 .venv && uv pip install --python .venv -r requirements.txt remotezip PyLabRobot==0.2.2 playwright roc-validator
 printf 'MODEL_API_KEY=...\nBASETEN_API_KEY=...\n' > .env
 .venv/Scripts/python scripts/fetch_biovl2.py                              # annotations + pcr_1..4 videos only
 .venv/Scripts/python -m sdc.pipeline data/BioVL2/videos/pcr/pcr_1.mp4     # all models + simulator
