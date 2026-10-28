@@ -8,6 +8,8 @@ import secrets
 import shutil
 import threading
 import time
+from collections import defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request
@@ -67,6 +69,29 @@ def _run_dir(name):
     return pipeline.OUT / name
 
 
+PRIVATE = ("u-", "c-")  # uploads and edit copies: unlisted, reachable only through their unguessable link
+_edit_locks = defaultdict(threading.Lock)  # ponytail: one web container (max_containers=1); a volume lock if that grows
+
+
+@contextmanager
+def _editable(name):
+    """The run an edit may write to. Sample runs are shared by every visitor, so an edit never lands on one: it goes to a
+    private copy (c-*, as unguessable as an upload) whose name the response carries as `run`; a rejected edit leaves
+    no copy behind. Writes to one run are serialized, since each is a read-modify-write of result.json."""
+    d = _run_dir(name)
+    if not name.startswith(PRIVATE):
+        d = pipeline.OUT / ("c-" + secrets.token_urlsafe(12))
+        shutil.copytree(pipeline.OUT / name, d, ignore=shutil.ignore_patterns(*pipeline.SHARED))
+        (d / "copy_of").write_text(name)
+    try:
+        with _edit_locks[d.name]:
+            yield d
+    except BaseException:
+        if d.name != name:
+            shutil.rmtree(d, ignore_errors=True)
+        raise
+
+
 @app.get("/media/{name}")
 def media(name: str):  # local preview only; on Vercel public/media is served by the CDN before this runs
     path = ROOT / "public" / "media" / name
@@ -112,13 +137,14 @@ def index():
 @app.get("/api/runs")
 def runs():
     # uploads (u-*) are private: reachable only through the link their uploader got
-    return sorted(p.parent.name for p in pipeline.OUT.glob("*/result.json") if not p.parent.name.startswith("u-"))
+    return sorted(p.parent.name for p in pipeline.OUT.glob("*/result.json") if not p.parent.name.startswith(PRIVATE))
 
 
 @app.get("/api/runs/{name}")
 def result(name: str):
     d = _run_dir(name)
     r = json.loads((d / "result.json").read_text(encoding="utf-8"))
+    r["run"] = name  # after an edit to a sample run: the private copy it went to
     tracks = d / "tracks_tip.json"
     r["tracks"] = json.loads(tracks.read_text()) if tracks.exists() else {}
     r["sam_fps"] = pipeline.SAM_FPS
@@ -133,9 +159,10 @@ def result(name: str):
 @app.get("/api/runs/{name}/video")
 def video(name: str):
     d = _run_dir(name)
+    video = pipeline.asset(d, "video.mp4")
     if ON_VERCEL:  # public/ is served by the CDN and is not inside the function bundle
-        return RedirectResponse(f"/runs/{name}/video.mp4")
-    return FileResponse(d / "video.mp4", media_type="video/mp4")
+        return RedirectResponse(f"/runs/{video.parent.name}/video.mp4")
+    return FileResponse(video, media_type="video/mp4")
 
 
 def _speech(d):
@@ -226,8 +253,8 @@ def receipt(name: str):
     r = json.loads((d / "result.json").read_text(encoding="utf-8"))
     if not r.get("protocol"):
         raise HTTPException(409, "no protocol yet: answer the open questions first")
-    files = {f: _sha256((d / f).read_bytes()) for f in ("video.mp4", "steps_raw.json", "steps_stage2.json",
-                                                         "tracks_tip.json", "analysis.json") if (d / f).exists()}
+    files = {f: _sha256(pipeline.asset(d, f).read_bytes()) for f in ("video.mp4", "steps_raw.json", "steps_stage2.json",
+                                                                       "tracks_tip.json", "analysis.json") if pipeline.asset(d, f).exists()}
     answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
     return {
         "run": name,
@@ -342,7 +369,12 @@ async def voice(name: str, request: Request):
 @app.post("/api/runs/{name}/review/{k}/apply")
 def apply_fix(name: str, k: int):
     """Accept the reviewer agent's proposed change for finding k. The agent proposes; only this click changes steps."""
-    d = _run_dir(name)
+    with _editable(name) as d:
+        _apply_fix(d, k)
+    return result(d.name)
+
+
+def _apply_fix(d, k):
     r = json.loads((d / "result.json").read_text(encoding="utf-8"))
     issues = r.get("review") or []
     if not 0 <= k < len(issues) or (issues[k].get("fix") or {}).get("kind", "none") == "none":
@@ -361,12 +393,16 @@ def apply_fix(name: str, k: int):
     out = pipeline.build(d, steps, answers, review=False)  # keeps the review, so mark this finding done in it
     out["review"][k]["applied"] = True
     (d / "result.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
-    return result(name)
 
 
 @app.post("/api/runs/{name}/answers")
 def answer(name: str, answers: dict[str, float] = Body(...)):
-    d = _run_dir(name)
+    with _editable(name) as d:
+        _answer(d, answers)
+    return result(d.name)
+
+
+def _answer(d, answers):
     old = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
     for k, v in answers.items():
@@ -378,7 +414,6 @@ def answer(name: str, answers: dict[str, float] = Body(...)):
         if not m[2] and not 0 < v <= 1000:
             raise HTTPException(422, "volumes must be in (0, 1000] µL")
     pipeline.build(d, steps, {**old, **answers}, review=REVIEW_ON_EDIT)
-    return result(name)
 
 
 def _tubes(d):
@@ -389,22 +424,27 @@ def _tubes(d):
 @app.post("/api/runs/{name}/tubes")
 def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: float = Body(...)):
     """Scientist clicked a tube at time t, (x, y) in the 640x360 SAM frame: track it, then ground its uses."""
-    from sdc import meta
-
-    d = _run_dir(name)
-    if not (d / "sam_file.json").exists():
+    if not (_run_dir(name) / "sam_file.json").exists():
         raise HTTPException(409, "this run has no SAM video (ground-truth replays can't track)")
     if not (0 <= x < 640 and 0 <= y < 360 and t >= 0):
         raise HTTPException(422, "click outside the frame")
     if not os.getenv("MODEL_API_KEY"):
         raise HTTPException(503, "live model calls are not configured on this deployment")
     spend_live_call()
+    with _editable(name) as d:
+        _track_tube(d, name, t, x, y)
+    return result(d.name)
+
+
+def _track_tube(d, name, t, x, y):
+    from sdc import meta
+
     frame = round(t * pipeline.SAM_FPS)
     fid = json.loads((d / "sam_file.json").read_text())
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
     try:
         track = {str(k): v for k, v in meta.track_point(fid, frame, x, y, (640, 360)).items()}
-        uses = meta.steps_using(d / "sam_frames", track, steps, pipeline.SAM_FPS, frame)
+        uses = meta.steps_using(pipeline.asset(d, "sam_frames"), track, steps, pipeline.SAM_FPS, frame)
     except Exception as e:  # details go to the server log only; provider messages can carry ids and internals
         log.exception("tube tracking failed for run %s", name)
         busy = "RateLimit" in type(e).__name__ or "429" in str(e)
@@ -413,13 +453,17 @@ def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: floa
     tubes = _tubes(d)
     tubes.append({"id": len(tubes), "t": t, "x": x, "y": y, "name": None, "track": track, **uses})
     (d / "tubes.json").write_text(json.dumps(tubes), encoding="utf-8")
-    return result(name)
 
 
 @app.post("/api/runs/{name}/tubes/{tube_id}/name")
 def name_tube(name: str, tube_id: int, label: str = Body(..., embed=True)):
     """Apply the scientist's name for a tube to every step SAM + Muse Spark tied to it."""
-    d = _run_dir(name)
+    with _editable(name) as d:
+        _name_tube(d, tube_id, label)
+    return result(d.name)
+
+
+def _name_tube(d, tube_id, label):
     label = " ".join(label.split())[:60]
     tubes = _tubes(d)
     if not label or not 0 <= tube_id < len(tubes):
@@ -434,7 +478,6 @@ def name_tube(name: str, tube_id: int, label: str = Body(..., embed=True)):
     (d / "tubes.json").write_text(json.dumps(tubes), encoding="utf-8")
     answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
     pipeline.build(d, steps, answers, review=REVIEW_ON_EDIT)
-    return result(name)
 
 
 # ---- MCP: other agents (Claude, Llama, any MCP client) read runs over Streamable HTTP at /mcp -----------------

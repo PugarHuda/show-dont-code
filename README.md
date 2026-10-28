@@ -77,6 +77,10 @@ Then:
   analysis results), `get_protocol`, `get_receipt`. Read-only on purpose: no tool runs code an agent sends (a
   protocol is Python) or spends model credits. Add it to Claude Code with
   `claude mcp add --transport http show-dont-code <url>/mcp`.
+- **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run
+  goes to a private copy (`c-…`, as unguessable as an upload link) that the page switches to and keeps in the URL,
+  so one judge's answers don't become the next judge's demo. A copy holds only the run's JSON (~430 KB) and reads
+  the footage and SAM frames from its sample; a rejected edit leaves no copy, and writes to one run are serialized.
 
 The scientist can also **answer by voice** (browser recording → Muse Voice Transcribe with reagent-name keyword
 bias → Muse Spark maps the words to the open questions → the form is pre-filled, never submitted), and the reviewer
@@ -107,7 +111,8 @@ with `nosniff`, a referrer policy, and a permissions policy that allows only the
 
 `python tests/e2e.py` drives a real Chrome through the landing page, every sample run, confirm → simulate →
 replay, every download (the receipt hash must equal the SHA-256 of `protocol.py`) and the security edges
-(bad answers, path traversal, script in the URL, wrong upload code, non-audio voice), the CSP (headers, every
+(bad answers, path traversal, script in the URL, wrong upload code, non-audio voice), edit copies (answers
+and fixes on a sample land in a private copy, the sample is unchanged, the copy's link reopens it), the CSP (headers, every
 script carries the nonce, nothing the pages need is blocked), and the MCP server through the official MCP client
 (`get_protocol` must be byte for byte the downloaded file). `BASE=<url>` runs it
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:

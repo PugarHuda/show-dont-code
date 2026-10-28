@@ -1,7 +1,7 @@
 """Hosted backend on Modal: the same FastAPI app as app.py, plus video upload and a long-running worker.
 
 Vercel serves the landing page and the app HTML; the browser talks to this API (CORS) for everything else.
-All runs, demo and uploaded, live on one Modal Volume, so answers and named tubes persist across visitors.
+All runs live on one Modal Volume: samples, uploads, and the private copies an edit to a sample creates (app.py).
 
   modal deploy modal_app.py
   modal volume put sdc-runs out/pcr_3 /pcr_3        # seed demo runs

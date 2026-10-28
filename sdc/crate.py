@@ -38,7 +38,9 @@ def build(run_dir, name, generated, models):
         if (d / f).exists():
             files[f] = (d / f).read_bytes()
     from_gt = "note" in models
-    video = d / "video.mp4"
+    from .pipeline import asset
+
+    video = asset(d, "video.mp4")
     graph = [
         {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"},
          "conformsTo": {"@id": "https://w3id.org/ro/crate/1.1"}},

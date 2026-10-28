@@ -33,6 +33,16 @@ def progress(run_dir, stage, state):
         on_progress()
 
 
+# an edit copy of a shared sample run (app.py) shares these with the sample instead of duplicating ~30 MB each
+SHARED = ("video.mp4", "review.mp4", "sam_frames", "stills*", "spark.mp4", "sam.mp4", "audio.wav", "input.mp4")
+
+
+def asset(run_dir, f):
+    """<run>/f, or for an edit copy (it holds a copy_of file naming its sample run) the sample's f."""
+    p, src = Path(run_dir) / f, Path(run_dir) / "copy_of"
+    return OUT / src.read_text().strip() / f if not p.exists() and src.exists() else p
+
+
 def _cached(path, fn, label=None):
     path = Path(path)
     if path.exists():
@@ -193,8 +203,8 @@ def build(run_dir, steps, answers=None, review=True):
         try:
             from . import agent
 
-            review_video = run_dir / "review.mp4"
-            frames = run_dir / "sam_frames"
+            review_video = asset(run_dir, "review.mp4")
+            frames = asset(run_dir, "sam_frames")
             out = agent.review(steps, sheet, sim, review_video if review_video.exists() else None,
                                simulate=(lambda vols: simulate_with(steps, vols)) if result["questions"] else None,
                                frames_dir=frames if frames.exists() else None, fps=SAM_FPS)

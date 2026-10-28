@@ -197,6 +197,7 @@
     </section>
     <section id="qbox" hidden>
       <h2>Needs your confirmation</h2>
+      <p class="hint" id="copynote">Your answers go to your own copy of this sample, with its own link; other visitors keep seeing the original.</p>
       <div class="voice" id="voicebox" hidden>
         <button type="button" id="voicebtn" class="ghost">Answer by voice</button>
         <span id="voicemsg" class="hint" aria-live="polite">Say the volumes and the cycle count, e.g. “MilliQ seven point seven five, thirty five cycles”.</span>
@@ -254,22 +255,25 @@ async function api(path, opts) {
 async function init() {
   const runs = await api("/api/runs");
   const want = new URLSearchParams(location.search).get("run");
-  // uploads are private, so never in the listing; accept only the exact id shape the server issues
-  const upload = want && /^u-[A-Za-z0-9_-]{16}$/.test(want) ? want : null;
+  // uploads and edit copies are private, so never in the listing; accept only the exact id shape the server issues
+  const upload = want && /^[uc]-[A-Za-z0-9_-]{16}$/.test(want) ? want : null;
   if (upload) runs.unshift(upload);
   // readable names: what each sample is, and whether a model or a human produced its steps
-  const label = (n) => n === upload ? "your upload" : n.endsWith("-gt") ? `${n.slice(0, -3)} · human annotations replayed`
+  const label = (n) => n === upload ? (n[0] === "c" ? COPY : "your upload") : n.endsWith("-gt") ? `${n.slice(0, -3)} · human annotations replayed`
     : n.startsWith("pcr") ? `${n} · PCR setup` : n.startsWith("miniprep") ? `${n} · plasmid miniprep` : n;
   $("run").innerHTML = runs.map((n) => `<option value="${esc(n)}">${esc(label(n))}</option>`).join("");
   if (want && runs.includes(want)) $("run").value = want;
-  $("run").onchange = () => load($("run").value);
+  $("run").onchange = () => openRun($("run").value);
   if (upload) {
     try { await load(upload); }  // finished: open it
     catch { $("status").textContent = "analysing your video…"; $("updlg").showModal(); follow(upload); }  // still running
     return;
   }
-  if (runs.length) load($("run").value); else $("status").textContent = "no runs yet";
+  if (runs.length) openRun($("run").value); else $("status").textContent = "no runs yet";
 }
+
+// a run that can't be opened (a stale link, the API restarting) says so in the status pill, not as an uncaught error
+const openRun = (n) => load(n).catch((e) => { $("status").className = "pill bad"; $("status").textContent = e.message; });
 
 async function load(n) {
   name = n;
@@ -281,7 +285,15 @@ async function load(n) {
   render();
 }
 
+const COPY = "your edited copy (private link)";
+
 function render() {
+  if (R.run !== name) {  // an edit to a shared sample run went to a private copy: keep working there, and keep its link
+    name = R.run;
+    history.replaceState(null, "", `?run=${encodeURIComponent(name)}`);
+    $("run").insertAdjacentHTML("afterbegin", `<option value="${esc(name)}">${COPY}</option>`);
+    $("run").value = name;
+  }
   const st = $("status");
   if (R.questions.length) { st.className = "pill warn"; st.textContent = `${R.questions.length} question(s) before the robot can run`; }
   else if (R.sim_ok) { st.className = "pill"; st.textContent = `simulator passed · ${R.sim_log.length} robot actions`; }
@@ -334,6 +346,7 @@ function render() {
   });
 
   $("qbox").hidden = !R.questions.length;
+  $("copynote").hidden = /^[uc]-/.test(name);
   $("voicebox").hidden = !window.UPLOADS || !navigator.mediaDevices?.getUserMedia;  // live models + a microphone
   // one question per reagent+source tube, not per transfer: the answer fans out to every step in the group
   const groups = {};

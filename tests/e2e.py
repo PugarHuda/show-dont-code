@@ -5,7 +5,7 @@ every download (the receipt's hash must match protocol.py byte for byte), and th
   BASE=https://show-dont-code.vercel.app python tests/e2e.py
   VOICE=1 ... python tests/e2e.py                       # also speak answers through a fake microphone (costs API)
 
-Nothing here costs model calls unless VOICE=1. The one write it makes re-sends answers pcr_1-gt already has.
+Nothing here costs model calls unless VOICE=1. Its edits land in private copies (c-*); the shared sample runs never change.
 """
 import asyncio
 import hashlib
@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import sys
 import tempfile
 import time
@@ -236,23 +235,44 @@ def main():
             check("app: fix buttons render", len(page.query_selector_all("#issues button.fix, #issues em.applied")) > 0)
         st, _ = fetch(f"{api}/api/runs/pcr_1-gt/review/999/apply", "POST")
         check("api: applying a fix that doesn't exist -> 404", st == 404, st)
-        local = BASE.startswith("http://127.0.0.1") and fix_runs and os.path.isdir(f"out/{fix_runs[0]}")
-        if local:  # mutate a throwaway copy only, never a shared sample run
-            shutil.rmtree("out/e2e_fix", ignore_errors=True)
-            shutil.copytree(f"out/{fix_runs[0]}", "out/e2e_fix", ignore=shutil.ignore_patterns("*.mp4", "stills*", "sam_frames", "*.wav"))
-            before = json.loads(open("out/e2e_fix/result.json", encoding="utf-8").read())
+        if fix_runs:  # on a shared sample, so this also proves the fix lands in a private copy
+            before = json.loads(fetch(f"{api}/api/runs/{fix_runs[0]}")[1])
             k = next(i for i, it in enumerate(before["review"]) if it["fix"]["kind"] != "none" and not it.get("applied"))
             fix = before["review"][k]["fix"]
-            st, body = fetch(f"{api}/api/runs/e2e_fix/review/{k}/apply", "POST")
+            st, body = fetch(f"{api}/api/runs/{fix_runs[0]}/review/{k}/apply", "POST")
             after = json.loads(body) if st == 200 else {}
+            copy = after.get("run", "")
             changed = st == 200 and all(
                 (fix["kind"] == "skip_steps" and after["steps"][i]["action"] == "skipped")
                 or (fix["kind"] == "set_reagent" and after["steps"][i]["reagent"] == fix["value"])
                 or (fix["kind"] == "set_volume" and after["steps"][i]["volume_ul"] == float(fix["value"])) for i in fix["steps"])
             check(f"api: applying a {fix['kind']} fix changes exactly its steps", changed and after["review"][k].get("applied"), (st, body[:120]))
-            st, _ = fetch(f"{api}/api/runs/e2e_fix/review/{k}/apply", "POST")
+            check("api: the fix went to a private copy, the sample is unchanged",
+                  re.fullmatch(r"c-[\w-]{16}", copy) and json.loads(fetch(f"{api}/api/runs/{fix_runs[0]}")[1])["review"] == before["review"], copy)
+            st, _ = fetch(f"{api}/api/runs/{copy}/review/{k}/apply", "POST")
             check("api: applying the same fix twice -> 409", st == 409, st)
-            shutil.rmtree("out/e2e_fix", ignore_errors=True)
+
+        # ---- edits from the page: a visitor's answers never change the shared sample -------------------
+        sample = json.loads(fetch(f"{api}/api/runs/pcr_1")[1])
+        page.goto(BASE + "/app?run=pcr_1")
+        page.wait_for_selector("#qform input", timeout=60000)
+        check("app: the question box says answers go to a private copy", page.is_visible("#copynote"))
+        for inp in page.query_selector_all("#qform input"):
+            inp.fill("30" if ":cycles" in (inp.get_attribute("name") or "") else "7.5")
+        page.click("#qform button[type=submit]")
+        page.wait_for_function("() => /[?&]run=c-/.test(location.search)", timeout=180000)
+        copy = re.search(r"run=(c-[\w-]{16})", page.url)
+        copy = copy and copy[1]
+        check("app: confirming on a sample opens a private copy with its own link", copy and page.input_value("#run") == copy, page.url)
+        check("app: the copy's protocol is complete", page.wait_for_function("() => !document.getElementById('dl').disabled", timeout=60000))
+        check("api: the shared sample keeps its open questions", json.loads(fetch(f"{api}/api/runs/pcr_1")[1])["questions"] == sample["questions"])
+        check("api: copies stay out of the run list", copy not in json.loads(fetch(f"{api}/api/runs")[1]))
+        rc = json.loads(fetch(f"{api}/api/runs/{copy}/receipt.json")[1])
+        check("api: the copy shares the sample's footage (same video hash, no 13 MB duplicate)",
+              rc["files_sha256"].get("video.mp4") == hashlib.sha256(fetch(f"{api}/api/runs/pcr_1/video")[1]).hexdigest())
+        page.goto(page.url)
+        page.wait_for_selector("#steps li", timeout=60000)
+        check("app: the copy's link reopens it after a reload", page.input_value("#run") == copy and page.is_hidden("#qbox"))
 
         # ---- input validation and security edges ----------------------------------------------------
         for bad_answers, why in (({"0": -5}, "negative volume"), ({"99": 5}, "unknown step"), ({"5:cycles": 2.5}, "fractional cycles"),
@@ -326,7 +346,7 @@ def main():
         check("mcp: get_run carries the steps and the thermocycler time",
               len(mrun["steps"]) > 3 and mrun["simulator_ok"] and mrun["analysis"]["cycling_s"] > 1500, str(mrun)[:200])
         check("mcp: an unknown run is a readable tool error", err and "unknown run" in msg, msg)
-        check("no uncaught page errors", not errors, errors[:3])
+        check("no uncaught page errors", not errors, (errors[:3], bad[:5]))
         csp_seen += page.evaluate("() => window.__csp || []")
         check("security: the CSP blocked nothing the pages need", not csp_seen, csp_seen[:3])
         check("no failed requests during normal use", not [x for x in bad if "/answers" not in x and "/voice" not in x
