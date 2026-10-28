@@ -22,7 +22,8 @@ MODEL_OUTPUTS = {"steps_raw.json": "Steps found in the video (Muse Spark, stage 
                  "speech.json": "Speech in the video, timestamped (Muse Voice Transcribe)",
                  "tracks_tip.json": "Pipette tip tracked frame by frame (SAM 3.1)"}
 NAMES = {"review.json": "Reviewer agent findings and its simulator tool calls", "answers.json": "The scientist's answers",
-         "receipt.json": "Reproducibility receipt", "analysis.json": "Opentrons protocol analysis",
+         "receipt.json": "Reproducibility receipt", "pylabrobot.py": "Hamilton STARlet translation (PyLabRobot)",
+         "tecan-evo.py": "Tecan Freedom EVO 150 translation (PyLabRobot)", "analysis.json": "Opentrons protocol analysis",
          "protocol-designer.json": "The protocol as editable steps for Opentrons Protocol Designer (no code)"}
 
 
@@ -91,7 +92,7 @@ def build(run_dir, name, generated, models):
                     "description": "Model text only lands in comments and string literals; numbers are validated",
                     "instrument": {"@id": REPO},
                     "object": ([{"@id": "#source-video"}] if from_gt else have(*MODEL_OUTPUTS)) + have("answers.json"),
-                    "result": have("protocol.py", "methods.md", "autoprotocol.json", "pylabrobot.py"),
+                    "result": have("protocol.py", "methods.md", "autoprotocol.json", "pylabrobot.py", "tecan-evo.py"),
                     "endTime": _when(d / "result.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
     if "analysis.json" in files:
         actions.append({"@id": "#analyze", "@type": "CreateAction", "name": "opentrons analyze (what the Opentrons App runs on import)",

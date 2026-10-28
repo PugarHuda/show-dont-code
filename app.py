@@ -257,6 +257,14 @@ def pylabrobot_file(name: str):
                              headers={"Content-Disposition": f'attachment; filename="{name}-pylabrobot.py"'})
 
 
+@app.get("/api/runs/{name}/tecan-evo.py")
+def tecan_file(name: str):
+    from sdc import export
+
+    return PlainTextResponse(export.pylabrobot_script(_confirmed_steps(name), "evo150"),
+                             headers={"Content-Disposition": f'attachment; filename="{name}-tecan-evo.py"'})
+
+
 @app.get("/api/runs/{name}/analysis.json")
 def analysis_file(name: str):
     f = _run_dir(name) / "analysis.json"
@@ -331,6 +339,7 @@ def ro_crate(name: str):
     gen = {"protocol.py": r["protocol"].encode("utf-8"), "methods.md": export.methods_markdown(steps, title).encode("utf-8"),
            "autoprotocol.json": json.dumps(export.autoprotocol(steps), indent=1).encode("utf-8"),
            "pylabrobot.py": export.pylabrobot_script(steps).encode("utf-8"),
+           "tecan-evo.py": export.pylabrobot_script(steps, "evo150").encode("utf-8"),
            "receipt.json": json.dumps(rec, indent=1).encode("utf-8")}
     if (d / "analysis.json").exists():
         gen["protocol-designer.json"] = json.dumps(_designer(d, name), indent=1).encode("utf-8")
@@ -554,7 +563,8 @@ if MCPServer:
         keep = ("action", "description", "reagent", "volume_ul", "source", "destination", "start", "end", "cycles")
         return {"run": name, "steps": [{k: s[k] for k in keep if s.get(k) is not None} for s in r.get("steps", [])],
                 "questions": r.get("questions", []), "simulator_ok": r.get("sim_ok"), "robot_actions": len(r.get("sim_log", [])),
-                "analysis_ok": r.get("analysis_ok"), "analysis": r.get("analysis"), "hamilton_starlet_ok": r.get("plr_ok")}
+                "analysis_ok": r.get("analysis_ok"), "analysis": r.get("analysis"), "hamilton_starlet_ok": r.get("plr_ok"),
+                "tecan_evo_ok": r.get("evo_ok")}
 
     @mcp.tool()
     def get_protocol(name: str) -> str:

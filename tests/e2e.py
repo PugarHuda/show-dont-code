@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from mcp import Client
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from sdc import designer, protocol  # noqa: E402  (the repo root, for the Protocol Designer round trip)
+from sdc import designer, export, protocol  # noqa: E402  (the repo root, for the Protocol Designer round trip)
 from playwright.sync_api import sync_playwright
 
 
@@ -164,6 +164,8 @@ def main():
         check("api: answers -> simulator passes", st == 200 and res.get("sim_ok"), (st, body[:120]))
         check("api: Opentrons analysis passes", res.get("analysis_ok") is True, res.get("analysis", {}).get("errors"))
         check("api: PyLabRobot STARlet simulation passes", res.get("plr_ok") is True, res.get("plr"))
+        check("api: PyLabRobot Tecan Freedom EVO 150 simulation passes, same aspirate/dispense count as the STARlet",
+              res.get("evo_ok") is True and res.get("evo", {}).get("actions") == res.get("plr", {}).get("actions"), res.get("evo"))
         page.goto(BASE + "/app?run=pcr_1-gt")
         page.wait_for_selector("#replay", state="visible", timeout=60000)
         page.click("#replay")
@@ -225,6 +227,18 @@ def main():
             check(f"download: {path}", st == 200 and needle in data, (st, data[:80]))
         st, _ = fetch(f"{api}/api/runs/pcr_3/protocol.py")
         check("download: protocol refused while questions are open", st == 409, st)
+
+        st, evo = fetch(f"{api}/api/runs/pcr_1-gt/tecan-evo.py")
+        ok, elog = export.run_pylabrobot(evo.decode("utf-8")) if st == 200 else (False, {})
+        st, plr = fetch(f"{api}/api/runs/pcr_1-gt/pylabrobot.py")
+        ok2, plog = export.run_pylabrobot(plr.decode("utf-8")) if st == 200 else (False, {})
+        check("download: tecan-evo.py runs in PyLabRobot here, EVO deck and LiHa tips, as many pipetting actions as the STARlet",
+              ok and ok2 and b"EVO150Deck()" in evo and b"_LiHa" in evo and elog["actions"] == plog["actions"] > 0, (elog, plog.get("actions")))
+        check("RO-Crate: carries the Tecan EVO translation", crate and "tecan-evo.py" in crate.namelist())
+        page.goto(BASE + "/app?run=pcr_1-gt")
+        page.wait_for_function("() => /Tecan Freedom EVO 150/.test(document.getElementById('plrline').textContent)", timeout=60000)
+        check("app: says the protocol also ran on a Hamilton STARlet and a Tecan EVO",
+              "Hamilton STARlet" in page.inner_text("#plrline") and page.is_visible("#f-evo"), page.inner_text("#plrline"))
 
         # ---- Opentrons Protocol Designer: the same protocol as editable no-code steps ------------------------
         st, pdf = fetch(f"{api}/api/runs/pcr_1-gt/protocol-designer.json")

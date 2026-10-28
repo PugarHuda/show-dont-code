@@ -135,8 +135,9 @@ def simulate_with(steps, volumes_ul):
     return {"ran": ok, "error": None if ok else log[-1], "robot_actions": len(log), "total_ul_per_tube": totals}
 
 
-def _second_robot(steps):
-    """Translate to PyLabRobot (Hamilton STARlet) and run it in PyLabRobot's simulator: an independent second check."""
+def _second_robot(steps, robot="starlet"):
+    """Translate to PyLabRobot (a Hamilton STARlet, or a Tecan Freedom EVO 150) and run it in PyLabRobot's simulator:
+    an independent check on another vendor's deck, tips and carriers."""
     from . import export
 
     try:
@@ -144,7 +145,7 @@ def _second_robot(steps):
     except ImportError:
         return None, {"note": "PyLabRobot is not installed here"}
     try:
-        return export.run_pylabrobot(export.pylabrobot_script(steps))
+        return export.run_pylabrobot(export.pylabrobot_script(steps, robot))
     except (ValueError, subprocess.TimeoutExpired) as e:
         return False, {"tail": [str(e)[:200]]}
 
@@ -189,6 +190,7 @@ def build(run_dir, steps, answers=None, review=True):
         if result["sim_ok"]:  # the Opentrons App's own analysis: the file it would accept, and what to load where
             result["analysis_ok"], result["analysis"] = protocol.analyze(result["protocol"], run_dir / "analysis.json")
             result["plr_ok"], result["plr"] = _second_robot(steps)
+            result["evo_ok"], result["evo"] = _second_robot(steps, "evo150")
     except protocol.NeedsInput as e:
         result["questions"], result["layout"] = e.questions, protocol.layout(steps)
     sim = ("not run yet: waiting for scientist answers" if result["questions"]

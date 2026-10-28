@@ -55,11 +55,13 @@ Then:
   5min"). A temperature written without a time gets 30 s and says so; nothing legible means a stated default. Every
   temperature, time and the cycle count are **Opentrons runtime parameters**, so the lab changes them in the
   Opentrons App at run setup without touching code. `methods.md` and `autoprotocol.json` use the same program.
-- **Three independent checks** on every confirmed protocol: the Opentrons simulator, Opentrons' own protocol
-  analysis (`opentrons analyze`, what the App runs on import, saved as `analysis.json`), and a **Hamilton STARlet**
-  translation run in **PyLabRobot**'s simulator with volume tracking on, so over-drawing a tube fails there too.
-- `methods.md` (a methods section for a notebook or paper), `autoprotocol.json` (vendor-neutral) and
-  `pylabrobot.py`.
+- **Four independent checks on three vendors' robots** for every confirmed protocol: the Opentrons simulator,
+  Opentrons' own protocol analysis (`opentrons analyze`, what the App runs on import, saved as `analysis.json`), and
+  translations for a **Hamilton STARlet** and a **Tecan Freedom EVO 150** (LiHa arm, DiTi tips, the DiTi carrier's
+  waste slot), each run in **PyLabRobot**'s simulator with volume tracking on, so over-drawing a tube fails there too.
+  The e2e suite runs the downloaded Tecan file and requires as many pipetting actions as the STARlet's.
+- `methods.md` (a methods section for a notebook or paper), `autoprotocol.json` (vendor-neutral), `pylabrobot.py`
+  (STARlet) and `tecan-evo.py`.
 - **Opentrons Protocol Designer, no code.** `protocol-designer.json` opens in Opentrons' own visual editor
   ([designer.opentrons.com](https://designer.opentrons.com/), Import): every transfer, mix and thermocycler step
   arrives as an editable form named after its moment in the video ("Add Primer1", "Step 2, video 64-99 s"), with the
@@ -83,7 +85,7 @@ Then:
   Opentrons' own `opentrons_simulate -e` reports 0 min for Flex protocols, which is why it is computed here.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
-  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_receipt`. Read-only on purpose: no tool runs code an agent sends (a
+  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. Read-only on purpose: no tool runs code an agent sends (a
   protocol is Python) or spends model credits. Add it to Claude Code with
   `claude mcp add --transport http show-dont-code <url>/mcp`.
 - **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run

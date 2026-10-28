@@ -224,7 +224,7 @@
       <p class="hint" id="plrline"></p>
       <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
         <a id="f-pd" title="Open designer.opentrons.com, choose Import, and pick this file">Protocol Designer, no code (.json)</a>
-        <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
+        <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-evo">tecan-evo.py (Tecan Freedom EVO)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
         <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a></p>
       <p class="hint" id="pdline" hidden>To change a volume or the cycling program without code, open
         <a href="https://designer.opentrons.com/" target="_blank" rel="noopener">Opentrons Protocol Designer</a>, choose Import
@@ -324,9 +324,13 @@ function render() {
     $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
     $("f-pd").href = `${base}/protocol-designer.json`; $("f-pd").hidden = $("pdline").hidden = !an;
     $("f-receipt").href = `${base}/receipt.json`; $("f-crate").href = `${base}/ro-crate.zip`;
-    $("f-plr").href = `${base}/pylabrobot.py`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
-    $("plrline").textContent = R.plr_ok === true ? `Also translated for a Hamilton STARlet and run in PyLabRobot's simulator with volume tracking: ${R.plr.actions} aspirate/dispense actions, no errors.`
-      : R.plr_ok === false ? `The Hamilton STARlet translation failed in PyLabRobot's simulator: ${(R.plr?.tail || []).slice(-1)[0] || "see the file"}` : "";
+    $("f-plr").href = `${base}/pylabrobot.py`; $("f-evo").href = `${base}/tecan-evo.py`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
+    // the same steps on two other vendors' robots, each run in PyLabRobot's simulator with volume tracking on
+    const robots = [["Hamilton STARlet", R.plr_ok, R.plr], ["Tecan Freedom EVO 150", R.evo_ok, R.evo]].filter(([, ok]) => ok != null);
+    const passed = robots.filter(([, ok]) => ok).map(([n, , log]) => `${n} (${log.actions} aspirate/dispense actions)`);
+    const failed = robots.filter(([, ok]) => !ok).map(([n, , log]) => `${n}: ${(log?.tail || []).slice(-1)[0] || "see the file"}`);
+    $("plrline").textContent = (passed.length ? `Also translated for ${passed.join(" and ")} and run in PyLabRobot's simulator with volume tracking, no errors. ` : "")
+      + (failed.length ? `Failed in PyLabRobot's simulator: ${failed.join("; ")}` : "");
   }
   $("download").href = R.protocol ? `${API}/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
   $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";
