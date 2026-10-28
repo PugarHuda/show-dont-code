@@ -37,7 +37,7 @@ skip invented steps; applied only when the scientist clicks); per-step SAM 3.1 t
 parameters (editable in the Opentrons App); Opentrons Flex liquid classes per reagent (viscous premix, volatile
 ethanol, aqueous), also runtime parameters; liquid presence detection switch (Flex pipette sensor probes each tube);
 STARlet export uses Opentrons' liquid class flow rates; the whole run as an RO-Crate (Process Run Crate, passes rocrate-validator);
-reviewer fails over from Baseten to Fireworks; Playwright QA suite with axe-core accessibility checks in light and dark mode (71/71 against production); Lighthouse 100/100/100.
+thermocycler time from Opentrons' analysis at the module's rated ramp rates; an MCP server so other agents can read runs and protocols as tools; strict nonce CSP; reviewer fails over from Baseten to Fireworks; Playwright QA suite with axe-core accessibility checks in light and dark mode, CSP and MCP checks (80/80 against production); Lighthouse 100/100/100.
 
 **Describe your use of Meta products**
 > - Muse Spark 1.3 (Meta Model API, Files + Responses API, strict JSON schema): video → timestamped protocol steps;

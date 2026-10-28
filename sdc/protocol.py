@@ -14,6 +14,8 @@ PCR_PLATE = "opentrons_96_wellplate_200ul_pcr_full_skirt"
 RACK_WELLS = [f"{r}{c}" for c in range(1, 7) for r in "ABCD"]  # column-major, like a human fills a rack
 SPARE_SLOTS = ["B2", "B3", "C3", "D2", "D3", "A2"]  # free deck slots: A1/B1 thermocycler, A3 trash, C1/C2/D1 used
 DEAD_UL, TUBE_UL = 30.0, 1500.0  # 1.5 mL snap-cap tube: unreachable bottom volume, capacity
+# Thermocycler GEN2 block, docs.opentrons.com/thermocycler/product-specs: max 4.25 °C/s heating, 2.0 °C/s cooling
+TC_HEAT, TC_COOL, AMBIENT_C = 4.25, 2.0, 25.0
 LIQUID_COLORS = ["#2f63d8", "#d9480f", "#0f7a5c", "#9c36b5", "#e8590c", "#1098ad", "#5c940d", "#c2255c"]
 
 
@@ -311,12 +313,40 @@ def analyze(source, json_path):
                               "labware": lw.get("displayName") or lw.get("loadName"), "well": well, "volume_ul": vol})
     return a.get("result") == "ok" and not a.get("errors"), {
         "result": a.get("result"), "errors": [e.get("detail", str(e))[:200] for e in a.get("errors", [])],
-        "commands": len(a.get("commands", [])), "liquid_setup": setup,
+        "commands": len(a.get("commands", [])), "liquid_setup": setup, "cycling_s": block_time(a.get("commands", [])),
         # runtime parameters as the Opentrons App will offer them at run setup
         "parameters": [{"name": q.get("displayName"), "unit": q.get("suffix", ""),
                         "value": next((c["displayName"] for c in q.get("choices") or [] if c.get("value") == q.get("default")),
                                       ("on" if q["default"] else "off") if q.get("type") == "bool" else q.get("default"))}
                        for q in a.get("runTimeParameters", [])]}
+
+
+def block_time(commands):
+    """Seconds the thermocycler block needs for the analysed commands: every hold plus every ramp at the spec's max
+    rates, so a lower bound (lid preheat not included). None when the protocol does not cycle."""
+    t, temp, seen = 0.0, AMBIENT_C, False
+
+    def go(c, hold):
+        nonlocal t, temp
+        t += (c - temp) / TC_HEAT if c > temp else (temp - c) / TC_COOL
+        t += hold
+        temp = c
+
+    for c in commands:
+        kind, p = c.get("commandType", ""), c.get("params", {})
+        if kind == "thermocycler/runExtendedProfile":
+            seen = True
+            for el in p["profileElements"]:
+                for _ in range(int(el.get("repetitions", 1)) if "repetitions" in el else 1):
+                    for st in el.get("steps", [el]):
+                        go(st["celsius"], st["holdSeconds"])
+        elif kind == "thermocycler/runProfile":
+            seen = True
+            for st in p["profile"]:
+                go(st["celsius"], st["holdSeconds"])
+        elif kind == "thermocycler/setTargetBlockTemperature":
+            go(p["celsius"], p.get("holdTimeSeconds") or 0)
+    return round(t) if seen else None
 
 
 def simulate(source):
@@ -385,4 +415,9 @@ if __name__ == "__main__":
         ok, _ = analyze(src.replace("default=False)", "default=True)", 1), Path(tmp) / "a.json")
         probes = sum(c["commandType"] == "liquidProbe" for c in json.loads((Path(tmp) / "a.json").read_text())["commands"])
     assert ok and probes == 3, probes  # 3 transfers in the demo
+    # cycling time from the analysed commands: 25->98 then hold 30 s; 35 cycles of 98/55/72 (34 ramps back up 72->98);
+    # 72->4 at the end
+    ok, an = analyze(src, Path(tempfile.mkdtemp()) / "a.json")
+    expect = 73 / 4.25 + 30 + 35 * (10 + 43 / 2 + 5 + 17 / 4.25 + 5) + 34 * 26 / 4.25 + 68 / 2
+    assert ok and abs(an["cycling_s"] - expect) < 1, (an["cycling_s"], expect)
     print(json.dumps(layout), f"\n{len(log)} simulator lines OK")

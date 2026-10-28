@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import threading
 import time
@@ -12,11 +13,19 @@ from pathlib import Path
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
+try:  # the MCP SDK needs jsonschema>=4.20 while opentrons 10.1 pins <4.18 (it runs fine on 4.26: the codegen self-check
+    # analyses and simulates with it), so modal_app.py installs it in its own step; Vercel only serves the pages
+    from mcp.server.mcpserver import MCPServer
+    from mcp.server.mcpserver.exceptions import ToolError
+    from mcp.server.transport_security import TransportSecuritySettings
+except ImportError:
+    MCPServer = None
+
 if os.getenv("VERCEL") == "1":  # opentrons writes its config under $HOME at import; only /tmp is writable
     os.environ.setdefault("OT_API_CONFIG_DIR", "/tmp/opentrons")
     os.environ["HOME"] = "/tmp"
 
-from sdc import pipeline  # noqa: E402  (must follow the env setup above)
+from sdc import pipeline, protocol  # noqa: E402  (must follow the env setup above)
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Show, Don't Code")
@@ -66,22 +75,38 @@ def media(name: str):  # local preview only; on Vercel public/media is served by
     return FileResponse(path)
 
 
+def _page(path, head=""):
+    """An HTML page under a strict CSP: only scripts carrying this response's nonce run, so injected markup can't."""
+    api = os.getenv("API_BASE", "")  # hosted: the API lives on Modal; empty = same origin (local, Modal itself)
+    if not re.fullmatch(r"(https://[\w.-]+)?", api):
+        raise HTTPException(500, "API_BASE must be an https origin")
+    nonce = secrets.token_urlsafe(16)
+    html = path.read_text(encoding="utf-8").replace("</head>", head + "</head>", 1).replace("<script>", f'<script nonce="{nonce}">')
+    csp = (f"default-src 'self'; script-src 'nonce-{nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+           f"font-src https://fonts.gstatic.com; img-src 'self' data: blob: {api}; media-src 'self' blob: {api}; "
+           f"connect-src 'self' {api}; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+    return HTMLResponse(html, headers={"Content-Security-Policy": " ".join(csp.split())})
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers.update({"X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin",
+                         "Permissions-Policy": "camera=(), geolocation=(), microphone=(self)"})  # mic: voice answers
+    return resp
+
+
 @app.get("/")
 def landing():
     page = ROOT / "web" / "landing.html"
-    return FileResponse(page if page.exists() else ROOT / "web" / "index.html")
+    return _page(page if page.exists() else ROOT / "web" / "index.html")
 
 
 @app.get("/app")
 def index():
-    page = ROOT / "web" / "index.html"
-    api = os.getenv("API_BASE", "")  # hosted: the API lives on Modal; empty = same origin (local, Modal itself)
-    if not re.fullmatch(r"(https://[\w.-]+)?", api):
-        raise HTTPException(500, "API_BASE must be an https origin")
+    api = os.getenv("API_BASE", "")
     uploads = "true" if api or os.getenv("UPLOADS") == "1" else "false"  # only the Modal backend can take uploads
-    html = page.read_text(encoding="utf-8").replace(
-        "</head>", f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n</head>', 1)
-    return HTMLResponse(html)
+    return _page(ROOT / "web" / "index.html", f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n')
 
 
 @app.get("/api/runs")
@@ -97,6 +122,8 @@ def result(name: str):
     tracks = d / "tracks_tip.json"
     r["tracks"] = json.loads(tracks.read_text()) if tracks.exists() else {}
     r["sam_fps"] = pipeline.SAM_FPS
+    if r.get("analysis") and "cycling_s" not in r["analysis"] and (d / "analysis.json").exists():  # runs analysed earlier
+        r["analysis"]["cycling_s"] = protocol.block_time(json.loads((d / "analysis.json").read_text())["commands"])
     r["tubes"] = _tubes(d)
     r["can_track"] = (d / "sam_file.json").exists()
     return r
@@ -382,6 +409,53 @@ def name_tube(name: str, tube_id: int, label: str = Body(..., embed=True)):
     answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
     pipeline.build(d, steps, answers, review=REVIEW_ON_EDIT)
     return result(name)
+
+
+# ---- MCP: other agents (Claude, Llama, any MCP client) read runs over Streamable HTTP at /mcp -----------------
+if MCPServer:
+    # Read-only on purpose: no tool runs code an agent sends (an Opentrons protocol is Python) or spends model credits.
+    mcp = MCPServer("show-dont-code", instructions=(
+        "Robot protocols recovered from first-person lab videos. list_runs, then get_run for the steps found in the video "
+        "and the checks they passed, get_protocol for the Opentrons Flex Python file, get_receipt for the hashes."))
+
+    def _http(fn, *args):  # an agent should read "unknown run", not a bare "Error executing tool"
+        try:
+            return fn(*args)
+        except HTTPException as e:
+            raise ToolError(e.detail) from None
+
+    @mcp.tool()
+    def list_runs() -> list[str]:
+        """Names of the sample runs (videos already turned into protocols)."""
+        return runs()
+
+    @mcp.tool()
+    def get_run(name: str) -> dict:
+        """The steps found in the video (with video seconds), the open questions, and the Opentrons simulator and protocol
+        analysis results, including the deck setup, runtime parameters and the thermocycler's minimum time in seconds."""
+        r = _http(result, name)
+        keep = ("action", "description", "reagent", "volume_ul", "source", "destination", "start", "end", "cycles")
+        return {"run": name, "steps": [{k: s[k] for k in keep if s.get(k) is not None} for s in r.get("steps", [])],
+                "questions": r.get("questions", []), "simulator_ok": r.get("sim_ok"), "robot_actions": len(r.get("sim_log", [])),
+                "analysis_ok": r.get("analysis_ok"), "analysis": r.get("analysis"), "hamilton_starlet_ok": r.get("plr_ok")}
+
+    @mcp.tool()
+    def get_protocol(name: str) -> str:
+        """The generated Opentrons Flex protocol (Python, API 2.24), ready to import into the Opentrons App."""
+        r = _http(result, name)
+        if not r.get("protocol"):
+            raise ToolError("no protocol yet: the run still has open questions (see get_run)")
+        return r["protocol"]
+
+    @mcp.tool()
+    def get_receipt(name: str) -> dict:
+        """Reproducibility receipt: SHA-256 of the protocol, the video and every model output, and which models ran."""
+        return _http(receipt, name)
+
+    app.mount("/", mcp.streamable_http_app(  # mounted last, so every route above matches first
+        streamable_http_path="/mcp", stateless_http=True, json_response=True,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)))  # public, read-only, no cookies
+    app.router.lifespan_context = lambda _app: mcp.session_manager.run()
 
 
 if __name__ == "__main__":

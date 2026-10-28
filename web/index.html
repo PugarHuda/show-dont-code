@@ -227,7 +227,8 @@
   Models: Muse Spark, SAM 3.1, Muse Voice Transcribe (Meta Model API) and Muse Spark Open (Baseten).
 </footer>
 <script>
-const API = window.API_BASE || "";  // hosted: the Modal backend; local: same origin
+const API = window.API_BASE || "";
+const hm = (s) => { const m = Math.round(s / 60); return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`; };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const ROBOT = new Set(["transfer", "mix", "thermocycle"]);
@@ -278,7 +279,7 @@ function render() {
   if (R.sim_ok) {
     const base = `${API}/api/runs/${encodeURIComponent(name)}`;
     $("analysisline").textContent = !an ? "Opentrons analysis has not run for this protocol yet."
-      : R.analysis_ok ? `Opentrons' own protocol analysis passed: ${an.commands} commands, the same check the Opentrons App runs when you import the file.`
+      : R.analysis_ok ? `Opentrons' own protocol analysis passed: ${an.commands} commands, the same check the Opentrons App runs when you import the file.${an.cycling_s ? ` The thermocycler needs at least ${hm(an.cycling_s)} for this program (every hold, plus ramps at the module's rated 4.25 °C/s heating and 2.0 °C/s cooling).` : ""}`
       : `Opentrons' protocol analysis reported a problem: ${(an.errors || [an.error]).join("; ")}`;
     $("setup").innerHTML = (an?.liquid_setup || []).map((x) =>
       `<tr><td><i class="dot" style="background:${esc(x.color)}"></i>${esc(x.liquid)}</td><td>${esc(x.labware)} ${esc(x.well)}</td><td class="t">${esc(x.volume_ul)} µL</td></tr>`).join("");

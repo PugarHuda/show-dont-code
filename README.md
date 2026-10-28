@@ -68,6 +68,15 @@ Then:
   source, Opentrons) made which file from which inputs. WorkflowHub and other RO-Crate readers open it; the e2e suite
   runs it through `rocrate-validator` (all REQUIRED checks pass; the one RECOMMENDED gap is a `publisher`, which a
   hackathon entry doesn't have). The video stays out of the zip and is pinned by its hash.
+- **Thermocycler time**: the minimum the block needs for the program, summed over the `thermocycler/*` commands in
+  Opentrons' analysis (every hold, plus every ramp at the Thermocycler GEN2's rated 4.25 °C/s heating and 2.0 °C/s
+  cooling, [spec](https://docs.opentrons.com/thermocycler/product-specs/)). 35 cycles of 98/55/72 °C come to 31 min.
+  Opentrons' own `opentrons_simulate -e` reports 0 min for Flex protocols, which is why it is computed here.
+- **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
+  agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
+  analysis results), `get_protocol`, `get_receipt`. Read-only on purpose: no tool runs code an agent sends (a
+  protocol is Python) or spends model credits. Add it to Claude Code with
+  `claude mcp add --transport http show-dont-code <url>/mcp`.
 
 The scientist can also **answer by voice** (browser recording → Muse Voice Transcribe with reagent-name keyword
 bias → Muse Spark maps the words to the open questions → the form is pre-filled, never submitted), and the reviewer
@@ -90,13 +99,17 @@ requests with `look_at_moment`; the result records which host ran (`review_model
 The landing page and app HTML are on Vercel; the API, uploads and the pipeline worker run on Modal
 (`modal_app.py`), with all runs on one Modal Volume. Live model calls from the page (voice answers, click-to-track) share a daily budget stored on the Volume, so a
 restart doesn't reset it and it refills at 00:00 UTC. Uploads need an access code (fail closed), are trimmed to
-5 minutes, size-capped while streaming, and private to whoever holds the link.
+5 minutes, size-capped while streaming, and private to whoever holds the link. Pages are served under a strict
+Content-Security-Policy (scripts run only with a per-response nonce; no inline handlers, no `eval`, no framing),
+with `nosniff`, a referrer policy, and a permissions policy that allows only the microphone (voice answers).
 
 ## Testing
 
 `python tests/e2e.py` drives a real Chrome through the landing page, every sample run, confirm → simulate →
 replay, every download (the receipt hash must equal the SHA-256 of `protocol.py`) and the security edges
-(bad answers, path traversal, script in the URL, wrong upload code, non-audio voice). `BASE=<url>` runs it
+(bad answers, path traversal, script in the URL, wrong upload code, non-audio voice), the CSP (headers, every
+script carries the nonce, nothing the pages need is blocked), and the MCP server through the official MCP client
+(`get_protocol` must be byte for byte the downloaded file). `BASE=<url>` runs it
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
 `python -m sdc.protocol`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
 Accessibility runs inside the same suite: axe-core checks the landing page and the app in light and dark mode
@@ -143,7 +156,7 @@ Known failures:
 ## Run it
 
 ```bash
-uv venv --python 3.12 .venv && uv pip install --python .venv -r requirements.txt remotezip PyLabRobot==0.2.2 playwright roc-validator
+uv venv --python 3.12 .venv && uv pip install --python .venv -r requirements.txt remotezip PyLabRobot==0.2.2 playwright roc-validator mcp==2.3.0
 printf 'MODEL_API_KEY=...\nBASETEN_API_KEY=...\n' > .env
 .venv/Scripts/python scripts/fetch_biovl2.py                              # annotations + pcr_1..4 videos only
 .venv/Scripts/python -m sdc.pipeline data/BioVL2/videos/pcr/pcr_1.mp4     # all models + simulator

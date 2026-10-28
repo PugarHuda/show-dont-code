@@ -7,11 +7,13 @@ every download (the receipt's hash must match protocol.py byte for byte), and th
 
 Nothing here costs model calls unless VOICE=1. The one write it makes re-sends answers pcr_1-gt already has.
 """
+import asyncio
 import hashlib
 import io
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -20,7 +22,20 @@ import urllib.error
 import urllib.request
 import zipfile
 
+from concurrent.futures import ThreadPoolExecutor
+
+from mcp import Client
 from playwright.sync_api import sync_playwright
+
+
+async def mcp_session(url):
+    """What an outside agent sees over MCP: tool names, a run's protocol, and an unknown run's error."""
+    async with Client(url) as c:
+        tools = [t.name for t in (await c.list_tools()).tools]
+        proto = (await c.call_tool("get_protocol", {"name": "pcr_1-gt"})).content[0].text
+        run = json.loads((await c.call_tool("get_run", {"name": "pcr_1-gt"})).content[0].text)
+        bad = await c.call_tool("get_run", {"name": "no-such-run"})
+        return tools, proto, run, (bad.is_error, bad.content[0].text)
 
 BASE = os.getenv("BASE", "http://127.0.0.1:8000").rstrip("/")
 RESULTS = []
@@ -47,11 +62,26 @@ def main():
         errors, bad = [], []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("response", lambda r: r.status >= 400 and "favicon" not in r.url and bad.append(f"{r.status} {r.url}"))
+        # anything the Content-Security-Policy blocks (a script, font, video or API call it forgot) lands here
+        page.add_init_script("document.addEventListener('securitypolicyviolation', "
+                             "e => (window.__csp = window.__csp || []).push(e.violatedDirective + ' ' + e.blockedURI))")
+        csp_seen = []
 
         # ---- landing --------------------------------------------------------------------------------
         page.goto(BASE + "/")
         page.wait_for_timeout(2500)
         check("landing: headline", "Pipette it once" in page.inner_text("h1"))
+        csp_seen += page.evaluate("() => window.__csp || []")
+        for path in ("/", "/app"):
+            with urllib.request.urlopen(BASE + path, timeout=60) as r:
+                h = r.headers
+            csp = h.get("Content-Security-Policy", "")
+            check(f"security: {path} has a nonce-only script CSP and nosniff",
+                  "script-src 'nonce-" in csp and "unsafe-inline" not in csp.split("script-src")[1].split(";")[0]
+                  and "frame-ancestors 'none'" in csp and h.get("X-Content-Type-Options") == "nosniff", csp)
+        with urllib.request.urlopen(BASE + "/app", timeout=60) as r:
+            html = r.read().decode()
+        check("security: no script runs without the nonce", html.count("<script") == html.count("<script nonce="), html.count("<script"))
         check("landing: hero video plays", page.evaluate("() => { const v = document.getElementById('hero'); return !v.paused && v.readyState >= 2; }"))
         page.click("#toggle")
         check("landing: pause control works", page.evaluate("() => document.getElementById('hero').paused"))
@@ -68,7 +98,7 @@ def main():
         mobile.wait_for_timeout(2000)
         check("landing: no horizontal scroll at 360 px", mobile.evaluate("() => document.documentElement.scrollWidth <= innerWidth"))
         mobile.goto(BASE + "/app?run=pcr_3")
-        mobile.wait_for_function("document.querySelectorAll('#run option').length > 0", timeout=60000)
+        mobile.wait_for_function("() => document.querySelectorAll('#run option').length > 0", timeout=60000)
         check("app: no horizontal scroll at 360 px", mobile.evaluate("() => document.documentElement.scrollWidth <= innerWidth + 1"))
         mobile.goto(BASE + "/app?run=pcr_1-gt")
         mobile.wait_for_selector("#setupbox", state="visible", timeout=60000)
@@ -80,21 +110,21 @@ def main():
 
         # ---- every sample run ----------------------------------------------------------------------
         page.goto(BASE + "/app")
-        page.wait_for_function("document.querySelectorAll('#run option').length > 0", timeout=60000)
+        page.wait_for_function("() => document.querySelectorAll('#run option').length > 0", timeout=60000)
         runs = page.eval_on_selector_all("#run option", "o => o.map(x => x.value)")
         check("app: lists the sample runs", len(runs) >= 6, runs)
         check("app: private uploads are not listed", not any(r.startswith("u-") for r in runs), runs)
         for run in runs:
             page.select_option("#run", run)
-            page.wait_for_function("document.getElementById('status').textContent !== 'loading…'", timeout=60000)
+            page.wait_for_function("() => document.getElementById('status').textContent !== 'loading…'", timeout=60000)
             page.wait_for_timeout(1200)
             n_steps = len(page.query_selector_all("#steps li"))
             src = page.evaluate("() => document.getElementById('video').currentSrc")
             wells = len(page.query_selector_all("#deck .well"))
             check(f"run {run}: steps, video, deck", n_steps > 0 and src and wells > 0, (n_steps, src[-40:], wells))
         page.goto(BASE + "/app?run=pcr_3")
-        page.wait_for_function("document.querySelectorAll('#steps li').length > 0", timeout=60000)
-        page.wait_for_function("document.getElementById('video').readyState >= 1", timeout=60000)
+        page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
+        page.wait_for_function("() => document.getElementById('video').readyState >= 1", timeout=60000)
         labels = page.eval_on_selector_all("#run option", "o => o.map(x => x.textContent)")
         check("app: runs have readable labels", any("PCR setup" in x for x in labels) and any("human annotations" in x for x in labels), labels)
         page.focus("#steps li:nth-child(3)")
@@ -146,6 +176,9 @@ def main():
         check("protocol: every transfer uses an Opentrons liquid class, premix pipetted as viscous",
               b".transfer(" not in proto and b"transfer_with_liquid_class(" in proto and b"default='glycerol_50'" in proto)
         check("app: liquid classes listed as runtime parameters", "Viscous (50% glycerol)" in page.inner_text("#params"))
+        cyc = re.search(r"thermocycler needs at least (?:(\d+) h )?(\d+) min", page.inner_text("#analysisline"))
+        check("app: thermocycler time from the analysed commands (35 cycles 98/55/72 -> about 31 min)",
+              cyc and 25 <= int(cyc[1] or 0) * 60 + int(cyc[2]) <= 40, page.inner_text("#analysisline")[-200:])
         check("protocol: pipette sensor liquid check is a runtime switch, off by default",
               b"variable_name='detect_liquid'" in proto and b"require_liquid_presence(" in proto)
         check("analysis: the App offers the liquid check", b'"variableName":"detect_liquid"' in an.replace(b" ", b"") if st == 200 else False)
@@ -187,7 +220,7 @@ def main():
         check("reviewer: at least one run carries a one-click fix", fix_runs, fix_runs)
         if fix_runs:
             page.goto(f"{BASE}/app?run={fix_runs[0]}")
-            page.wait_for_function("document.querySelectorAll('#issues li').length > 0", timeout=60000)
+            page.wait_for_function("() => document.querySelectorAll('#issues li').length > 0", timeout=60000)
             check("app: fix buttons render", len(page.query_selector_all("#issues button.fix, #issues em.applied")) > 0)
         st, _ = fetch(f"{api}/api/runs/pcr_1-gt/review/999/apply", "POST")
         check("api: applying a fix that doesn't exist -> 404", st == 404, st)
@@ -224,7 +257,7 @@ def main():
         dialogs = []
         page.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
         page.goto(BASE + '/app?run=u-%22%3E%3Cimg%20src=x%20onerror=alert(1)%3E')
-        page.wait_for_function("document.querySelectorAll('#run option').length > 0", timeout=60000)
+        page.wait_for_function("() => document.querySelectorAll('#run option').length > 0", timeout=60000)
         page.wait_for_timeout(1500)
         check("app: script in ?run= does not execute", not dialogs, dialogs)
 
@@ -244,7 +277,7 @@ def main():
             vp.wait_for_selector("#voicebtn", state="visible", timeout=60000)
             vp.click("#voicebtn"); vp.wait_for_timeout(15000); vp.click("#voicebtn")
             # wait for the outcome message, not the button: onstop disables it asynchronously
-            vp.wait_for_function("/^(Heard|Nothing|The |send|that|keep|live)/.test(document.getElementById('voicemsg').textContent)", timeout=180000)
+            vp.wait_for_function("() => /^(Heard|Nothing|The |send|that|keep|live)/.test(document.getElementById('voicemsg').textContent)", timeout=180000)
             filled = vp.eval_on_selector_all("#qform input.heard", "xs => xs.length")
             check("voice: spoken answers fill the form", filled >= 3, vp.inner_text("#voicemsg"))
             vb.close()
@@ -253,7 +286,7 @@ def main():
         axe_src = urllib.request.urlopen("https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js", timeout=60).read().decode()
         for scheme in ("light", "dark"):
             ab = p.chromium.launch()
-            ap = ab.new_page(color_scheme=scheme)
+            ap = ab.new_page(color_scheme=scheme, bypass_csp=True)  # axe is injected inline
             for path, ready in (("/", "h1"), ("/app?run=pcr_1-gt", "#steps li")):
                 ap.goto(BASE + path)
                 ap.wait_for_selector(ready, timeout=60000)
@@ -264,7 +297,16 @@ def main():
                 check(f"a11y: axe-core finds no serious violations on {path} ({scheme})", not bad, bad[:3])
             ab.close()
 
+        # ---- MCP: the same runs as tools for other agents ----------------------------------------------
+        tools, mproto, mrun, (err, msg) = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
+        check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_receipt"], tools)
+        check("mcp: get_protocol is byte for byte the downloaded protocol.py", mproto.encode() == proto)
+        check("mcp: get_run carries the steps and the thermocycler time",
+              len(mrun["steps"]) > 3 and mrun["simulator_ok"] and mrun["analysis"]["cycling_s"] > 1500, str(mrun)[:200])
+        check("mcp: an unknown run is a readable tool error", err and "unknown run" in msg, msg)
         check("no uncaught page errors", not errors, errors[:3])
+        csp_seen += page.evaluate("() => window.__csp || []")
+        check("security: the CSP blocked nothing the pages need", not csp_seen, csp_seen[:3])
         check("no failed requests during normal use", not [x for x in bad if "/answers" not in x and "/voice" not in x
                                                            and "/upload" not in x and "protocol.py" not in x], bad[:5])
         b.close()
