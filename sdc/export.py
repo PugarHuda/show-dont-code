@@ -13,7 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .protocol import DEAD_UL, _plan, thermal
+from .protocol import DEAD_UL, LIQUID_CLASSES, _plan, liquid_class, thermal
 
 WELLS_96 = [f"{r}{c}" for c in range(1, 13) for r in "ABCDEFGH"]
 
@@ -37,9 +37,11 @@ def methods_markdown(steps, title="Protocol"):
     need = _needs(steps)
     lines = [f"# {_clean(title)}", "", "Recovered from a first-person video by Show, Don't Code and confirmed by the scientist.",
              "Times in brackets point to the moment in the source video.", "", "## Materials", "",
-             "| Reagent | Prepare at least | Used for |", "|---|---|---|"]
+             "| Reagent | Prepare at least | Used for | Pipetted as |", "|---|---|---|---|"]
     for name, total, n in need.values():
-        lines.append(f"| {_clean(name)} | {total * 1.1 + DEAD_UL:.1f} µL | {n} transfer{'s' * (n != 1)}, {total:g} µL in total |")
+        cls, _ = liquid_class(name)
+        lines.append(f"| {_clean(name)} | {total * 1.1 + DEAD_UL:.1f} µL | {n} transfer{'s' * (n != 1)}, {total:g} µL in total "
+                     f"| {LIQUID_CLASSES[cls].lower()} |")
     lines += ["", "## Procedure", ""]
     for i, s in enumerate(steps, 1):
         when = f"[{float(s['start']):.0f}–{float(s['end']):.0f} s]"
@@ -156,7 +158,7 @@ if __name__ == "__main__":
         {"start": 80, "end": 90, "action": "thermocycle", "description": "Set in DNA engine", "cycles": 35},
     ]
     md = methods_markdown(demo, "Demo")
-    assert "35 cycles" in md and "| water |" in md, md
+    assert "35 cycles" in md and "| water |" in md and "aqueous (water) |" in md, md
     ap = autoprotocol(demo)
     assert [i["op"] for i in ap["instructions"]] == ["pipette", "pipette", "seal", "thermocycle"], ap
     src = pylabrobot_script(demo)

@@ -210,7 +210,7 @@
       <p class="hint" id="plrline"></p>
       <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
         <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
-        <a id="f-receipt">Reproducibility receipt (.json)</a></p>
+        <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a></p>
     </section>
     <section>
       <details><summary>Generated protocol</summary><pre id="code"></pre></details>
@@ -283,11 +283,11 @@ function render() {
       `<tr><td><i class="dot" style="background:${esc(x.color)}"></i>${esc(x.liquid)}</td><td>${esc(x.labware)} ${esc(x.well)}</td><td class="t">${esc(x.volume_ul)} µL</td></tr>`).join("");
     const params = an?.parameters || [], tc = R.steps.find((x) => x.action === "thermocycle");
     $("paramsbox").hidden = !params.length;
-    $("paramsline").textContent = `Thermal cycling program (${tc?.profile?.found && tc.profile.cycle?.length ? "read off the bench sheet by Muse Spark" : "default; none legible on the bench sheet"}). These are Opentrons runtime parameters: change them in the Opentrons App at run setup, no code editing.`;
+    $("paramsline").textContent = `How each reagent is pipetted (an Opentrons liquid class picked from its name: viscous for enzyme mixes, volatile for ethanol, otherwise aqueous)${tc ? ` and the thermal cycling program (${tc.profile?.found && tc.profile.cycle?.length ? "read off the bench sheet by Muse Spark" : "default; none legible on the bench sheet"})` : ""}. These are Opentrons runtime parameters: change them in the Opentrons App at run setup, no code editing.`;
     $("params").innerHTML = params.map((x) => `<tr><td>${esc(x.name)}</td><td class="t">${esc(x.value)} ${esc(x.unit === "C" ? "°C" : x.unit)}</td></tr>`).join("");
     $("f-proto").href = `${base}/protocol.py`;
     $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
-    $("f-receipt").href = `${base}/receipt.json`;
+    $("f-receipt").href = `${base}/receipt.json`; $("f-crate").href = `${base}/ro-crate.zip`;
     $("f-plr").href = `${base}/pylabrobot.py`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
     $("plrline").textContent = R.plr_ok === true ? `Also translated for a Hamilton STARlet and run in PyLabRobot's simulator with volume tracking: ${R.plr.actions} aspirate/dispense actions, no errors.`
       : R.plr_ok === false ? `The Hamilton STARlet translation failed in PyLabRobot's simulator: ${(R.plr?.tail || []).slice(-1)[0] || "see the file"}` : "";
@@ -484,13 +484,18 @@ function parseCmd(line) {
   if ((m = line.match(/^Picking up tip from (\w+) of .* on slot (\w+)/))) return { kind: "pick", slot: m[2], well: m[1], say: "Pick up a fresh tip" };
   if ((m = line.match(/^Aspirating ([\d.]+) uL from (\w+) of (.+?) on slot (\w+)/))) return { kind: "asp", slot: m[4], well: m[2], say: `Aspirate ${m[1]} µL from ${m[3]} ${m[2]}` };
   if ((m = line.match(/^Dispensing ([\d.]+) uL into (\w+) of .*? on slot (\w+)/))) return { kind: "disp", slot: m[3], well: m[2], say: `Dispense ${m[1]} µL into well ${m[2]}` };
+  // a liquid-class transfer logs one line for pick-up, aspirate, dispense and drop; replay it as those moves
+  if ((m = line.match(/^Transferring ([\d.]+) uL of (\w+) liquid class from (\w+) of (.+?) on slot (\w+) to (\w+) of .*? on slot (\w+)/)))
+    return [{ kind: "asp", slot: m[5], well: m[3], say: `Aspirate ${m[1]} µL from ${m[4]} ${m[3]} (${m[2].toLowerCase()} liquid class)` },
+            { kind: "disp", slot: m[7], well: m[6], say: `Dispense ${m[1]} µL into well ${m[6]}` },
+            { kind: "drop", slot: "A3", well: null, say: "Drop the tip in the trash" }];
   if ((m = line.match(/^Dropping tip into Trash Bin on slot (\w+)/))) return { kind: "drop", slot: m[1], well: null, say: "Drop the tip in the trash" };
   if (/Thermocycler|Pausing/.test(line)) return { kind: "info", slot: null, say: line.replace(/ composed of.*/, "") };
   return null;
 }
 async function replay() {
   if (replaying) { replaying.stop = true; return; }
-  const cmds = R.sim_log.map(parseCmd).filter(Boolean);
+  const cmds = R.sim_log.flatMap((l) => parseCmd(l) || []);
   const run = (replaying = { stop: false });
   $("replay").textContent = "Stop";
   v.pause();

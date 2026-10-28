@@ -192,6 +192,28 @@ def receipt(name: str):
     }
 
 
+@app.get("/api/runs/{name}/ro-crate.zip")
+def ro_crate(name: str):
+    """The whole run as an RO-Crate (Process Run Crate): files, hashes, and which tool made which file from what."""
+    from fastapi.responses import Response
+
+    from sdc import crate, export
+
+    rec = receipt(name)
+    d, steps = _run_dir(name), _confirmed_steps(name)
+    r = json.loads((d / "result.json").read_text(encoding="utf-8"))
+    title = f"Show, Don't Code run {name}"
+    gen = {"protocol.py": r["protocol"].encode("utf-8"), "methods.md": export.methods_markdown(steps, title).encode("utf-8"),
+           "autoprotocol.json": json.dumps(export.autoprotocol(steps), indent=1).encode("utf-8"),
+           "pylabrobot.py": export.pylabrobot_script(steps).encode("utf-8"),
+           "receipt.json": json.dumps(rec, indent=1).encode("utf-8")}
+    if "review" in r and "note" not in rec["models"]:
+        gen["review.json"] = json.dumps({k: r.get(k) for k in ("review", "agent_log", "review_model", "review_saw_video",
+                                                              "review_host_failures")}, indent=1).encode("utf-8")
+    return Response(crate.build(d, name, gen, rec["models"]), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{name}-ro-crate.zip"'})
+
+
 @app.post("/api/runs/{name}/voice")
 async def voice(name: str, request: Request):
     """Spoken answers: Muse Voice Transcribe hears them, Muse Spark maps them to the open questions.

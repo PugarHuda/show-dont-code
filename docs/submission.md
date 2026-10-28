@@ -34,8 +34,9 @@ own command log on the deck; downloadable `protocol.py` with Opentrons liquid de
 Methods / Autoprotocol / PyLabRobot exports; reproducibility receipt (SHA-256 of protocol, video and model outputs);
 answer by voice (Muse Voice Transcribe + Muse Spark); reviewer agent with a `look_at_moment` tool that proposes one-click fixes (rename reagent, set volume,
 skip invented steps; applied only when the scientist clicks); per-step SAM 3.1 tip evidence; thermal cycling program read off the bench sheet and exposed as Opentrons runtime
-parameters (editable in the Opentrons App); reviewer fails over from Baseten to Fireworks; Playwright QA suite
-(53/53 against production).
+parameters (editable in the Opentrons App); Opentrons Flex liquid classes per reagent (viscous premix, volatile
+ethanol, aqueous), also runtime parameters; the whole run as an RO-Crate (Process Run Crate, passes rocrate-validator);
+reviewer fails over from Baseten to Fireworks; Playwright QA suite (64/64 against production).
 
 **Describe your use of Meta products**
 > - Muse Spark 1.3 (Meta Model API, Files + Responses API, strict JSON schema): video → timestamped protocol steps;

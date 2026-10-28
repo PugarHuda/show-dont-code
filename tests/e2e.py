@@ -8,13 +8,17 @@ every download (the receipt's hash must match protocol.py byte for byte), and th
 Nothing here costs model calls unless VOICE=1. The one write it makes re-sends answers pcr_1-gt already has.
 """
 import hashlib
+import io
 import json
+import logging
 import os
 import shutil
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 
 from playwright.sync_api import sync_playwright
 
@@ -139,6 +143,31 @@ def main():
         check("download: receipt hash matches protocol.py byte for byte",
               rec.get("protocol_sha256") == hashlib.sha256(proto).hexdigest(), rec.get("protocol_sha256"))
         check("receipt: replay runs do not claim models read them", "note" in rec.get("models", {}), rec.get("models"))
+        check("protocol: every transfer uses an Opentrons liquid class, premix pipetted as viscous",
+              b".transfer(" not in proto and b"transfer_with_liquid_class(" in proto and b"default='glycerol_50'" in proto)
+        check("app: liquid classes listed as runtime parameters", "Viscous (50% glycerol)" in page.inner_text("#params"))
+        st, z = fetch(f"{api}/api/runs/pcr_1-gt/ro-crate.zip")
+        crate = zipfile.ZipFile(io.BytesIO(z)) if st == 200 else None
+        meta = json.loads(crate.read("ro-crate-metadata.json")) if crate else {"@graph": []}
+        ents = {e["@id"]: e for e in meta["@graph"]}
+        check("download: RO-Crate pins protocol.py by SHA-256",
+              ents.get("protocol.py", {}).get("sha256") == hashlib.sha256(proto).hexdigest() == hashlib.sha256(crate.read("protocol.py")).hexdigest(),
+              (st, list(ents)[:6]))
+        check("RO-Crate: declares Process Run Crate and the actions that made each file",
+              ents.get("./", {}).get("conformsTo", {}).get("@id") == "https://w3id.org/ro/wfrun/process/0.5"
+              and {"#generate", "#analyze"} <= set(ents))
+        try:
+            from rocrate_validator import models as rv_models, services as rv
+        except ImportError:  # dev-only dependency
+            rv = None
+        if rv and crate:
+            logging.getLogger("rdflib").setLevel(logging.ERROR)  # Windows temp paths make it warn about file:// URIs
+            with tempfile.TemporaryDirectory() as tmp:
+                crate.extractall(tmp)
+                v = rv.validate(rv.ValidationSettings(rocrate_uri=tmp, profile_identifier="process-run-crate",
+                                                      requirement_severity=rv_models.Severity.REQUIRED, skip_availability_check=True))
+                check("RO-Crate: passes rocrate-validator (process-run-crate, REQUIRED)", v.passed(),
+                      [i.message[:90] for i in v.get_issues()][:3])
         for path, needle in (("analysis.json", b'"liquids"'), ("methods.md", b"## Procedure"), ("autoprotocol.json", b'"thermocycle"'),
                              ("pylabrobot.py", b"set_volume_tracking(True)")):
             st, data = fetch(f"{api}/api/runs/pcr_1-gt/{path}")

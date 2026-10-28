@@ -39,6 +39,10 @@ Then:
   deck slot. Every step is announced with `ctx.comment("Step 3 · video 64-99 s: ...")`, so the Opentrons App's run
   timeline points back to the moment in the video; the in-app robot replay uses the same lines to move the human
   video along with the robot.
+- Every transfer uses an **Opentrons Flex liquid class** (`transfer_with_liquid_class`, API 2.24): enzyme mixes and
+  premixes are pipetted as *viscous* (slower flow, delays, the tuned air gap and blowout for glycerol), ethanol as
+  *volatile*, everything else as *aqueous*. The class is picked from the reagent's name, and each reagent's class is a
+  runtime parameter, so the lab switches it in the Opentrons App if the name guessed wrong.
 - The **thermal cycling program** comes off the bench sheet when one is written there: Muse Spark turns the sheet's
   notes into a structured program (`profile.json`; on `pcr_4` it reads "94C 5min, 94C 30s / 55C 30s x32 / 72C, 72C
   5min"). A temperature written without a time gets 30 s and says so; nothing legible means a stated default. Every
@@ -51,6 +55,12 @@ Then:
   `pylabrobot.py`.
 - A **reproducibility receipt**: SHA-256 of the protocol, the video and every model output, the model IDs, and the
   scientist's answers. Ground-truth replays say no model read them.
+- **Everything as an RO-Crate** (`ro-crate.zip`, [Process Run Crate 0.5](https://w3id.org/ro/wfrun/process/0.5)): the
+  protocol, the exports, every model output and the Opentrons analysis, each pinned by SHA-256, plus JSON-LD saying
+  which tool (Muse Spark, SAM 3.1, the reviewer on whichever host ran it, the code generator at the hash of its own
+  source, Opentrons) made which file from which inputs. WorkflowHub and other RO-Crate readers open it; the e2e suite
+  runs it through `rocrate-validator` (all REQUIRED checks pass; the one RECOMMENDED gap is a `publisher`, which a
+  hackathon entry doesn't have). The video stays out of the zip and is pinned by its hash.
 
 The scientist can also **answer by voice** (browser recording → Muse Voice Transcribe with reagent-name keyword
 bias → Muse Spark maps the words to the open questions → the form is pre-filled, never submitted), and the reviewer
