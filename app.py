@@ -73,6 +73,20 @@ PRIVATE = ("u-", "c-")  # uploads and edit copies: unlisted, reachable only thro
 _edit_locks = defaultdict(threading.Lock)  # ponytail: one web container (max_containers=1); a volume lock if that grows
 
 
+COPY_DAYS, MAX_COPIES = 7, int(os.getenv("MAX_COPIES", "1000"))  # ~430 KB each: at most ~430 MB of copies on disk
+
+
+def _make_room_for_copy():
+    """Edit copies are unauthenticated, so they are bounded: a week old ones are deleted, and past MAX_COPIES live
+    ones new edits are refused until old ones expire."""
+    copies = list(pipeline.OUT.glob("c-*"))
+    for c in copies:
+        if time.time() - c.stat().st_mtime > COPY_DAYS * 86400:
+            shutil.rmtree(c, ignore_errors=True)
+    if sum(c.exists() for c in copies) >= MAX_COPIES:
+        raise HTTPException(429, "too many edited copies right now; try again tomorrow, or download the protocol as is")
+
+
 @contextmanager
 def _editable(name):
     """The run an edit may write to. Sample runs are shared by every visitor, so an edit never lands on one: it goes to a
@@ -80,6 +94,7 @@ def _editable(name):
     no copy behind. Writes to one run are serialized, since each is a read-modify-write of result.json."""
     d = _run_dir(name)
     if not name.startswith(PRIVATE):
+        _make_room_for_copy()
         d = pipeline.OUT / ("c-" + secrets.token_urlsafe(12))
         shutil.copytree(pipeline.OUT / name, d, ignore=shutil.ignore_patterns(*pipeline.SHARED))
         (d / "copy_of").write_text(name)
