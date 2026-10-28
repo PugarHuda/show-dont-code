@@ -77,14 +77,23 @@ COPY_DAYS, MAX_COPIES = 7, int(os.getenv("MAX_COPIES", "1000"))  # ~430 KB each:
 
 
 def _make_room_for_copy():
-    """Edit copies are unauthenticated, so they are bounded: a week old ones are deleted, and past MAX_COPIES live
-    ones new edits are refused until old ones expire."""
-    copies = list(pipeline.OUT.glob("c-*"))
-    for c in copies:
-        if time.time() - c.stat().st_mtime > COPY_DAYS * 86400:
-            shutil.rmtree(c, ignore_errors=True)
-    if sum(c.exists() for c in copies) >= MAX_COPIES:
-        raise HTTPException(429, "too many edited copies right now; try again tomorrow, or download the protocol as is")
+    """Edit copies are unauthenticated, so they are bounded without ever refusing an edit: copies untouched for a week
+    go, and past MAX_COPIES the least recently edited go first. A copy being edited (its lock held) is never deleted."""
+    def idle(c):  # every edit rewrites result.json
+        try:
+            return time.time() - (c / "result.json").stat().st_mtime
+        except OSError:  # half-made (its maker holds the lock) or already gone
+            return 0.0
+    copies = sorted(pipeline.OUT.glob("c-*"), key=idle, reverse=True)
+    excess = len(copies) - MAX_COPIES + 1
+    for i, c in enumerate(copies):
+        if i < excess or idle(c) > COPY_DAYS * 86400:
+            lock = _edit_locks[c.name]
+            if lock.acquire(blocking=False):
+                try:
+                    shutil.rmtree(c, ignore_errors=True)
+                finally:
+                    lock.release()
 
 
 @contextmanager
@@ -93,18 +102,20 @@ def _editable(name):
     private copy (c-*, as unguessable as an upload) whose name the response carries as `run`; a rejected edit leaves
     no copy behind. Writes to one run are serialized, since each is a read-modify-write of result.json."""
     d = _run_dir(name)
-    if not name.startswith(PRIVATE):
+    copy = not name.startswith(PRIVATE)
+    if copy:
         _make_room_for_copy()
         d = pipeline.OUT / ("c-" + secrets.token_urlsafe(12))
-        shutil.copytree(pipeline.OUT / name, d, ignore=shutil.ignore_patterns(*pipeline.SHARED))
-        (d / "copy_of").write_text(name)
-    try:
-        with _edit_locks[d.name]:
+    with _edit_locks[d.name]:  # held from before the copy exists, so eviction can't take it half-made
+        try:
+            if copy:
+                shutil.copytree(pipeline.OUT / name, d, ignore=shutil.ignore_patterns(*pipeline.SHARED))
+                (d / "copy_of").write_text(name)
             yield d
-    except BaseException:
-        if d.name != name:
-            shutil.rmtree(d, ignore_errors=True)
-        raise
+        except BaseException:
+            if copy:
+                shutil.rmtree(d, ignore_errors=True)
+            raise
 
 
 @app.get("/media/{name}")

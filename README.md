@@ -80,7 +80,7 @@ Then:
 - **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run
   goes to a private copy (`c-…`, as unguessable as an upload link) that the page switches to and keeps in the URL,
   so one judge's answers don't become the next judge's demo. A copy holds only the run's JSON (~430 KB) and reads
-  the footage and SAM frames from its sample; a rejected edit leaves no copy, writes to one run are serialized, and copies expire after 7 days (at most 1000 live, ~430 MB).
+  the footage and SAM frames from its sample; a rejected edit leaves no copy, writes to one run are serialized, and copies expire after 7 days untouched; past 1000 (~430 MB) the least recently edited go first, never one being edited.
 
 The scientist can also **answer by voice** (browser recording → Muse Voice Transcribe with reagent-name keyword
 bias → Muse Spark maps the words to the open questions → the form is pre-filled, never submitted), and the reviewer
