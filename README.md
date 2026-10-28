@@ -50,6 +50,9 @@ agent can **look at any second of the video itself** (`look_at_moment`, up to 6 
 finding can carry **one proposed fix** (rename a reagent, set a volume, skip steps that never happened); the
 server validates it against the steps, and nothing changes until the scientist clicks Apply. Every step shows its
 **SAM 3.1 evidence** (how many frames the pipette tip was tracked in), and steps with none are flagged to the agent.
+The fixes are not counted in the evaluation table: accepting every proposed fix blindly leaves recall and precision
+unchanged on all five test videos (on `pcr_2` the duplicates it skips sit inside groups that already match), so
+their value is in the protocol the robot runs, not in the benchmark.
 
 Note: the participant guide's `meta-models/muse-spark-open-1026` still returned 404 on Baseten on Oct 28, so the
 reviewer uses `meta-models/muse-spark-open` (override with `OPEN_MODEL`).
@@ -107,7 +110,7 @@ Known failures:
 ## Run it
 
 ```bash
-uv venv --python 3.12 .venv && uv pip install --python .venv openai meta-sam-parser opentrons fastapi uvicorn python-multipart python-dotenv remotezip opencv-python-headless requests
+uv venv --python 3.12 .venv && uv pip install --python .venv -r requirements.txt remotezip PyLabRobot==0.2.2 playwright
 printf 'MODEL_API_KEY=...\nBASETEN_API_KEY=...\n' > .env
 .venv/Scripts/python scripts/fetch_biovl2.py                              # annotations + pcr_1..4 videos only
 .venv/Scripts/python -m sdc.pipeline data/BioVL2/videos/pcr/pcr_1.mp4     # all models + simulator
@@ -117,7 +120,6 @@ printf 'MODEL_API_KEY=...\nBASETEN_API_KEY=...\n' > .env
 Every model call is cached as JSON in `out/<run>/`, so re-runs and UI edits never re-bill the API.
 `--from-gt <csv>` replays the human annotations through the same pipeline without calling any model.
 
-Self-checks: `python -m sdc.protocol` and `python -m sdc.evaluate`.
 
 ## Data and attribution
 

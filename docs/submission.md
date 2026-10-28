@@ -32,8 +32,9 @@ Baseten); one question per reagent, pre-filled with a simulator-checked plan; ro
 own command log on the deck; downloadable `protocol.py` with Opentrons liquid definitions; three independent checks
 (Opentrons simulator, official `opentrons analyze`, PyLabRobot Hamilton STARlet simulator with volume tracking);
 Methods / Autoprotocol / PyLabRobot exports; reproducibility receipt (SHA-256 of protocol, video and model outputs);
-answer by voice (Muse Voice Transcribe + Muse Spark); reviewer agent with a `look_at_moment` tool; Playwright QA
-suite (46/46 against production).
+answer by voice (Muse Voice Transcribe + Muse Spark); reviewer agent with a `look_at_moment` tool that proposes one-click fixes (rename reagent, set volume,
+skip invented steps; applied only when the scientist clicks); per-step SAM 3.1 tip evidence; Playwright QA suite
+(53/53 against production).
 
 **Describe your use of Meta products**
 > - Muse Spark 1.3 (Meta Model API, Files + Responses API, strict JSON schema): video → timestamped protocol steps;
