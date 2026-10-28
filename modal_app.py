@@ -37,9 +37,10 @@ image = (
     .add_local_dir("web", "/root/web")
 )
 secret = modal.Secret.from_name("show-dont-code")
+backup = modal.Secret.from_name("show-dont-code-fireworks")  # Fireworks key for the reviewer's backup host
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret], timeout=3600, cpu=2.0, memory=4096)
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, backup], timeout=3600, cpu=2.0, memory=4096)
 def process(run_id: str):
     """Run the whole pipeline on an uploaded video. Progress events are committed as they happen."""
     from sdc import pipeline
@@ -55,7 +56,7 @@ def process(run_id: str):
     vol.commit()
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret], timeout=900, scaledown_window=1200, max_containers=1,
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, backup], timeout=900, scaledown_window=1200, max_containers=1,
               min_containers=1)  # always warm for judges: no cold start on the first visit
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
