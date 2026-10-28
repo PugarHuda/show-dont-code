@@ -43,6 +43,13 @@ Then:
   premixes are pipetted as *viscous* (slower flow, delays, the tuned air gap and blowout for glycerol), ethanol as
   *volatile*, everything else as *aqueous*. The class is picked from the reagent's name, and each reagent's class is a
   runtime parameter, so the lab switches it in the Opentrons App if the name guessed wrong.
+- **Liquid presence detection** is one switch at run setup ("Check tubes for liquid", off by default because it adds
+  seconds per draw): when on, the Flex pipette's pressure sensor probes each source tube with the tip it is about to
+  aspirate with (`require_liquid_presence`), and an empty tube stops the run instead of dispensing air. The self-check
+  turns it on and counts the `liquidProbe` commands in Opentrons' analysis.
+- The **Hamilton STARlet** translation moves each reagent at the flow rates Opentrons' own liquid class definition gives
+  that volume (PyLabRobot's STAR backend otherwise pipettes everything as water), so the premix is drawn slowly on both
+  robots.
 - The **thermal cycling program** comes off the bench sheet when one is written there: Muse Spark turns the sheet's
   notes into a structured program (`profile.json`; on `pcr_4` it reads "94C 5min, 94C 30s / 55C 30s x32 / 72C, 72C
   5min"). A temperature written without a time gets 30 s and says so; nothing legible means a stated default. Every
@@ -92,7 +99,9 @@ replay, every download (the receipt hash must equal the SHA-256 of `protocol.py`
 (bad answers, path traversal, script in the URL, wrong upload code, non-audio voice). `BASE=<url>` runs it
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
 `python -m sdc.protocol`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
-`modal run scripts/failover_drill.py` runs a real review on Modal with a broken Baseten key: on Oct 28 Baseten
+Accessibility runs inside the same suite: axe-core checks the landing page and the app in light and dark mode
+(no serious or critical violations); Lighthouse scores both pages 100 for accessibility, best practices and SEO
+(Oct 28). `modal run scripts/failover_drill.py` runs a real review on Modal with a broken Baseten key: on Oct 28 Baseten
 answered 401, the review moved to Fireworks and finished there (726 s, frames only, simulator called twice).
 
 ## Evaluation

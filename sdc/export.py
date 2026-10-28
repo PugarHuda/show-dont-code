@@ -33,6 +33,27 @@ def _needs(steps):
     return need
 
 
+def flow_rates(cls, volume):
+    """(aspirate, dispense) uL/s that Opentrons' own liquid class definition gives this volume on the Flex pipette the
+    protocol uses, linear between its calibration points as on the robot. Lets the STARlet move the liquid alike."""
+    from opentrons_shared_data.liquid_classes import load_definition
+
+    pip, tips = ("flex_1channel_50", "tiprack_50ul") if volume <= 50 else ("flex_1channel_1000", "tiprack_1000ul")
+    by_pip = next(p for p in load_definition(cls).byPipette if p.pipetteModel == pip)
+    tip = next(t for t in by_pip.byTipType if t.tiprack.endswith(f"opentrons_flex_96_{tips}/1"))
+
+    def interp(points):
+        pts = sorted(points)
+        if volume <= pts[0][0]:
+            return pts[0][1]
+        for (v0, r0), (v1, r1) in zip(pts, pts[1:]):
+            if volume <= v1:
+                return round(r0 + (r1 - r0) * (volume - v0) / (v1 - v0), 1)
+        return pts[-1][1]
+
+    return interp(tip.aspirate.flowRateByVolume), interp(tip.singleDispense.flowRateByVolume)
+
+
 def methods_markdown(steps, title="Protocol"):
     need = _needs(steps)
     lines = [f"# {_clean(title)}", "", "Recovered from a first-person video by Show, Don't Code and confirmed by the scientist.",
@@ -123,8 +144,11 @@ def pylabrobot_script(steps):
         if s["action"] == "transfer":
             v = float(s["volume_ul"])
             src, dst = src_well[s.get("source") or s.get("reagent") or "reagent"], dst_well[s.get("destination") or "sample tube"]
-            L += [f"    await lh.pick_up_tips([tip_spots[{n}]])", f"    await lh.aspirate(reagents[{src!r}], vols=[{v}])",
-                  f"    await lh.dispense(reactions[{dst!r}], vols=[{v}])", "    await lh.discard_tips()"]
+            cls, _ = liquid_class(s.get("reagent") or s.get("source"))
+            asp, disp = flow_rates(cls, v)  # PyLabRobot's STAR backend would otherwise pipette everything as water
+            L += [f"    await lh.pick_up_tips([tip_spots[{n}]])",
+                  f"    await lh.aspirate(reagents[{src!r}], vols=[{v}], flow_rates=[{asp}])  # {cls}: Opentrons liquid class rates",
+                  f"    await lh.dispense(reactions[{dst!r}], vols=[{v}], flow_rates=[{disp}])", "    await lh.discard_tips()"]
             n += 1
         elif s["action"] == "mix":
             v, dst = float(s["volume_ul"]), dst_well[s.get("destination") or "sample tube"]
@@ -163,6 +187,8 @@ if __name__ == "__main__":
     assert [i["op"] for i in ap["instructions"]] == ["pipette", "pipette", "seal", "thermocycle"], ap
     src = pylabrobot_script(demo)
     assert "\nimport os" not in src
+    assert flow_rates("glycerol_50", 25) != flow_rates("water", 25), "viscous must move slower than water"
+    assert flow_rates("glycerol_50", 25)[1] < flow_rates("water", 25)[1]
     ok, log = run_pylabrobot(src)
     assert ok and log["actions"] == 4, log
     over = [{**demo[0], "volume_ul": 20}] * 2

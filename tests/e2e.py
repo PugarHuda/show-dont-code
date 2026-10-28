@@ -146,6 +146,9 @@ def main():
         check("protocol: every transfer uses an Opentrons liquid class, premix pipetted as viscous",
               b".transfer(" not in proto and b"transfer_with_liquid_class(" in proto and b"default='glycerol_50'" in proto)
         check("app: liquid classes listed as runtime parameters", "Viscous (50% glycerol)" in page.inner_text("#params"))
+        check("protocol: pipette sensor liquid check is a runtime switch, off by default",
+              b"variable_name='detect_liquid'" in proto and b"require_liquid_presence(" in proto)
+        check("analysis: the App offers the liquid check", b'"variableName":"detect_liquid"' in an.replace(b" ", b"") if st == 200 else False)
         st, z = fetch(f"{api}/api/runs/pcr_1-gt/ro-crate.zip")
         crate = zipfile.ZipFile(io.BytesIO(z)) if st == 200 else None
         meta = json.loads(crate.read("ro-crate-metadata.json")) if crate else {"@graph": []}
@@ -169,7 +172,7 @@ def main():
                 check("RO-Crate: passes rocrate-validator (process-run-crate, REQUIRED)", v.passed(),
                       [i.message[:90] for i in v.get_issues()][:3])
         for path, needle in (("analysis.json", b'"liquids"'), ("methods.md", b"## Procedure"), ("autoprotocol.json", b'"thermocycle"'),
-                             ("pylabrobot.py", b"set_volume_tracking(True)")):
+                             ("pylabrobot.py", b"set_volume_tracking(True)"), ("pylabrobot.py", b"# glycerol_50: Opentrons liquid class rates")):
             st, data = fetch(f"{api}/api/runs/pcr_1-gt/{path}")
             check(f"download: {path}", st == 200 and needle in data, (st, data[:80]))
         st, _ = fetch(f"{api}/api/runs/pcr_3/protocol.py")
@@ -245,6 +248,21 @@ def main():
             filled = vp.eval_on_selector_all("#qform input.heard", "xs => xs.length")
             check("voice: spoken answers fill the form", filled >= 3, vp.inner_text("#voicemsg"))
             vb.close()
+
+        # ---- accessibility: axe-core (the engine behind Lighthouse's audit) in both colour schemes ------------
+        axe_src = urllib.request.urlopen("https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js", timeout=60).read().decode()
+        for scheme in ("light", "dark"):
+            ab = p.chromium.launch()
+            ap = ab.new_page(color_scheme=scheme)
+            for path, ready in (("/", "h1"), ("/app?run=pcr_1-gt", "#steps li")):
+                ap.goto(BASE + path)
+                ap.wait_for_selector(ready, timeout=60000)
+                ap.wait_for_timeout(1500)
+                ap.add_script_tag(content=axe_src)
+                bad = ap.evaluate("""async () => (await axe.run(document, {resultTypes: ['violations']})).violations
+                    .filter(v => ['serious', 'critical'].includes(v.impact)).map(v => v.id + ': ' + v.nodes[0].html.slice(0, 80))""")
+                check(f"a11y: axe-core finds no serious violations on {path} ({scheme})", not bad, bad[:3])
+            ab.close()
 
         check("no uncaught page errors", not errors, errors[:3])
         check("no failed requests during normal use", not [x for x in bad if "/answers" not in x and "/voice" not in x

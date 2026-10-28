@@ -35,8 +35,9 @@ Methods / Autoprotocol / PyLabRobot exports; reproducibility receipt (SHA-256 of
 answer by voice (Muse Voice Transcribe + Muse Spark); reviewer agent with a `look_at_moment` tool that proposes one-click fixes (rename reagent, set volume,
 skip invented steps; applied only when the scientist clicks); per-step SAM 3.1 tip evidence; thermal cycling program read off the bench sheet and exposed as Opentrons runtime
 parameters (editable in the Opentrons App); Opentrons Flex liquid classes per reagent (viscous premix, volatile
-ethanol, aqueous), also runtime parameters; the whole run as an RO-Crate (Process Run Crate, passes rocrate-validator);
-reviewer fails over from Baseten to Fireworks; Playwright QA suite (64/64 against production).
+ethanol, aqueous), also runtime parameters; liquid presence detection switch (Flex pipette sensor probes each tube);
+STARlet export uses Opentrons' liquid class flow rates; the whole run as an RO-Crate (Process Run Crate, passes rocrate-validator);
+reviewer fails over from Baseten to Fireworks; Playwright QA suite with axe-core accessibility checks in light and dark mode (71/71 against production); Lighthouse 100/100/100.
 
 **Describe your use of Meta products**
 > - Muse Spark 1.3 (Meta Model API, Files + Responses API, strict JSON schema): video → timestamped protocol steps;

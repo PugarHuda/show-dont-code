@@ -177,6 +177,10 @@ def generate(steps, title="Show, Don't Code protocol"):
     tcs = [(i, thermal(s)) for i, s in enumerate(steps) if s["action"] == "thermocycle"]
     if tcs or need:
         L.append("def add_parameters(parameters):")
+    if need:  # the Flex pipettes' pressure sensor: off by default because probing adds seconds to every draw
+        L.append("    parameters.add_bool(variable_name='detect_liquid', display_name='Check tubes for liquid', "
+                 "description='Probe each source tube with the pipette sensor before drawing; an empty tube stops the run', "
+                 "default=False)")
     choices = [{"display_name": d, "value": v} for v, d in LIQUID_CLASSES.items()]
     for key, n in lc_of.items():
         cls, why = liquid_class(need[key][0])
@@ -201,7 +205,7 @@ def generate(steps, title="Show, Don't Code protocol"):
         L.append("")
     L += [
         "def run(ctx):",
-        "    trash = ctx.load_trash_bin('A3')",
+        "    ctx.load_trash_bin('A3')",
         f"    reagents = ctx.load_labware({TUBE_RACK!r}, 'C2', 'reagent tubes')",
     ]
     L += [f"    {rack} = ctx.load_labware({TUBE_RACK!r}, {slot!r}, {'reagent tubes ' + rack[len('reagents'):]!r})"
@@ -247,8 +251,12 @@ def generate(steps, title="Show, Don't Code protocol"):
             pip = "p50" if v <= 50 else "p1000"
             key = s.get("source") or s.get("reagent") or "reagent"
             src, dst = loc(sources[key]), loc(dests[s.get("destination") or "sample tube"])
-            L.append(f"    {pip}.transfer_with_liquid_class(liquid_class=lc{lc_of[key]}, volume={v}, source={src}, "
-                     f"dest={dst}, new_tip='always', trash_location=trash)")
+            L += [f"    {pip}.pick_up_tip()",
+                  "    if ctx.params.detect_liquid:",
+                  f"        {pip}.require_liquid_presence({src})",
+                  f"    {pip}.transfer_with_liquid_class(liquid_class=lc{lc_of[key]}, volume={v}, source={src}, "
+                  f"dest={dst}, new_tip='never')",
+                  f"    {pip}.drop_tip()"]
         elif a == "mix":
             v = float(s["volume_ul"])
             pip = "p50" if v <= 50 else "p1000"
@@ -307,7 +315,8 @@ def analyze(source, json_path):
         # runtime parameters as the Opentrons App will offer them at run setup
         "parameters": [{"name": q.get("displayName"), "unit": q.get("suffix", ""),
                         "value": next((c["displayName"] for c in q.get("choices") or [] if c.get("value") == q.get("default")),
-                                      q.get("default"))} for q in a.get("runTimeParameters", [])]}
+                                      ("on" if q["default"] else "off") if q.get("type") == "bool" else q.get("default"))}
+                       for q in a.get("runTimeParameters", [])]}
 
 
 def simulate(source):
@@ -369,4 +378,11 @@ if __name__ == "__main__":
     assert "Step 2 · video 64-99 s: Add Primer1" in log, [l for l in log if l.startswith("Step")][:3]
     p = thermal({"profile": {"cycle": [{"c": 94, "s": 30}, {"c": 72, "s": None}]}})
     assert p["cycle"][1] == {"c": 72.0, "s": 30} and "no time written for 72 °C" in p["source"], p
+    # liquid presence detection: a real liquidProbe before every draw when the lab switches it on
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as tmp:
+        ok, _ = analyze(src.replace("default=False)", "default=True)", 1), Path(tmp) / "a.json")
+        probes = sum(c["commandType"] == "liquidProbe" for c in json.loads((Path(tmp) / "a.json").read_text())["commands"])
+    assert ok and probes == 3, probes  # 3 transfers in the demo
     print(json.dumps(layout), f"\n{len(log)} simulator lines OK")

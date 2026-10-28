@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Review a robot protocol recovered from a lab video: the human video next to the Opentrons deck, step by step, with the simulator's checks.">
 <title>Show, Don't Code</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230f6e5c'/><path d='M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z' fill='white'/></svg>">
 <style>
   :root {
     --bg: #f4f3ef; --panel: #ffffff; --ink: #1b1d1f; --muted: #6b7075; --line: #dedbd2;
-    --accent: #0f6e5c; --accent-soft: #d6ece6; --src: #c2410c; --dst: #0f6e5c; --warn: #a15c00; --bad: #b42318;
+    --accent: #0f6e5c; --accent-soft: #d6ece6; --on-accent: #fff; --src: #c2410c; --dst: #0f6e5c; --warn: #a15c00; --bad: #b42318;
     --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #121416; --panel: #1b1e21; --ink: #e8e6e1; --muted: #9aa0a6; --line: #2e3236;
-            --accent: #4fc3a6; --accent-soft: #163a32; --src: #fb923c; --dst: #4fc3a6; --warn: #f0b429; --bad: #f97066; }
+            --accent: #4fc3a6; --accent-soft: #163a32; --on-accent: #06201a; --src: #fb923c; --dst: #4fc3a6; --warn: #f0b429; --bad: #f97066; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
@@ -22,7 +23,7 @@
   header h1 span { color: var(--accent); }
   select, button, input { font: inherit; color: inherit; }
   select, input { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
-  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
   button:disabled { opacity: .4; cursor: default; }
   .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
   .pill.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
@@ -79,7 +80,7 @@
   .hint { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
   .voice { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; flex-wrap: wrap; }
   .voice .hint { margin: 0; }
-  #voicebtn.rec { background: var(--bad); color: #fff; border-color: var(--bad); }
+  #voicebtn.rec { background: var(--bad); color: var(--on-accent); border-color: var(--bad); }
   form.q input.heard { outline: 2px solid var(--accent); }
   table.setup { width: 100%; border-collapse: collapse; font-size: 14px; }
   table.setup th, table.setup td { text-align: left; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
@@ -283,7 +284,7 @@ function render() {
       `<tr><td><i class="dot" style="background:${esc(x.color)}"></i>${esc(x.liquid)}</td><td>${esc(x.labware)} ${esc(x.well)}</td><td class="t">${esc(x.volume_ul)} µL</td></tr>`).join("");
     const params = an?.parameters || [], tc = R.steps.find((x) => x.action === "thermocycle");
     $("paramsbox").hidden = !params.length;
-    $("paramsline").textContent = `How each reagent is pipetted (an Opentrons liquid class picked from its name: viscous for enzyme mixes, volatile for ethanol, otherwise aqueous)${tc ? ` and the thermal cycling program (${tc.profile?.found && tc.profile.cycle?.length ? "read off the bench sheet by Muse Spark" : "default; none legible on the bench sheet"})` : ""}. These are Opentrons runtime parameters: change them in the Opentrons App at run setup, no code editing.`;
+    $("paramsline").textContent = `How each reagent is pipetted (an Opentrons liquid class picked from its name: viscous for enzyme mixes, volatile for ethanol, otherwise aqueous), whether the pipette sensor checks each tube for liquid first${tc ? ` and the thermal cycling program (${tc.profile?.found && tc.profile.cycle?.length ? "read off the bench sheet by Muse Spark" : "default; none legible on the bench sheet"})` : ""}. These are Opentrons runtime parameters: change them in the Opentrons App at run setup, no code editing.`;
     $("params").innerHTML = params.map((x) => `<tr><td>${esc(x.name)}</td><td class="t">${esc(x.value)} ${esc(x.unit === "C" ? "°C" : x.unit)}</td></tr>`).join("");
     $("f-proto").href = `${base}/protocol.py`;
     $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
@@ -308,7 +309,7 @@ function render() {
       : s.tip_frames ? `<small class="sam" title="SAM 3.1 tracked the pipette tip in ${s.tip_frames} frames of this step">tip seen ×${s.tip_frames}</small>`
       : `<small class="sam none" title="SAM 3.1 never saw the pipette tip during this step">no tip seen</small>`;
     const text = s.reagent ? `${esc(s.description)}${s.reagent_by ? ` <small class="sam">reagent: ${esc(s.reagent)}</small>` : ""}` : esc(s.description);
-    return `<li data-i="${i}" tabindex="0" role="button" class="${s.action === "skipped" ? "skipped" : ""}"><span class="t">${fmt(s.start)}</span><span>${text}${sam}</span>${tag}</li>`;
+    return `<li data-i="${i}" tabindex="0" class="${s.action === "skipped" ? "skipped" : ""}"><span class="t">${fmt(s.start)}</span><span>${text}${sam}</span>${tag}</li>`;
   }).join("");
   $("steps").querySelectorAll("li").forEach((li) => {
     li.onclick = () => seek(R.steps[li.dataset.i].start);
@@ -363,7 +364,7 @@ function render() {
     ? "on Fireworks (backup host, frames only)" : "on Baseten";
   const toolLog = (R.agent_log || []).map((c, k) => {
     if (c.tool === "look_at_moment") {
-      return `<li class="info look" data-t="${Number(c.args.seconds) || 0}" tabindex="0" role="button"><b>Agent looked at ${fmt(Number(c.args.seconds) || 0)}</b><span>${esc(c.args.why || "")}${c.result.error ? ` (${esc(c.result.error)})` : ""}</span></li>`;
+      return `<li class="info look" data-t="${Number(c.args.seconds) || 0}" tabindex="0"><b>Agent looked at ${fmt(Number(c.args.seconds) || 0)}</b><span>${esc(c.args.why || "")}${c.result.error ? ` (${esc(c.result.error)})` : ""}</span></li>`;
     }
     const res = c.result.ran ? `simulator passed · ${Object.entries(c.result.total_ul_per_tube || {}).map(([t, v]) => `${esc(t)} ${v} µL`).join(", ")}`
       : esc(c.result.error || (c.result.rejected || []).join("; ") || JSON.stringify(c.result.missing_or_invalid_volume_for || c.result));
@@ -377,7 +378,7 @@ function render() {
       const f = it.fix || { kind: "none" };
       const action = f.kind === "none" ? "" : it.applied ? `<em class="applied">Applied: ${esc(fixLabel(f))}</em>`
         : `<button type="button" class="ghost fix" data-k="${k}">${esc(fixLabel(f))}</button>`;
-      return `<li class="${esc(it.severity)}" data-k="${k}" tabindex="0" role="button"><b>${esc(it.finding)}</b><span>${esc(it.question)}</span>${action}</li>`;
+      return `<li class="${esc(it.severity)}" data-k="${k}" tabindex="0"><b>${esc(it.finding)}</b><span>${esc(it.question)}</span>${action}</li>`;
     }).join("");
   $("issues").querySelectorAll("li[data-k], li.look").forEach((li) => {
     li.onclick = () => {
@@ -484,11 +485,10 @@ function parseCmd(line) {
   if ((m = line.match(/^Picking up tip from (\w+) of .* on slot (\w+)/))) return { kind: "pick", slot: m[2], well: m[1], say: "Pick up a fresh tip" };
   if ((m = line.match(/^Aspirating ([\d.]+) uL from (\w+) of (.+?) on slot (\w+)/))) return { kind: "asp", slot: m[4], well: m[2], say: `Aspirate ${m[1]} µL from ${m[3]} ${m[2]}` };
   if ((m = line.match(/^Dispensing ([\d.]+) uL into (\w+) of .*? on slot (\w+)/))) return { kind: "disp", slot: m[3], well: m[2], say: `Dispense ${m[1]} µL into well ${m[2]}` };
-  // a liquid-class transfer logs one line for pick-up, aspirate, dispense and drop; replay it as those moves
+  // a liquid-class transfer logs one line for its aspirate and dispense; replay it as those two moves
   if ((m = line.match(/^Transferring ([\d.]+) uL of (\w+) liquid class from (\w+) of (.+?) on slot (\w+) to (\w+) of .*? on slot (\w+)/)))
     return [{ kind: "asp", slot: m[5], well: m[3], say: `Aspirate ${m[1]} µL from ${m[4]} ${m[3]} (${m[2].toLowerCase()} liquid class)` },
-            { kind: "disp", slot: m[7], well: m[6], say: `Dispense ${m[1]} µL into well ${m[6]}` },
-            { kind: "drop", slot: "A3", well: null, say: "Drop the tip in the trash" }];
+            { kind: "disp", slot: m[7], well: m[6], say: `Dispense ${m[1]} µL into well ${m[6]}` }];
   if ((m = line.match(/^Dropping tip into Trash Bin on slot (\w+)/))) return { kind: "drop", slot: m[1], well: null, say: "Drop the tip in the trash" };
   if (/Thermocycler|Pausing/.test(line)) return { kind: "info", slot: null, say: line.replace(/ composed of.*/, "") };
   return null;
@@ -530,7 +530,7 @@ function tick() {
   const i = R.steps.findIndex((s) => t >= s.start && t <= s.end);
   if (i !== active) {
     active = i;
-    $("steps").querySelectorAll("li").forEach((li) => li.classList.toggle("active", Number(li.dataset.i) === i));
+    $("steps").querySelectorAll("li").forEach((li) => { const on = Number(li.dataset.i) === i; li.classList.toggle("active", on); on ? li.setAttribute("aria-current", "step") : li.removeAttribute("aria-current"); });
     if (!replaying) deck(i);
     const s = R.steps[i];
     $("now").innerHTML = s ? `<b>${esc(s.action)}</b> · ${esc(s.description)}${s.volume_ul ? ` · ${s.volume_ul} µL` : ""}${ROBOT.has(s.action) ? "" : " · <i>robot pauses for you</i>"}`
