@@ -36,6 +36,11 @@ Then:
 - `protocol.py` for the **Opentrons Flex**, with every reagent declared as a liquid (`define_liquid` / `load_liquid`,
   volume = what the transfers draw + 10 % + the tube's dead volume), so the Opentrons App shows the liquid setup.
   Tip racks scale with the number of transfers.
+- The **thermal cycling program** comes off the bench sheet when one is written there: Muse Spark turns the sheet's
+  notes into a structured program (`profile.json`; on `pcr_4` it reads "94C 5min, 94C 30s / 55C 30s x32 / 72C, 72C
+  5min"). A temperature written without a time gets 30 s and says so; nothing legible means a stated default. Every
+  temperature, time and the cycle count are **Opentrons runtime parameters**, so the lab changes them in the
+  Opentrons App at run setup without touching code. `methods.md` and `autoprotocol.json` use the same program.
 - **Three independent checks** on every confirmed protocol: the Opentrons simulator, Opentrons' own protocol
   analysis (`opentrons analyze`, what the App runs on import, saved as `analysis.json`), and a **Hamilton STARlet**
   translation run in **PyLabRobot**'s simulator with volume tracking on, so over-drawing a tube fails there too.

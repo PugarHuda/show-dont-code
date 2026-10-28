@@ -119,6 +119,12 @@ def main():
         check("app: liquid setup lists what to load", len(page.query_selector_all("#setup tr")) >= 3)
         st, proto = fetch(f"{api}/api/runs/pcr_1-gt/protocol.py")
         check("download: protocol.py", st == 200 and b"def run(ctx)" in proto and b"load_liquid" in proto)
+        check("protocol: thermal program is Opentrons runtime parameters",
+              b"def add_parameters(parameters)" in proto and b"repetitions=ctx.params.cycles" in proto)
+        check("app: runtime parameters listed before the run", len(page.query_selector_all("#params tr")) >= 3,
+              len(page.query_selector_all("#params tr")))
+        st, an = fetch(f"{api}/api/runs/pcr_1-gt/analysis.json")
+        check("analysis: Opentrons App sees the runtime parameters", st == 200 and b'"variableName":"cycles"' in an.replace(b" ", b""))
         st, rec = fetch(f"{api}/api/runs/pcr_1-gt/receipt.json")
         rec = json.loads(rec) if st == 200 else {}
         check("download: receipt hash matches protocol.py byte for byte",

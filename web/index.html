@@ -202,6 +202,10 @@
       <h2>Before you run</h2>
       <p class="hint" id="analysisline"></p>
       <table class="setup"><thead><tr><th scope="col">Load</th><th scope="col">Into</th><th scope="col">Volume</th></tr></thead><tbody id="setup"></tbody></table>
+      <div id="paramsbox" hidden>
+        <p class="hint" id="paramsline"></p>
+        <table class="setup"><thead><tr><th scope="col">Setting</th><th scope="col">Value</th></tr></thead><tbody id="params"></tbody></table>
+      </div>
       <p class="hint" id="plrline"></p>
       <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
         <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
@@ -276,6 +280,10 @@ function render() {
       : `Opentrons' protocol analysis reported a problem: ${(an.errors || [an.error]).join("; ")}`;
     $("setup").innerHTML = (an?.liquid_setup || []).map((x) =>
       `<tr><td><i class="dot" style="background:${esc(x.color)}"></i>${esc(x.liquid)}</td><td>${esc(x.labware)} ${esc(x.well)}</td><td class="t">${esc(x.volume_ul)} µL</td></tr>`).join("");
+    const params = an?.parameters || [], tc = R.steps.find((x) => x.action === "thermocycle");
+    $("paramsbox").hidden = !params.length;
+    $("paramsline").textContent = `Thermal cycling program (${tc?.profile?.found && tc.profile.cycle?.length ? "read off the bench sheet by Muse Spark" : "default; none legible on the bench sheet"}). These are Opentrons runtime parameters: change them in the Opentrons App at run setup, no code editing.`;
+    $("params").innerHTML = params.map((x) => `<tr><td>${esc(x.name)}</td><td class="t">${esc(x.value)} ${esc(x.unit === "C" ? "°C" : x.unit)}</td></tr>`).join("");
     $("f-proto").href = `${base}/protocol.py`;
     $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
     $("f-receipt").href = `${base}/receipt.json`;
@@ -291,6 +299,7 @@ function render() {
   $("steps").innerHTML = R.steps.map((s, i) => {
     const tag = s.action === "skipped" ? `<span class="tag">skipped</span>`
       : asked.has(i) ? `<span class="tag ask">volume?</span>`
+      : s.action === "thermocycle" && s.cycles ? `<span class="tag">${esc(s.cycles)} cycles${s.cycles_evidence ? ` · ${esc(s.cycles_evidence)}` : ""}</span>`
       : s.volume_ul ? `<span class="tag">${s.volume_ul} µL · ${esc(s.volume_evidence)}</span>`
       : `<span class="tag">${ROBOT.has(s.action) ? esc(s.action) : "manual"}</span>`;
     // SAM 3.1 evidence: how many 2 fps frames showed the pipette tip during this step

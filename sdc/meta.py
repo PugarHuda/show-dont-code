@@ -154,6 +154,42 @@ def read_sheet(images):
     return json.loads(r.output_text)
 
 
+_HOLD = {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["c", "s"],
+                                   "properties": {"c": {"type": "number", "description": "°C"},
+                                                  "s": {"type": ["integer", "null"], "description": "seconds; null if the temperature is written without a time"}}}}
+PROFILE_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["found", "initial", "cycle", "repetitions", "final", "quote"],
+    "properties": {
+        "found": {"type": "boolean", "description": "a thermal cycling program is written in the notes"},
+        "initial": {**_HOLD, "description": "holds before cycling, e.g. initial denaturation"},
+        "cycle": {**_HOLD, "description": "the repeated steps, in order"},
+        "repetitions": {"type": ["integer", "null"]},
+        "final": {**_HOLD, "description": "holds after cycling, e.g. final extension; not the 4 °C storage hold"},
+        "quote": {"type": "string", "description": "the exact words of the notes you read it from"},
+    },
+}
+
+
+def thermal_profile(notes):
+    """Muse Spark turns the bench-sheet notes into a structured cycling program (text only, no images).
+    Numbers that are not written stay empty; protocol.thermal() clamps whatever comes back."""
+    empty = {"found": False, "initial": [], "cycle": [], "repetitions": None, "final": [], "quote": ""}
+    if not (notes or "").strip():
+        return empty
+    r = client().responses.create(
+        model=SPARK, max_output_tokens=4000, reasoning={"effort": "low"},
+        input=[{"role": "user", "content": [{"type": "input_text", "text": (
+            "These notes were transcribed from a protocol sheet on a lab bench. If they contain a PCR / thermal "
+            "cycling program, return it with times in seconds. Copy only numbers that are written (a temperature written without a time is still a step, with s null); leave a list "
+            "empty and repetitions null for anything not written. A cycle count alone (e.g. '35cycle') is "
+            "repetitions with an empty cycle list.\n\nNotes:\n" + notes[:4000])}]}],
+        text={"format": {"type": "json_schema", "name": "profile", "schema": PROFILE_SCHEMA, "strict": True}},
+    )
+    return json.loads(r.output_text)
+
+
 def transcribe(video, wav_path, keywords=None):
     """Muse Voice Transcribe on the video's audio track. Returns [{start, end, text}] speech turns."""
     import requests

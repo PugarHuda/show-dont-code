@@ -13,7 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .protocol import DEAD_UL, _plan
+from .protocol import DEAD_UL, _plan, thermal
 
 WELLS_96 = [f"{r}{c}" for c in range(1, 13) for r in "ABCDEFGH"]
 
@@ -49,7 +49,11 @@ def methods_markdown(steps, title="Protocol"):
         elif s["action"] == "mix":
             text = f"Mix {_clean(s.get('destination') or 'the sample tube')} by pipetting {float(s['volume_ul']):g} µL up and down 3 times."
         elif s["action"] == "thermocycle":
-            text = f"Place the tubes in the thermal cycler and run {int(s['cycles'])} cycles (98 °C 10 s, 55 °C 5 s, 72 °C 5 s), then hold at 4 °C."
+            p = thermal(s)
+            fmt = lambda xs: ", ".join(f"{x['c']:g} °C {x['s']} s" for x in xs)  # noqa: E731
+            text = (f"Place the tubes in the thermal cycler: " + (f"{fmt(p['initial'])}; " if p["initial"] else "")
+                    + f"{int(s['cycles'])} cycles of {fmt(p['cycle'])}"
+                    + (f"; then {fmt(p['final'])}" if p["final"] else "") + f"; hold at 4 °C ({p['source']}).")
         else:
             text = _clean(s["description"], 200).rstrip(".") + "."
         lines.append(f"{i}. {text} {when}")
@@ -72,11 +76,10 @@ def autoprotocol(steps):
                 {"from": src, "to": dst, "volume": f"{float(s['volume_ul']):g}:microliter"}]}]})
         elif s["action"] == "thermocycle":
             instructions.append({"op": "seal", "object": "reactions", "type": "ultra-clear"})
-            instructions.append({"op": "thermocycle", "object": "reactions", "volume": "50:microliter", "groups": [
-                {"cycles": 1, "steps": [{"temperature": "98:celsius", "duration": "30:second"}]},
-                {"cycles": int(s["cycles"]), "steps": [{"temperature": "98:celsius", "duration": "10:second"},
-                                                      {"temperature": "55:celsius", "duration": "5:second"},
-                                                      {"temperature": "72:celsius", "duration": "5:second"}]}]})
+            p = thermal(s)  # the same program protocol.py runs, so every export agrees
+            steps_of = lambda xs: [{"temperature": f"{x['c']:g}:celsius", "duration": f"{x['s']}:second"} for x in xs]  # noqa: E731
+            groups = ([{"cycles": 1, "steps": steps_of(p["initial"])}] if p["initial"] else []) +                 [{"cycles": int(s["cycles"]), "steps": steps_of(p["cycle"])}] +                 ([{"cycles": 1, "steps": steps_of(p["final"])}] if p["final"] else [])
+            instructions.append({"op": "thermocycle", "object": "reactions", "volume": "50:microliter", "groups": groups})
     return {"refs": refs, "instructions": instructions}
 
 

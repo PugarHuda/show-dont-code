@@ -164,7 +164,15 @@ def build(run_dir, steps, answers=None, review=True):
         else:
             steps[int(i)]["volume_ul"] = float(v)
             steps[int(i)]["volume_evidence"] = "confirmed"
-    result = {"steps": steps, "questions": [], "protocol": None, "layout": {}, "sim_ok": False, "sim_log": []}
+    prof_file = run_dir / "profile.json"  # the cycling program read off the bench sheet, if any
+    prof = json.loads(prof_file.read_text(encoding="utf-8")) if prof_file.exists() else {}
+    for s in steps:
+        if s["action"] == "thermocycle" and prof.get("found"):
+            s["profile"] = prof
+            reps = prof.get("repetitions")
+            if not s.get("cycles") and isinstance(reps, int) and 1 <= reps <= 99:
+                s["cycles"], s["cycles_evidence"] = reps, "bench sheet"
+        result = {"steps": steps, "questions": [], "protocol": None, "layout": {}, "sim_ok": False, "sim_log": []}
     try:
         result["protocol"], result["layout"] = protocol.generate(steps)
         result["sim_ok"], result["sim_log"] = protocol.simulate(result["protocol"])
@@ -222,6 +230,8 @@ def run(video, name=None, gt_csv=None, from_gt=False):
         length = meta.duration(video)  # uploads can be short: only sample stills that exist
         stills = meta.frames(video, [t for t in (2, 10, 20, 35, 50) if t < length - 0.5] or [0], run_dir / "stills")
         sheet = _cached(run_dir / "sheet.json", lambda: meta.read_sheet(stills), "Muse Spark reads the bench protocol sheet")
+        _cached(run_dir / "profile.json", lambda: meta.thermal_profile(sheet.get("notes", "")),
+                "Muse Spark reads the cycling program off the sheet")
         spark_video = meta.shrink(video, run_dir / "spark.mp4", fps=10)
         fid = _cached(run_dir / "spark_file.json", lambda: meta.upload(spark_video), "upload video to Meta Model API")
         try:  # speech is an optional hint; a transcription failure must not stop the run

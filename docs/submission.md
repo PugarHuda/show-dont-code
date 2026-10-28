@@ -33,7 +33,8 @@ own command log on the deck; downloadable `protocol.py` with Opentrons liquid de
 (Opentrons simulator, official `opentrons analyze`, PyLabRobot Hamilton STARlet simulator with volume tracking);
 Methods / Autoprotocol / PyLabRobot exports; reproducibility receipt (SHA-256 of protocol, video and model outputs);
 answer by voice (Muse Voice Transcribe + Muse Spark); reviewer agent with a `look_at_moment` tool that proposes one-click fixes (rename reagent, set volume,
-skip invented steps; applied only when the scientist clicks); per-step SAM 3.1 tip evidence; Playwright QA suite
+skip invented steps; applied only when the scientist clicks); per-step SAM 3.1 tip evidence; thermal cycling program read off the bench sheet and exposed as Opentrons runtime
+parameters (editable in the Opentrons App); reviewer fails over from Baseten to Fireworks; Playwright QA suite
 (53/53 against production).
 
 **Describe your use of Meta products**

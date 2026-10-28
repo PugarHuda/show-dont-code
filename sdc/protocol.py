@@ -28,6 +28,44 @@ class NeedsInput(Exception):
 MIN_UL = 1.0  # smallest volume of the Flex 1-channel 50 µL pipette; the simulator does not enforce it
 
 
+# used only when the bench sheet shows no cycling program; every value stays editable in the Opentrons App
+DEFAULT_PROFILE = {"initial": [{"c": 98.0, "s": 30}],
+                   "cycle": [{"c": 98.0, "s": 10}, {"c": 55.0, "s": 5}, {"c": 72.0, "s": 5}],
+                   "final": [], "source": "default 3-step program (none legible on the bench sheet)"}
+
+
+UNWRITTEN_S = 30  # a step whose temperature is on the sheet but whose time is not
+
+
+def thermal(step):
+    """The cycling program of a thermocycle step: the one Muse Spark read off the bench sheet, else the default.
+    Model numbers are untrusted: kept only inside what the Flex Thermocycler can do."""
+    p = step.get("profile") or {}
+
+    guessed = []
+
+    def clean(xs, n):
+        out = []
+        for x in (xs or [])[:n]:
+            try:
+                c = float(x["c"])
+                sec = UNWRITTEN_S if x.get("s") is None else int(x["s"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if x.get("s") is None and 4 <= c <= 99:
+                guessed.append(f"{c:g} °C")
+            if 4 <= c <= 99 and 1 <= sec <= 3600:
+                out.append({"c": c, "s": sec})
+        return out
+
+    cycle = clean(p.get("cycle"), 3)
+    if not cycle:
+        return dict(DEFAULT_PROFILE)
+    initial, final = clean(p.get("initial"), 2), clean(p.get("final"), 2)
+    note = f"; no time written for {', '.join(guessed)}, {UNWRITTEN_S} s used" if guessed else ""
+    return {"initial": initial, "cycle": cycle, "final": final, "source": "bench sheet, read by Muse Spark" + note}
+
+
 def missing_inputs(steps):
     q = []
     for i, s in enumerate(steps):
@@ -92,6 +130,27 @@ def generate(steps, title="Show, Don't Code protocol"):
         f"metadata = {{'protocolName': {title!r}}}",
         "requirements = {'robotType': 'Flex', 'apiLevel': '2.20'}",
         "",
+    ]
+    # thermal programs become Opentrons runtime parameters: the lab adjusts them in the App at run setup, no code
+    tcs = [(i, thermal(s)) for i, s in enumerate(steps) if s["action"] == "thermocycle"]
+    if tcs:
+        L.append("def add_parameters(parameters):")
+    for j, (i, prof) in enumerate(tcs):
+        pre = f"pcr{j + 1}_" if len(tcs) > 1 else ""
+        tag = f"PCR {j + 1} " if len(tcs) > 1 else ""
+        L.append(f"    # step {i + 1} cycling program: {prof['source']}")
+        L.append(f"    parameters.add_int(variable_name={pre + 'cycles'!r}, display_name={tag + 'Cycles'!r}, "
+                 f"description='Number of cycles', default={int(steps[i]['cycles'])}, minimum=1, maximum=99)")
+        for stage in ("initial", "cycle", "final"):
+            for k, st in enumerate(prof[stage]):
+                name = f"{tag}{stage.title()} {k + 1}"
+                L.append(f"    parameters.add_float(variable_name={f'{pre}{stage}{k + 1}_c'!r}, display_name={name + ' temp'!r}, "
+                         f"default={st['c']}, minimum=4.0, maximum=99.0, unit='C')")
+                L.append(f"    parameters.add_int(variable_name={f'{pre}{stage}{k + 1}_s'!r}, display_name={name + ' time'!r}, "
+                         f"default={st['s']}, minimum=1, maximum=3600, unit='s')")
+    if tcs:
+        L.append("")
+    L += [
         "def run(ctx):",
         "    ctx.load_trash_bin('A3')",
         f"    reagents = ctx.load_labware({TUBE_RACK!r}, 'C2', 'reagent tubes')",
@@ -146,17 +205,19 @@ def generate(steps, title="Show, Don't Code protocol"):
             dst = loc(dests[s.get("destination") or "sample tube"])
             L += [f"    {pip}.pick_up_tip()", f"    {pip}.mix(3, {v}, {dst})", f"    {pip}.drop_tip()"]
         elif a == "thermocycle":
-            # ponytail: cycle count comes from the scientist; temperatures are a PrimeSTAR-style 3-step default,
-            # editable in the downloaded file until the UI asks for them too
-            L += [
-                "    tc.close_lid()",
-                "    tc.set_lid_temperature(105)",
-                "    tc.execute_profile(steps=[{'temperature': 98, 'hold_time_seconds': 10},"
-                " {'temperature': 55, 'hold_time_seconds': 5}, {'temperature': 72, 'hold_time_seconds': 5}],"
-                f" repetitions={int(s['cycles'])}, block_max_volume=50)",
-                "    tc.set_block_temperature(4)",
-                "    tc.open_lid()",
-            ]
+            j = [t[0] for t in tcs].index(i)
+            pre = f"pcr{j + 1}_" if len(tcs) > 1 else ""
+            prof = tcs[j][1]
+
+            def stage(name, reps):
+                return (f"    tc.execute_profile(steps=[" + ", ".join(
+                    f"{{'temperature': ctx.params.{pre}{name}{k + 1}_c, 'hold_time_seconds': ctx.params.{pre}{name}{k + 1}_s}}"
+                    for k in range(len(prof[name]))) + f"], repetitions={reps}, block_max_volume=50)")
+            L += ["    tc.close_lid()", "    tc.set_lid_temperature(105)"]
+            L += [stage("initial", 1)] if prof["initial"] else []
+            L += [stage("cycle", f"ctx.params.{pre}cycles")]
+            L += [stage("final", 1)] if prof["final"] else []
+            L += ["    tc.set_block_temperature(4)", "    tc.open_lid()"]
         elif a == "skipped":  # the scientist accepted that this step never happened
             L.append("    # skipped: did not happen in the video (reviewed)")
         else:
@@ -192,7 +253,10 @@ def analyze(source, json_path):
                               "labware": lw.get("displayName") or lw.get("loadName"), "well": well, "volume_ul": vol})
     return a.get("result") == "ok" and not a.get("errors"), {
         "result": a.get("result"), "errors": [e.get("detail", str(e))[:200] for e in a.get("errors", [])],
-        "commands": len(a.get("commands", [])), "liquid_setup": setup}
+        "commands": len(a.get("commands", [])), "liquid_setup": setup,
+        # runtime parameters as the Opentrons App will offer them at run setup
+        "parameters": [{"name": q.get("displayName"), "value": q.get("default"), "unit": q.get("suffix", "")}
+                       for q in a.get("runTimeParameters", [])]}
 
 
 def simulate(source):
@@ -229,5 +293,17 @@ if __name__ == "__main__":
     assert ok, log
     assert any("Primer1" not in l and "Transferring 1.0" in l for l in log), log
     assert layout["Primer1"] == "reagents:B1", layout
-    assert "repetitions=35" in src
+    assert "default=35" in src and "repetitions=ctx.params.cycles" in src and "default=98.0" in src, src
+    # a program read off the sheet replaces the default; out-of-range model numbers are dropped, not run
+    sheet = {**demo[5], "profile": {"initial": [{"c": 94, "s": 300}], "cycle": [{"c": 94, "s": 30}, {"c": 55, "s": 30},
+             {"c": 72, "s": 60}, {"c": 50, "s": 1}], "final": [{"c": 72, "s": 300}, {"c": 150, "s": 5}]}}
+    prof = thermal(sheet)
+    assert len(prof["cycle"]) == 3 and prof["final"] == [{"c": 72.0, "s": 300}] and prof["source"].startswith("bench"), prof
+    src2, _ = generate(demo[:5] + [sheet])
+    ok, log2 = simulate(src2)
+    assert ok, log2
+    assert "variable_name='final1_c'" in src2 and "default=94.0" in src2 and "default=98.0" not in src2, src2
+    assert thermal({"profile": {"cycle": [{"c": "x", "s": 5}]}})["source"].startswith("default")
+    p = thermal({"profile": {"cycle": [{"c": 94, "s": 30}, {"c": 72, "s": None}]}})
+    assert p["cycle"][1] == {"c": 72.0, "s": 30} and "no time written for 72 °C" in p["source"], p
     print(json.dumps(layout), f"\n{len(log)} simulator lines OK")

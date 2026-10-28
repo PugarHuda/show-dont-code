@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FUNCTION_FILES = ["result.json", "answers.json", "tubes.json", "tracks_tip.json", "sheet.json", "gt.csv",
-                  "sam_file.json"]  # videos stay out: the bundle must fit Vercel's 250 MB standard size
+                  "sam_file.json", "profile.json"]  # videos stay out: the bundle must fit Vercel's 250 MB standard size
 
 for run in sys.argv[1:]:
     src = ROOT / "out" / run
