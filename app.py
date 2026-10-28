@@ -163,7 +163,7 @@ def receipt(name: str):
         "opentrons_analysis": {"passed": r.get("analysis_ok"), "commands": (r.get("analysis") or {}).get("commands")},
         # a ground-truth replay never ran the models on its video, so don't claim it did
         "models": {"steps_and_sheet": meta.SPARK, "tracking": "sam-3.1", "speech": "muse-voice-transcribe-1.0",
-                   "reviewer": agent.MODEL} if (d / "steps_raw.json").exists()
+                   "reviewer": r.get("review_model") or f"baseten:{agent.MODEL}"} if (d / "steps_raw.json").exists()
         else {"note": "steps replayed from BioVL2 human annotations; no model read this video"},
         "human_input": {"answers": answers, "named_tubes": [t["name"] for t in _tubes(d) if t.get("name")]},
         "reviewer_findings": len(r.get("review") or []),

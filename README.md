@@ -55,7 +55,10 @@ unchanged on all five test videos (on `pcr_2` the duplicates it skips sit inside
 their value is in the protocol the robot runs, not in the benchmark.
 
 Note: the participant guide's `meta-models/muse-spark-open-1026` still returned 404 on Baseten on Oct 28, so the
-reviewer uses `meta-models/muse-spark-open` (override with `OPEN_MODEL`).
+reviewer uses `meta-models/muse-spark-open` (override with `OPEN_MODEL`). If Baseten fails, the review moves to the same model on
+**Fireworks** (`FIREWORKS_API_KEY`) and stays there for the rest of the conversation. Fireworks' Muse Spark Open
+rejects video input ("does not support video inputs yet", Oct 28), so on that host the agent works from the frames it
+requests with `look_at_moment`; the result records which host ran (`review_model`) and whether it saw the video.
 
 ## Hosting
 

@@ -1,4 +1,4 @@
-"""Protocol reviewer agent on Muse Spark Open (Meta open weights, served by Baseten).
+"""Protocol reviewer agent on Muse Spark Open (Meta open weights, served by Baseten, Fireworks as the backup).
 
 It watches the video, reads what the vision models extracted and what the bench sheet says, and can run the
 Opentrons simulator itself through a tool, trying volume plans until one adds up. It never edits steps or runs a
@@ -15,6 +15,9 @@ from openai import OpenAI
 
 load_dotenv()
 MODEL = os.getenv("OPEN_MODEL", "meta-models/muse-spark-open")
+# the same open-weights model on a second host: used only when Baseten fails, so a judge never sees "reviewer down"
+BACKUP = ("fireworks", "https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY",
+          os.getenv("BACKUP_MODEL", "accounts/fireworks/models/muse-spark-open"))
 MAX_VIDEO_S = 300  # Baseten Muse Spark Open limit per video (it samples at most 96 frames)
 MAX_TOOL_TURNS = 5
 
@@ -148,6 +151,47 @@ def client():
     return OpenAI(base_url="https://inference.baseten.co/v1", api_key=key)
 
 
+def providers():
+    """(name, client, model, takes_video) in the order to try them; hosts without a key are skipped."""
+    out = [("baseten", client(), MODEL, True)] if os.getenv("BASETEN_API_KEY") else []
+    name, url, env, model = BACKUP
+    if os.getenv(env):  # Fireworks' Muse Spark Open takes images but not video (400 "does not support video inputs yet")
+        out.append((name, OpenAI(base_url=url, api_key=os.getenv(env), timeout=300, max_retries=1), model, False))
+    if not out:
+        raise RuntimeError("no reviewer host: set BASETEN_API_KEY or FIREWORKS_API_KEY in .env")
+    return out
+
+
+class Chat:
+    """Sends every turn of one review to the same host; on an error it moves to the next host for good, so a
+    conversation never mixes hosts after a failure. `used` and `failures` go into the result."""
+
+    def __init__(self):
+        self.hosts, self.failures = providers(), []
+
+    @property
+    def used(self):
+        return f"{self.hosts[0][0]}:{self.hosts[0][2]}"
+
+    @property
+    def saw_video(self):
+        return self.hosts[0][3]
+
+    def __call__(self, messages, **kw):
+        while True:
+            name, c, model, video = self.hosts[0]
+            if not video:  # this host still sees the frames it asks for with look_at_moment
+                messages = [m if not isinstance(m.get("content"), list) else
+                            {**m, "content": [p for p in m["content"] if p.get("type") != "video_url"]} for m in messages]
+            try:
+                return c.chat.completions.create(model=model, messages=messages, **kw)
+            except Exception as e:  # noqa: BLE001 - any host failure: try the backup, re-raise when none is left
+                self.failures.append(f"{name}: {type(e).__name__}")
+                if len(self.hosts) == 1:
+                    raise
+                self.hosts.pop(0)
+
+
 def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, fps=2):
     """simulator: status string. simulate: callable(volumes_ul) -> dict, exposed to the model as a tool.
     frames_dir: <index>.jpg stills of the video at `fps`, exposed as the look_at_moment tool.
@@ -166,8 +210,9 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
     log, looks = [], 0
     tools = [t for t in TOOLS if (t["function"]["name"] == "simulate_with_volumes" and simulate)
              or (t["function"]["name"] == "look_at_moment" and frames_dir)]
+    chat = Chat()
     for _ in range(MAX_TOOL_TURNS if tools else 0):
-        m = client().chat.completions.create(model=MODEL, messages=messages, tools=tools, max_tokens=16000).choices[0].message
+        m = chat(messages=messages, tools=tools, max_tokens=16000).choices[0].message
         if not m.tool_calls:
             break
         messages.append({"role": "assistant", "content": m.content or "",
@@ -200,8 +245,8 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
                 {"type": "text", "text": f"Frame at {sec:g} s:"},
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(f.read_bytes()).decode()}})]})
     messages.append({"role": "user", "content": "Give your final review now."})
-    r = client().chat.completions.create(
-        model=MODEL, messages=messages, max_tokens=16000,
+    r = chat(
+        messages=messages, max_tokens=16000,
         response_format={"type": "json_schema", "json_schema": {"name": "review", "schema": REVIEW_SCHEMA, "strict": True}},
     )
     choice = r.choices[0]
@@ -222,5 +267,38 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
         plan = passed[-1]["args"]["volumes_ul"]
         out["suggested_volumes"] = [{"reagent": k, "volume_ul": float(v), "why": "last simulator-verified plan"}
                                     for k, v in plan.items() if k in reagents and 0 < v <= 1000]
-    out["tool_log"] = log
+    out["tool_log"], out["model"], out["host_failures"] = log, chat.used, chat.failures
+    out["saw_video"] = bool(video) and chat.saw_video
     return out
+
+
+if __name__ == "__main__":  # python -m sdc.agent: host failover and fix validation, no network
+    from types import SimpleNamespace as NS
+
+    def host(name, fail):
+        def create(messages, **kw):
+            if fail:
+                raise ConnectionError("down")
+            assert name == "baseten" or all(p.get("type") != "video_url" for m in messages
+                                            for p in (m["content"] if isinstance(m["content"], list) else []))
+            return name
+        return (name, NS(chat=NS(completions=NS(create=create))), name + "-model", name == "baseten")
+
+    c = Chat.__new__(Chat)
+    c.hosts, c.failures = [host("baseten", True), host("fireworks", False)], []
+    video_msg = [{"role": "user", "content": [{"type": "text", "text": "x"}, {"type": "video_url", "video_url": {}}]}]
+    assert c(messages=video_msg) == "fireworks" and c(messages=[]) == "fireworks"  # moves once, then stays
+    assert not c.saw_video and len(video_msg[0]["content"]) == 2  # stripped for the call, caller's list untouched
+    assert c.used == "fireworks:fireworks-model" and c.failures == ["baseten: ConnectionError"]
+    c.hosts, c.failures = [host("fireworks", True)], []
+    try:
+        c(messages=[])
+        raise AssertionError("last host failing must raise")
+    except ConnectionError:
+        pass
+    steps = [{"action": "transfer"}, {"action": "centrifuge"}]
+    assert clean_fix({"kind": "set_volume", "steps": [0, 1, 9], "value": "2.5"}, steps) == \
+        {"kind": "set_volume", "steps": [0], "value": "2.5"}
+    assert clean_fix({"kind": "set_volume", "steps": [0], "value": "0.25"}, steps)["kind"] == "none"
+    assert clean_fix({"kind": "rm -rf", "steps": [0], "value": ""}, steps)["kind"] == "none"
+    print("agent self-check ok")

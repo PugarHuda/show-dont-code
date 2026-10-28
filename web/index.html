@@ -191,7 +191,7 @@
       <form class="q" id="qform"></form>
     </section>
     <section id="reviewbox" hidden>
-      <h2>Reviewer agent · Muse Spark Open</h2>
+      <h2>Reviewer agent · Muse Spark Open <small id="reviewhost"></small></h2>
       <ul class="issues" id="issues"></ul>
     </section>
     <section id="evalbox" hidden>
@@ -348,6 +348,9 @@ function render() {
 
   const issues = R.review || [];
   $("reviewbox").hidden = !issues.length && !R.review_error;
+  // which host ran the open-weights reviewer; the Fireworks backup sees frames only, never the whole video
+  $("reviewhost").textContent = !R.review_model ? "" : R.review_model.startsWith("fireworks")
+    ? "on Fireworks (backup host, frames only)" : "on Baseten";
   const toolLog = (R.agent_log || []).map((c, k) => {
     if (c.tool === "look_at_moment") {
       return `<li class="info look" data-t="${Number(c.args.seconds) || 0}" tabindex="0" role="button"><b>Agent looked at ${fmt(Number(c.args.seconds) || 0)}</b><span>${esc(c.args.why || "")}${c.result.error ? ` (${esc(c.result.error)})` : ""}</span></li>`;

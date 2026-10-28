@@ -177,7 +177,8 @@ def build(run_dir, steps, answers=None, review=True):
            else "passed" if result["sim_ok"] else f"failed: {result['sim_log'][-1:]}")
     sheet_file = run_dir / "sheet.json"
     sheet = json.loads(sheet_file.read_text(encoding="utf-8")) if sheet_file.exists() else {"found": False}
-    keep = ("review", "suggested_volumes", "agent_log", "review_saw_video", "review_error")
+    keep = ("review", "suggested_volumes", "agent_log", "review_saw_video", "review_error", "review_model",
+            "review_host_failures")
     if not review:
         result.update({k: prev[k] for k in keep if k in prev})
     else:
@@ -191,7 +192,8 @@ def build(run_dir, steps, answers=None, review=True):
                                frames_dir=frames if frames.exists() else None, fps=SAM_FPS)
             result["review"], result["suggested_volumes"], result["agent_log"] = (
                 out["issues"], out["suggested_volumes"], out["tool_log"])
-            result["review_saw_video"] = review_video.exists()
+            result["review_model"], result["review_host_failures"] = out["model"], out["host_failures"]
+            result["review_saw_video"] = out["saw_video"]
         except Exception as e:  # reviewer is advisory; a provider outage must not block protocol generation
             result["review"], result["review_error"] = [], f"{type(e).__name__}: {e}"[:300]
     gt = run_dir / "gt.csv"
