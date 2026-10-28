@@ -126,6 +126,7 @@ def result(name: str):
         r["analysis"]["cycling_s"] = protocol.block_time(json.loads((d / "analysis.json").read_text())["commands"])
     r["tubes"] = _tubes(d)
     r["can_track"] = (d / "sam_file.json").exists()
+    r["captions"] = len(_speech(d))
     return r
 
 
@@ -135,6 +136,31 @@ def video(name: str):
     if ON_VERCEL:  # public/ is served by the CDN and is not inside the function bundle
         return RedirectResponse(f"/runs/{name}/video.mp4")
     return FileResponse(d / "video.mp4", media_type="video/mp4")
+
+
+def _speech(d):
+    f = d / "speech.json"
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else []
+
+
+def vtt(turns):
+    """WebVTT for the <track> under the video. Model text is escaped: in a cue, '<' starts markup, '-->' a timing."""
+    def ts(sec):
+        return f"{int(sec // 3600):02}:{int(sec % 3600 // 60):02}:{sec % 60:06.3f}"
+
+    out = ["WEBVTT", ""]
+    for t in turns:
+        text = " ".join(str(t.get("text", "")).split()).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        if text:
+            start = float(t["start"])
+            out += [f"{ts(start)} --> {ts(max(float(t['end']), start + 2))}", text, ""]  # at least 2 s on screen
+    return "\n".join(out)
+
+
+@app.get("/api/runs/{name}/captions.vtt")
+def captions(name: str):
+    """Captions of the speech in the video, as Muse Voice Transcribe heard it (WCAG 1.2.2)."""
+    return PlainTextResponse(vtt(_speech(_run_dir(name))), media_type="text/vtt")
 
 
 @app.get("/api/runs/{name}/protocol.py")

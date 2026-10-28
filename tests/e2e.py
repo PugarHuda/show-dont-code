@@ -106,6 +106,18 @@ def main():
           .filter(e => { const b = e.getBoundingClientRect(); return b.width && b.height && (b.height < 24 || b.width < 24); })
           .map(e => e.id || e.textContent.trim().slice(0, 20))""")
         check("app: every tap target is at least 24 px at 360 px (WCAG 2.2)", not small, small)
+        # layout stability: panels and the video must not push content around while a run loads (CLS, Core Web Vital)
+        for vw, vh in ((412, 823), (1440, 900)):
+            lp = b.new_page(viewport={"width": vw, "height": vh})
+            lp.add_init_script("window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) "
+                               "if (!e.hadRecentInput) window.__cls += e.value; }).observe({type: 'layout-shift', buffered: true})")
+            for run in ("pcr_3", "pcr_1-gt"):
+                lp.goto(f"{BASE}/app?run={run}")
+                lp.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
+                lp.wait_for_timeout(2500)
+                cls = lp.evaluate("() => window.__cls")
+                check(f"perf: layout shift while {run} loads at {vw} px under 0.1 (Core Web Vitals 'good')", cls < 0.1, round(cls, 3))
+            lp.close()
         mobile.close()
 
         # ---- every sample run ----------------------------------------------------------------------
@@ -298,6 +310,16 @@ def main():
             ab.close()
 
         # ---- MCP: the same runs as tools for other agents ----------------------------------------------
+        # ---- captions: the speech Muse Voice Transcribe heard, as a WebVTT track under the video ----------
+        st, vtt = fetch(f"{api}/api/runs/pcr_1/captions.vtt")
+        check("captions: WebVTT with timed cues", st == 200 and vtt.startswith(b"WEBVTT") and b" --> " in vtt, vtt[:80])
+        page.goto(BASE + "/app?run=pcr_1")
+        page.wait_for_function("() => document.querySelector('#video track')?.track.cues?.length > 0", timeout=60000)
+        cues = page.evaluate("() => { const t = document.querySelector('#video track').track; return [t.mode, t.cues.length]; }")
+        check("captions: the app loads them as a showing captions track", cues[0] == "showing" and cues[1] >= 1, cues)
+        page.goto(BASE + "/app?run=pcr_2")
+        page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
+        check("captions: no empty track when nobody spoke", page.evaluate("() => !document.querySelector('#video track')"))
         tools, mproto, mrun, (err, msg) = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
         check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_receipt"], tools)
         check("mcp: get_protocol is byte for byte the downloaded protocol.py", mproto.encode() == proto)

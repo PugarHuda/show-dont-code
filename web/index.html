@@ -30,10 +30,21 @@
   .pill.bad { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
   main { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; padding: 16px; }
   @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  main { min-height: 100vh; }  /* the footer starts below the fold, so panels appearing above it don't push it */
+  #run { min-width: 0; }
+  #status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* narrow screens: fixed rows (title + status, run picker, buttons), so filling them in never re-wraps the header */
+  @media (max-width: 600px) {
+    header > span:empty { display: none; }
+    #status { order: 1; flex: 1 1 0; text-align: right; }
+    #run { order: 2; flex: 1 1 100%; }
+    #upbtn, #download { order: 3; }
+  }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
   .stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
   .stage video, .stage canvas { display: block; width: 100%; }
+  .stage video { aspect-ratio: auto 16 / 9; }  /* space held before metadata (sample videos are 16:9); uploads keep theirs */
   .stage canvas { position: absolute; inset: 0; height: 100%; pointer-events: none; }
   .now { margin-top: 10px; min-height: 42px; font-size: 15px; }
   .now b { color: var(--accent); }
@@ -152,7 +163,7 @@
   <div class="stack">
     <section>
       <h2>Human, filmed once</h2>
-      <div class="stage"><video id="video" controls muted playsinline></video><canvas id="overlay"></canvas></div>
+      <div class="stage"><video id="video" controls muted playsinline crossorigin="anonymous"></video><canvas id="overlay"></canvas></div>
       <div class="now" id="now"></div>
       <div class="timeline" id="timeline" style="margin-left:34px">
         <div class="lane" id="lane-pred"><span class="lane-label">model</span></div>
@@ -168,13 +179,13 @@
       <button id="pick">Identify a tube</button> <span id="pickstate" class="t"></span>
       <ul class="tubes" id="tubes"></ul>
     </section>
-    <section>
+    <section id="stepsbox" hidden>
       <h2>Steps</h2>
       <ol class="steps" id="steps"></ol>
     </section>
   </div>
   <div class="stack">
-    <section>
+    <section id="deckbox" hidden>
       <h2>Robot deck · Opentrons Flex</h2>
       <svg class="deck" id="deck" viewBox="0 0 448 340" role="img" aria-label="Opentrons Flex deck"></svg>
       <div class="legend"><span><i style="background:var(--src)"></i>aspirate from</span><span><i style="background:var(--dst)"></i>dispense into</span></div>
@@ -213,10 +224,10 @@
         <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
         <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a></p>
     </section>
-    <section>
+    <section id="codebox" hidden>
       <details><summary>Generated protocol</summary><pre id="code"></pre></details>
     </section>
-    <section>
+    <section id="simbox" hidden>
       <details><summary>Simulator log</summary><pre id="sim"></pre></details>
     </section>
   </div>
@@ -264,6 +275,9 @@ async function load(n) {
   name = n;
   R = await api(`/api/runs/${encodeURIComponent(n)}`);
   $("video").src = `${API}/api/runs/${encodeURIComponent(n)}/video`;
+  // captions of the speech in the video (Muse Voice Transcribe); a fresh <track> per run, none when nobody spoke
+  $("video").querySelectorAll("track").forEach((t) => t.remove());
+  if (R.captions) $("video").insertAdjacentHTML("beforeend", `<track kind="captions" default label="Speech (Muse Voice Transcribe)" src="${API}/api/runs/${encodeURIComponent(n)}/captions.vtt">`);
   render();
 }
 
@@ -274,6 +288,8 @@ function render() {
   else { st.className = "pill bad"; st.textContent = "simulator failed"; }
   $("dl").disabled = !R.protocol;
   $("replaybox").hidden = !R.sim_ok;
+  // panels appear together once a run is loaded; empty ones shown earlier get pushed down the screen (layout shift)
+  for (const id of ["stepsbox", "deckbox", "codebox", "simbox"]) $(id).hidden = false;
   const an = R.analysis;
   $("setupbox").hidden = !R.sim_ok;
   if (R.sim_ok) {
