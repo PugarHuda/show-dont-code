@@ -77,7 +77,9 @@ The landing page and app HTML are on Vercel; the API, uploads and the pipeline w
 replay, every download (the receipt hash must equal the SHA-256 of `protocol.py`) and the security edges
 (bad answers, path traversal, script in the URL, wrong upload code, non-audio voice). `BASE=<url>` runs it
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
-`python -m sdc.protocol`, `python -m sdc.evaluate`, `python -m sdc.export`.
+`python -m sdc.protocol`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
+`modal run scripts/failover_drill.py` runs a real review on Modal with a broken Baseten key: on Oct 28 Baseten
+answered 401, the review moved to Fireworks and finished there (726 s, frames only, simulator called twice).
 
 ## Evaluation
 
