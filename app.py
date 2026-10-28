@@ -5,6 +5,8 @@ import logging
 import os
 import re
 import shutil
+import threading
+import time
 from pathlib import Path
 
 from fastapi import Body, FastAPI, HTTPException, Request
@@ -27,8 +29,27 @@ if ON_VERCEL:  # the bundle is read-only: work on a /tmp copy of the exported de
     pipeline.OUT = Path("/tmp/out")
 # re-running the reviewer agent takes minutes; on the hosted demo, edits keep the last review
 REVIEW_ON_EDIT = os.getenv("REVIEW_ON_EDIT", "0" if ON_VERCEL else "1") == "1"
-# ponytail: per-instance counter so a public link can't drain API credits; use a shared store if abused
-live_calls_left = int(os.getenv("LIVE_CALL_LIMIT", "1000000"))
+# a public link must not drain API credits: a daily budget of live model calls (voice, click-to-track), stored next
+# to the runs so it survives restarts (on Modal that is the shared Volume) and resets at 00:00 UTC
+LIVE_CALL_LIMIT = int(os.getenv("LIVE_CALL_LIMIT", "1000000"))
+_calls_lock = threading.Lock()
+
+
+def live_calls_left():
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    try:
+        used = json.loads((pipeline.OUT / ".live_calls.json").read_text())
+    except (OSError, ValueError):
+        used = {}
+    return LIVE_CALL_LIMIT - (used.get("used", 0) if used.get("day") == today else 0), today
+
+
+def spend_live_call():
+    with _calls_lock:
+        left, today = live_calls_left()
+        if left <= 0:
+            raise HTTPException(429, "today's live model calls for this demo are used up; they reset at 00:00 UTC")
+        (pipeline.OUT / ".live_calls.json").write_text(json.dumps({"day": today, "used": LIVE_CALL_LIMIT - left + 1}))
 
 
 def _run_dir(name):
@@ -181,11 +202,10 @@ async def voice(name: str, request: Request):
     from sdc import meta
 
     d = _run_dir(name)
-    global live_calls_left
     if not os.getenv("MODEL_API_KEY"):
         raise HTTPException(503, "live model calls are not configured on this deployment")
-    if live_calls_left <= 0:
-        raise HTTPException(429, "live model calls for this demo are used up; try again later")
+    if live_calls_left()[0] <= 0:  # refuse before reading the upload; the call is only counted once audio is valid
+        raise HTTPException(429, "today's live model calls for this demo are used up; they reset at 00:00 UTC")
     body = b""
     async for chunk in request.stream():  # a short voice note; refuse anything long before reading it all
         body += chunk
@@ -193,7 +213,7 @@ async def voice(name: str, request: Request):
             raise HTTPException(413, "keep voice answers under a minute")
     if len(body) < 1000:
         raise HTTPException(422, "no audio arrived; check the microphone permission")
-    live_calls_left -= 1
+    spend_live_call()
     r = json.loads((d / "result.json").read_text(encoding="utf-8"))
     groups = {}
     for q in r["questions"]:
@@ -303,10 +323,7 @@ def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: floa
         raise HTTPException(422, "click outside the frame")
     if not os.getenv("MODEL_API_KEY"):
         raise HTTPException(503, "live model calls are not configured on this deployment")
-    global live_calls_left
-    if live_calls_left <= 0:
-        raise HTTPException(429, "live model calls for this demo are used up; try again later")
-    live_calls_left -= 1
+    spend_live_call()
     frame = round(t * pipeline.SAM_FPS)
     fid = json.loads((d / "sam_file.json").read_text())
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]

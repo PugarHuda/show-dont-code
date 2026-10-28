@@ -35,7 +35,10 @@ Then:
 
 - `protocol.py` for the **Opentrons Flex**, with every reagent declared as a liquid (`define_liquid` / `load_liquid`,
   volume = what the transfers draw + 10 % + the tube's dead volume), so the Opentrons App shows the liquid setup.
-  Tip racks scale with the number of transfers.
+  Tip racks scale with the number of transfers, and more than 24 tubes get a second (third...) tube rack in a free
+  deck slot. Every step is announced with `ctx.comment("Step 3 · video 64-99 s: ...")`, so the Opentrons App's run
+  timeline points back to the moment in the video; the in-app robot replay uses the same lines to move the human
+  video along with the robot.
 - The **thermal cycling program** comes off the bench sheet when one is written there: Muse Spark turns the sheet's
   notes into a structured program (`profile.json`; on `pcr_4` it reads "94C 5min, 94C 30s / 55C 30s x32 / 72C, 72C
   5min"). A temperature written without a time gets 30 s and says so; nothing legible means a stated default. Every
@@ -68,7 +71,8 @@ requests with `look_at_moment`; the result records which host ran (`review_model
 ## Hosting
 
 The landing page and app HTML are on Vercel; the API, uploads and the pipeline worker run on Modal
-(`modal_app.py`), with all runs on one Modal Volume. Uploads need an access code (fail closed), are trimmed to
+(`modal_app.py`), with all runs on one Modal Volume. Live model calls from the page (voice answers, click-to-track) share a daily budget stored on the Volume, so a
+restart doesn't reset it and it refills at 00:00 UTC. Uploads need an access code (fail closed), are trimmed to
 5 minutes, size-capped while streaming, and private to whoever holds the link.
 
 ## Testing

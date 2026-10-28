@@ -66,6 +66,12 @@ def main():
         mobile.goto(BASE + "/app?run=pcr_3")
         mobile.wait_for_function("document.querySelectorAll('#run option').length > 0", timeout=60000)
         check("app: no horizontal scroll at 360 px", mobile.evaluate("() => document.documentElement.scrollWidth <= innerWidth + 1"))
+        mobile.goto(BASE + "/app?run=pcr_1-gt")
+        mobile.wait_for_selector("#setupbox", state="visible", timeout=60000)
+        small = mobile.evaluate("""() => [...document.querySelectorAll('button, select, input, .files a, [role=button]')]
+          .filter(e => { const b = e.getBoundingClientRect(); return b.width && b.height && (b.height < 24 || b.width < 24); })
+          .map(e => e.id || e.textContent.trim().slice(0, 20))""")
+        check("app: every tap target is at least 24 px at 360 px (WCAG 2.2)", not small, small)
         mobile.close()
 
         # ---- every sample run ----------------------------------------------------------------------
@@ -115,6 +121,9 @@ def main():
         page.wait_for_timeout(3000)
         cap = page.inner_text("#replaycap")
         check("app: robot replay runs the simulator's commands", "Robot command" in cap, cap)
+        step = page.inner_text("#replaystep")
+        check("app: replay follows the protocol's ctx.comment steps in the video", step.startswith("Step ") and "video" in step, step)
+        check("app: replay moved the human video to that step", page.evaluate("() => document.getElementById('video').currentTime") > 0)
         page.click("#replay")
         check("app: liquid setup lists what to load", len(page.query_selector_all("#setup tr")) >= 3)
         st, proto = fetch(f"{api}/api/runs/pcr_1-gt/protocol.py")

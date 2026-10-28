@@ -98,13 +98,28 @@ def _plan(steps):
             sources.setdefault(s.get("source") or s.get("reagent") or "reagent", None)
         if s["action"] in ("transfer", "mix"):
             dests.setdefault(s.get("destination") or "sample tube", None)
-    if len(sources) > len(RACK_WELLS):
-        raise ValueError(f"{len(sources)} reagents do not fit one 24-tube rack")  # ponytail: add a second rack when needed
-    for name, well in zip(sources, RACK_WELLS):
-        sources[name] = ("reagents", well)
+    # tubes fill rack "reagents" (C2), then "reagents2", "reagents3"... in the spare slots, 24 tubes each
+    tubes = len(sources) + (0 if uses_tc else len(dests))
+    n_racks = -(-tubes // len(RACK_WELLS))
+    if n_racks - 1 > len(SPARE_SLOTS):
+        raise ValueError(f"{tubes} tubes need {n_racks} tube racks; the Flex deck has room for {len(SPARE_SLOTS) + 1}")
+    if uses_tc and len(dests) > 96:
+        raise ValueError(f"{len(dests)} reaction tubes do not fit the 96-well PCR plate")
+
+    def tube(k):
+        return ("reagents" if k < len(RACK_WELLS) else f"reagents{k // len(RACK_WELLS) + 1}", RACK_WELLS[k % len(RACK_WELLS)])
+    for k, name in enumerate(sources):
+        sources[name] = tube(k)
     for i, name in enumerate(dests):
-        dests[name] = ("dest", f"{'ABCDEFGH'[i % 8]}{i // 8 + 1}") if uses_tc else ("reagents", RACK_WELLS[len(sources) + i])
+        dests[name] = ("dest", f"{'ABCDEFGH'[i % 8]}{i // 8 + 1}") if uses_tc else tube(len(sources) + i)
     return sources, dests, uses_tc
+
+
+def extra_racks(sources, dests):
+    """Tube racks beyond the first, in load order, each with its deck slot."""
+    names = sorted({r for r, _ in {**sources, **dests}.values() if r.startswith("reagents") and r != "reagents"},
+                   key=lambda r: int(r[len("reagents"):]))
+    return list(zip(names, SPARE_SLOTS))
 
 
 def generate(steps, title="Show, Don't Code protocol"):
@@ -118,10 +133,14 @@ def generate(steps, title="Show, Don't Code protocol"):
     n50 = sum(1 for s in liquid_steps if float(s["volume_ul"]) <= 50)  # one fresh tip per transfer / mix
     n1000 = len(liquid_steps) - n50
     small = n50 > 0
-    free = iter(SPARE_SLOTS)  # extra tip racks go to empty slots; a run with >96 transfers needs more than one
+    more = extra_racks(sources, dests)
+    free = iter(SPARE_SLOTS[len(more):])  # extra tip racks go to the slots tube racks left; >96 transfers need more
 
     def racks(name, count, first_slot):
-        slots = [first_slot] + [next(free) for _ in range(max(1, -(-count // 96)) - 1)]
+        n = max(1, -(-count // 96))
+        slots = [first_slot] + [slot for _, slot in zip(range(n - 1), free)]
+        if len(slots) < n:
+            raise ValueError(f"{count} transfers need {n} racks of {name}; no free deck slot left")
         return [f"ctx.load_labware({name!r}, {slot!r})" for slot in slots]
 
     L = [
@@ -155,6 +174,8 @@ def generate(steps, title="Show, Don't Code protocol"):
         "    ctx.load_trash_bin('A3')",
         f"    reagents = ctx.load_labware({TUBE_RACK!r}, 'C2', 'reagent tubes')",
     ]
+    L += [f"    {rack} = ctx.load_labware({TUBE_RACK!r}, {slot!r}, {'reagent tubes ' + rack[len('reagents'):]!r})"
+          for rack, slot in more]
     if uses_tc:
         L += [
             "    tc = ctx.load_module('thermocyclerModuleV2')",
@@ -182,7 +203,7 @@ def generate(steps, title="Show, Don't Code protocol"):
         load = min(round(total * 1.1 + DEAD_UL, 1), TUBE_UL)  # 10 % overage plus the tube's dead volume
         L += [f"    liquid{n} = ctx.define_liquid({name!r}, description={f'{total:g} uL drawn over the run'!r}, "
               f"display_color={LIQUID_COLORS[n % len(LIQUID_COLORS)]!r})",
-              f"    reagents[{sources[key][1]!r}].load_liquid(liquid{n}, {load})"]
+              f"    {sources[key][0]}[{sources[key][1]!r}].load_liquid(liquid{n}, {load})"]
 
     def loc(place):
         rack, well = place
@@ -191,7 +212,10 @@ def generate(steps, title="Show, Don't Code protocol"):
     for i, s in enumerate(steps):
         # model output never reaches the source raw: one-line comment, numbers forced to float
         desc = " ".join(str(s["description"]).split())
-        L.append(f"    # step {i + 1} [{float(s['start']):.0f}-{float(s['end']):.0f}s]: {desc}")
+        t0, t1 = float(s["start"]), float(s["end"])
+        L.append(f"    # step {i + 1} [{t0:.0f}-{t1:.0f}s]: {desc}")
+        # shown in the Opentrons App's run timeline, so whoever stands at the robot can find the moment in the video
+        L.append(f"    ctx.comment({f'Step {i + 1} · video {t0:.0f}-{t1:.0f} s: {desc[:120]}'!r})")
         a = s["action"]
         if a == "transfer":
             v = float(s["volume_ul"])
@@ -304,6 +328,15 @@ if __name__ == "__main__":
     assert ok, log2
     assert "variable_name='final1_c'" in src2 and "default=94.0" in src2 and "default=98.0" not in src2, src2
     assert thermal({"profile": {"cycle": [{"c": "x", "s": 5}]}})["source"].startswith("default")
+    # 30 reagents: a second tube rack in a spare slot, every tube in the simulator log, tips still fit
+    many = [{"start": i, "end": i + 1, "action": "transfer", "description": f"add r{i}", "reagent": f"r{i}",
+             "source": f"r{i}", "volume_ul": 5, "destination": "PCR tube"} for i in range(30)] + [demo[5]]
+    src3, lay3 = generate(many)
+    ok, log3 = simulate(src3)
+    assert ok, log3
+    assert lay3["r29"] == "reagents2:B2" and "reagents2 = ctx.load_labware(" in src3 and "'B2'" in src3, lay3
+    assert any("reagent tubes 2" in l for l in log3), log3[:5]
+    assert "Step 2 · video 64-99 s: Add Primer1" in log, [l for l in log if l.startswith("Step")][:3]
     p = thermal({"profile": {"cycle": [{"c": 94, "s": 30}, {"c": 72, "s": None}]}})
     assert p["cycle"][1] == {"c": 72.0, "s": 30} and "no time written for 72 °C" in p["source"], p
     print(json.dumps(layout), f"\n{len(log)} simulator lines OK")

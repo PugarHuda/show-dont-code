@@ -86,7 +86,7 @@
   table.setup th { color: var(--muted); font-weight: 500; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
   .files { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 0; font-size: 14px; }
-  .files a { color: var(--accent); }
+  .files a { color: var(--accent); display: inline-block; padding: 6px 0; }  /* 24 px+ tap target (WCAG 2.2) */
   button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
   dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 20px; }
   dialog::backdrop { background: rgba(0, 0, 0, .45); }
@@ -180,6 +180,7 @@
       <div class="replay" id="replaybox" hidden>
         <button id="replay" type="button">Replay the robot run</button>
         <span id="replaycap" aria-live="polite"></span>
+        <span id="replaystep" class="hint"></span>
       </div>
     </section>
     <section id="qbox" hidden>
@@ -430,12 +431,20 @@ function grid(x, y, rows, cols, pitch, r, id) {
     s += `<circle class="well" data-lw="${id}" data-w="${"ABCDEFGH"[w]}${c + 1}" cx="${x + c * pitch}" cy="${y + w * pitch}" r="${r}"/>`;
   return s;
 }
+const SPARE_SLOTS = ["B2", "B3", "C3", "D2", "D3", "A2"];  // mirrors sdc/protocol.py
+const extraRacks = () => [...new Set(Object.values(R.layout || {}).map((l) => l.split(":")[0]).filter((r) => /^reagents\d+$/.test(r)))]
+  .sort((a, b) => a.slice(8) - b.slice(8)).map((r, i) => [r, SPARE_SLOTS[i]]);
 function deck(stepIdx) {
   const uses = (a) => R.steps.some((s) => s.action === a);
   let s = "";
   for (const r of "ABCD") for (const c of "123") { const [x, y] = slotXY(r + c); s += `<rect class="slot" x="${x}" y="${y}" width="${SX}" height="${SY}" rx="6"/><text class="slot-label" x="${x + 4}" y="${y + SY - 4}">${r}${c}</text>`; }
   let [x, y] = slotXY("C2");
   s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 14}">reagent tubes</text>` + grid(x + 24, y + 22, 4, 6, 12, 4.5, "reagents");
+  // more than 24 tubes: protocol.py loads "reagents2", "reagents3"... into the spare slots, in this order
+  for (const [rack, slot] of extraRacks()) {
+    [x, y] = slotXY(slot);
+    s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 14}">reagent tubes ${rack.slice(8)}</text>` + grid(x + 24, y + 22, 4, 6, 12, 4.5, rack);
+  }
   if (uses("thermocycle")) {
     [x, y] = slotXY("A1");
     s += `<rect class="lw" x="${x + 4}" y="${y + 4}" width="${SX - 8}" height="${2 * SY + 6 - 8}" rx="6"/><text class="lw-label" x="${x + 10}" y="${y + 16}">thermocycler + PCR plate</text>` + grid(x + 16, y + 40, 8, 12, 9.4, 3.4, "dest");
@@ -460,7 +469,7 @@ function deck(stepIdx) {
 let replaying = null;
 const SLOT_LW = { C2: "reagents", B1: "dest" };  // where generate() puts labware; the thermocycler reports slot B1
 function deckPoint(slot, well) {
-  const lw = SLOT_LW[slot];
+  const lw = SLOT_LW[slot] || (extraRacks().find(([, sl]) => sl === slot) || [])[0];
   const el = lw && well && $("deck").querySelector(`[data-lw="${lw}"][data-w="${well}"]`);
   if (el) return [Number(el.getAttribute("cx")), Number(el.getAttribute("cy")), el];
   const [x, y] = slotXY(slot);
@@ -470,6 +479,8 @@ function deckPoint(slot, well) {
 }
 function parseCmd(line) {
   let m;
+  // protocol.py announces every step with ctx.comment: the replay moves the human video to the same moment
+  if ((m = line.match(/^Step (\d+) · video (\d+)-(\d+) s: (.*)/))) return { kind: "step", slot: null, t: Number(m[2]), say: `Step ${m[1]}: ${m[4]}` };
   if ((m = line.match(/^Picking up tip from (\w+) of .* on slot (\w+)/))) return { kind: "pick", slot: m[2], well: m[1], say: "Pick up a fresh tip" };
   if ((m = line.match(/^Aspirating ([\d.]+) uL from (\w+) of (.+?) on slot (\w+)/))) return { kind: "asp", slot: m[4], well: m[2], say: `Aspirate ${m[1]} µL from ${m[3]} ${m[2]}` };
   if ((m = line.match(/^Dispensing ([\d.]+) uL into (\w+) of .*? on slot (\w+)/))) return { kind: "disp", slot: m[3], well: m[2], say: `Dispense ${m[1]} µL into well ${m[2]}` };
@@ -489,6 +500,7 @@ async function replay() {
   const head = $("head"), fast = matchMedia("(prefers-reduced-motion: reduce)").matches;
   for (let k = 0; k < cmds.length && !run.stop; k++) {
     const c = cmds[k];
+    if (c.kind === "step") { v.currentTime = c.t; $("replaystep").textContent = `${c.say} (video ${fmt(c.t)})`; continue; }
     $("replaycap").textContent = `Robot command ${k + 1} of ${cmds.length}: ${c.say}`;
     if (c.slot) {
       const [x, y, el] = deckPoint(c.slot, c.well);
@@ -500,7 +512,7 @@ async function replay() {
   }
   replaying = null;
   $("replay").textContent = "Replay the robot run";
-  if (run.stop) { $("replaycap").textContent = ""; deck(active); }
+  if (run.stop) { $("replaycap").textContent = ""; $("replaystep").textContent = ""; deck(active); }
 }
 $("replay").onclick = replay;
 
@@ -516,7 +528,8 @@ function tick() {
     $("steps").querySelectorAll("li").forEach((li) => li.classList.toggle("active", Number(li.dataset.i) === i));
     if (!replaying) deck(i);
     const s = R.steps[i];
-    $("now").innerHTML = s ? `<b>${esc(s.action)}</b> · ${esc(s.description)}${s.volume_ul ? ` · ${s.volume_ul} µL` : ""}${ROBOT.has(s.action) ? "" : " · <i>robot pauses for you</i>"}` : "";
+    $("now").innerHTML = s ? `<b>${esc(s.action)}</b> · ${esc(s.description)}${s.volume_ul ? ` · ${s.volume_ul} µL` : ""}${ROBOT.has(s.action) ? "" : " · <i>robot pauses for you</i>"}`
+    : `<span class="hint">Play the video or pick a step: the robot's version of each moment shows here.</span>`;
   }
   cv.width = cv.clientWidth; cv.height = cv.clientHeight;
   ctx.clearRect(0, 0, cv.width, cv.height);

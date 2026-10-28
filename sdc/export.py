@@ -65,8 +65,9 @@ def autoprotocol(steps):
     sources, dests, uses_tc = _plan(steps)
     refs = {"reagents": {"new": "96-deep", "discard": True}, "reactions": {"new": "96-pcr", "store": {"where": "cold_4"}}}
     # Autoprotocol addresses wells by container/index; reagent tubes become wells of a deep-well plate here
-    src_idx = {k: f"reagents/{WELLS_96.index(w[1]) if w[1] in WELLS_96 else i}" for i, (k, w) in enumerate(sources.items())}
-    dst_idx = {k: f"reactions/{WELLS_96.index(w[1]) if w[1] in WELLS_96 else i}" for i, (k, w) in enumerate(dests.items())}
+    # one index per tube, so tubes from different racks never share a well
+    src_idx = {k: f"reagents/{i}" for i, k in enumerate(sources)}
+    dst_idx = {k: f"reactions/{WELLS_96.index(w[1]) if uses_tc else i}" for i, (k, w) in enumerate(dests.items())}
     instructions = []
     for s in steps:
         if s["action"] == "transfer":
