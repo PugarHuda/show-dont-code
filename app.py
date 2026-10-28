@@ -265,6 +265,23 @@ def analysis_file(name: str):
     return FileResponse(f, media_type="application/json", filename=f"{name}-opentrons-analysis.json")
 
 
+def _designer(d, name):
+    from sdc import designer
+
+    f = d / "analysis.json"
+    if not f.exists():
+        raise HTTPException(409, "no analysis yet: the protocol has to pass the simulator first")
+    return designer.protocol_designer(json.loads(f.read_text(encoding="utf-8")), f"Show, Don't Code: {name}")
+
+
+@app.get("/api/runs/{name}/protocol-designer.json")
+def designer_file(name: str):
+    """The protocol as editable steps for Opentrons Protocol Designer (designer.opentrons.com, Import): change a volume
+    or the cycling program without code, and the Opentrons App runs the same file."""
+    return JSONResponse(_designer(_run_dir(name), name),
+                        headers={"Content-Disposition": f'attachment; filename="{name}-protocol-designer.json"'})
+
+
 def _sha256(data: bytes):
     import hashlib
 
@@ -315,6 +332,8 @@ def ro_crate(name: str):
            "autoprotocol.json": json.dumps(export.autoprotocol(steps), indent=1).encode("utf-8"),
            "pylabrobot.py": export.pylabrobot_script(steps).encode("utf-8"),
            "receipt.json": json.dumps(rec, indent=1).encode("utf-8")}
+    if (d / "analysis.json").exists():
+        gen["protocol-designer.json"] = json.dumps(_designer(d, name), indent=1).encode("utf-8")
     if "review" in r and "note" not in rec["models"]:
         gen["review.json"] = json.dumps({k: r.get(k) for k in ("review", "agent_log", "review_model", "review_saw_video",
                                                               "review_host_failures")}, indent=1).encode("utf-8")
@@ -513,7 +532,8 @@ if MCPServer:
     # Read-only on purpose: no tool runs code an agent sends (an Opentrons protocol is Python) or spends model credits.
     mcp = MCPServer("show-dont-code", instructions=(
         "Robot protocols recovered from first-person lab videos. list_runs, then get_run for the steps found in the video "
-        "and the checks they passed, get_protocol for the Opentrons Flex Python file, get_receipt for the hashes."))
+        "and the checks they passed, get_protocol for the Opentrons Flex Python file, get_protocol_designer for the same "
+        "protocol as editable no-code steps, get_receipt for the hashes."))
 
     def _http(fn, *args):  # an agent should read "unknown run", not a bare "Error executing tool"
         try:
@@ -543,6 +563,12 @@ if MCPServer:
         if not r.get("protocol"):
             raise ToolError("no protocol yet: the run still has open questions (see get_run)")
         return r["protocol"]
+
+    @mcp.tool()
+    def get_protocol_designer(name: str) -> dict:
+        """The protocol as an Opentrons Protocol Designer file: import it at designer.opentrons.com to edit each step
+        (transfers, mixes, the thermocycler program) without code. The Opentrons App can also run it as is."""
+        return _http(lambda n: _designer(_run_dir(n), n), name)
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:

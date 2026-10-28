@@ -286,7 +286,7 @@ def generate(steps, title="Show, Don't Code protocol"):
     return "\n".join(L) + "\n", layout
 
 
-def analyze(source, json_path):
+def analyze(source, json_path, filename="protocol.py"):
     """Opentrons' own protocol analysis (what the Opentrons App runs on import). Writes the full JSON to json_path
     and returns (ok, summary) where summary lists what to load into which tube before the run."""
     import subprocess
@@ -295,7 +295,7 @@ def analyze(source, json_path):
     from pathlib import Path
 
     with tempfile.TemporaryDirectory() as tmp:
-        proto = Path(tmp) / "protocol.py"
+        proto = Path(tmp) / filename  # .py, or .json for a Protocol Designer file
         proto.write_text(source, encoding="utf-8")
         p = subprocess.run([sys.executable, "-m", "opentrons.cli", "analyze", "--json-output", str(json_path), str(proto)],
                            capture_output=True, text=True, timeout=240)

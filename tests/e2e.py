@@ -24,6 +24,9 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 from mcp import Client
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from sdc import designer, protocol  # noqa: E402  (the repo root, for the Protocol Designer round trip)
 from playwright.sync_api import sync_playwright
 
 
@@ -34,7 +37,8 @@ async def mcp_session(url):
         proto = (await c.call_tool("get_protocol", {"name": "pcr_1-gt"})).content[0].text
         run = json.loads((await c.call_tool("get_run", {"name": "pcr_1-gt"})).content[0].text)
         bad = await c.call_tool("get_run", {"name": "no-such-run"})
-        return tools, proto, run, (bad.is_error, bad.content[0].text)
+        pd = json.loads((await c.call_tool("get_protocol_designer", {"name": "pcr_1-gt"})).content[0].text)
+        return tools, proto, run, (bad.is_error, bad.content[0].text), pd
 
 BASE = os.getenv("BASE", "http://127.0.0.1:8000").rstrip("/")
 RESULTS = []
@@ -222,6 +226,57 @@ def main():
         st, _ = fetch(f"{api}/api/runs/pcr_3/protocol.py")
         check("download: protocol refused while questions are open", st == 409, st)
 
+        # ---- Opentrons Protocol Designer: the same protocol as editable no-code steps ------------------------
+        st, pdf = fetch(f"{api}/api/runs/pcr_1-gt/protocol-designer.json")
+        pdj = json.loads(pdf) if st == 200 else {}
+        forms = [pdj["designerApplication"]["data"]["savedStepForms"][i] for i in pdj["designerApplication"]["data"]["orderedStepIds"]] if pdj else []
+        xfers = [f for f in forms if f["stepType"] == "moveLiquid"]
+        check("protocol designer: one editable transfer per pipetting step, named after its moment in the video",
+              len(xfers) >= 3 and all("video" in f["stepDetails"] for f in xfers), [(f["stepName"], f["stepDetails"]) for f in xfers][:3])
+        check("RO-Crate: carries the Protocol Designer file and the action that made it",
+              crate and "protocol-designer.json" in crate.namelist() and "#designer" in ents)
+        an_cmds = json.loads(an)["commands"] if an else []
+        with tempfile.TemporaryDirectory() as tmp:
+            ok, pda = protocol.analyze(pdf.decode("utf-8"), os.path.join(tmp, "pd.json"), "protocol.json")
+            pd_cmds = json.loads(open(os.path.join(tmp, "pd.json"), encoding="utf-8").read())["commands"] if ok else []
+        check("protocol designer: Opentrons analyses the file with the same volumes and cycling time as protocol.py",
+              ok and designer.moved(pd_cmds) == designer.moved(an_cmds) and pda["cycling_s"] == protocol.block_time(an_cmds), pda.get("errors"))
+        # the real editor: import, every step builds a robot state, then export (Protocol Designer 9 writes Python)
+        pdp = b.new_page(viewport={"width": 1440, "height": 900}, accept_downloads=True)
+        warns = []
+        pdp.on("console", lambda m: "No robot state" in m.text and warns.append(m.text))
+        pdp.on("dialog", lambda d: d.accept())
+        try:
+            pdp.goto("https://designer.opentrons.com/", wait_until="networkidle", timeout=120000)
+            with tempfile.TemporaryDirectory() as tmp:
+                f = os.path.join(tmp, "pcr_1-gt-protocol-designer.json")
+                open(f, "wb").write(pdf)
+                pdp.set_input_files("input[type=file] >> nth=0", f)
+                pdp.get_by_text("Your protocol was made in an older version").wait_for(timeout=30000)
+                next(x for x in pdp.query_selector_all("button") if x.inner_text().strip() == "Import" and x.bounding_box()["y"] > 100).click()
+                pdp.get_by_role("button", name="Export protocol").wait_for(timeout=60000)
+                pdp.goto("https://designer.opentrons.com/#/designer")  # the timeline (a toast can cover "Edit protocol")
+                pdp.get_by_text(xfers[0]["stepName"], exact=False).first.wait_for(timeout=30000)
+                timeline = pdp.inner_text("body")
+                check("protocol designer (designer.opentrons.com): imports every step with a valid robot state",
+                      not warns and all(x["stepName"].lower() in timeline.lower() for x in xfers), (warns[:1], timeline[:200]))
+                pdp.goto("https://designer.opentrons.com/#/overview")
+                if pdp.get_by_role("button", name="Confirm").count():  # the editor's analytics notice, in a throwaway browser
+                    pdp.get_by_role("button", name="Confirm").click()
+                pdp.get_by_role("button", name="Export protocol").click()
+                with pdp.expect_download(timeout=30000) as dl:
+                    [x for x in pdp.query_selector_all("button") if x.is_visible() and x.inner_text().strip() in ("Export", "Continue with export", "Export protocol")][-1].click()
+                out = os.path.join(tmp, "exported.py")
+                dl.value.save_as(out)
+                ok, ex = protocol.analyze(open(out, encoding="utf-8").read(), os.path.join(tmp, "ex.json"))
+                ex_cmds = json.loads(open(os.path.join(tmp, "ex.json"), encoding="utf-8").read())["commands"] if ok else []
+                vols = lambda cs: [v for k, v in designer.moved(cs) if k == "aspirate" and v > 0.5]  # not air gaps
+                check("protocol designer: its own export runs in Opentrons analysis with the same volumes",
+                      ok and vols(ex_cmds) == vols(an_cmds), (ex.get("errors"), vols(ex_cmds), vols(an_cmds)))
+        except Exception as e:  # a third-party site: report what broke, keep the rest of the suite running
+            check("protocol designer (designer.opentrons.com): round trip", False, repr(e)[:200])
+        pdp.close()
+
         # ---- reviewer agent: one-click fixes ------------------------------------------------------------
         fix_runs = []
         for run in ("pcr_4", "pcr_5", "pcr_2", "pcr_3", "miniprep_7", "pcr_1"):
@@ -324,9 +379,9 @@ def main():
                 ap.wait_for_selector(ready, timeout=60000)
                 ap.wait_for_timeout(1500)
                 ap.add_script_tag(content=axe_src)
-                bad = ap.evaluate("""async () => (await axe.run(document, {resultTypes: ['violations']})).violations
+                viol = ap.evaluate("""async () => (await axe.run(document, {resultTypes: ['violations']})).violations
                     .filter(v => ['serious', 'critical'].includes(v.impact)).map(v => v.id + ': ' + v.nodes[0].html.slice(0, 80))""")
-                check(f"a11y: axe-core finds no serious violations on {path} ({scheme})", not bad, bad[:3])
+                check(f"a11y: axe-core finds no serious violations on {path} ({scheme})", not viol, viol[:3])
             ab.close()
 
         # ---- MCP: the same runs as tools for other agents ----------------------------------------------
@@ -340,8 +395,9 @@ def main():
         page.goto(BASE + "/app?run=pcr_2")
         page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
         check("captions: no empty track when nobody spoke", page.evaluate("() => !document.querySelector('#video track')"))
-        tools, mproto, mrun, (err, msg) = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
-        check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_receipt"], tools)
+        tools, mproto, mrun, (err, msg), mpd = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
+        check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer", "get_receipt"], tools)
+        check("mcp: get_protocol_designer is the downloaded Protocol Designer file", mpd == pdj, str(mpd)[:120])
         check("mcp: get_protocol is byte for byte the downloaded protocol.py", mproto.encode() == proto)
         check("mcp: get_run carries the steps and the thermocycler time",
               len(mrun["steps"]) > 3 and mrun["simulator_ok"] and mrun["analysis"]["cycling_s"] > 1500, str(mrun)[:200])

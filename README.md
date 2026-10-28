@@ -60,6 +60,15 @@ Then:
   translation run in **PyLabRobot**'s simulator with volume tracking on, so over-drawing a tube fails there too.
 - `methods.md` (a methods section for a notebook or paper), `autoprotocol.json` (vendor-neutral) and
   `pylabrobot.py`.
+- **Opentrons Protocol Designer, no code.** `protocol-designer.json` opens in Opentrons' own visual editor
+  ([designer.opentrons.com](https://designer.opentrons.com/), Import): every transfer, mix and thermocycler step
+  arrives as an editable form named after its moment in the video ("Add Primer1", "Step 2, video 64-99 s"), with the
+  deck, liquids, tip heights and the cycling program filled in. It is built from Opentrons' own analysis of
+  `protocol.py` (`sdc/designer.py`), not re-derived from the steps, and checked three ways: `opentrons analyze` runs
+  the file with the same aspirate/dispense volumes and the same thermocycler time as `protocol.py`; the e2e suite
+  imports it into the live Protocol Designer (every step builds a valid robot state); and the Python that Protocol
+  Designer exports from it passes `opentrons analyze` with the same volumes. A scientist who never reads Python
+  can change a volume or a temperature there and send it to the robot.
 - A **reproducibility receipt**: SHA-256 of the protocol, the video and every model output, the model IDs, and the
   scientist's answers. Ground-truth replays say no model read them.
 - **Everything as an RO-Crate** (`ro-crate.zip`, [Process Run Crate 0.5](https://w3id.org/ro/wfrun/process/0.5)): the
@@ -74,7 +83,7 @@ Then:
   Opentrons' own `opentrons_simulate -e` reports 0 min for Flex protocols, which is why it is computed here.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
-  analysis results), `get_protocol`, `get_receipt`. Read-only on purpose: no tool runs code an agent sends (a
+  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_receipt`. Read-only on purpose: no tool runs code an agent sends (a
   protocol is Python) or spends model credits. Add it to Claude Code with
   `claude mcp add --transport http show-dont-code <url>/mcp`.
 - **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run
@@ -112,11 +121,12 @@ with `nosniff`, a referrer policy, and a permissions policy that allows only the
 `python tests/e2e.py` drives a real Chrome through the landing page, every sample run, confirm → simulate →
 replay, every download (the receipt hash must equal the SHA-256 of `protocol.py`) and the security edges
 (bad answers, path traversal, script in the URL, wrong upload code, non-audio voice), edit copies (answers
-and fixes on a sample land in a private copy, the sample is unchanged, the copy's link reopens it), the CSP (headers, every
+and fixes on a sample land in a private copy, the sample is unchanged, the copy's link reopens it), the
+Protocol Designer round trip on designer.opentrons.com (import, then its own export through `opentrons analyze`), the CSP (headers, every
 script carries the nonce, nothing the pages need is blocked), and the MCP server through the official MCP client
 (`get_protocol` must be byte for byte the downloaded file). `BASE=<url>` runs it
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
-`python -m sdc.protocol`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
+`python -m sdc.protocol`, `python -m sdc.designer`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
 Accessibility runs inside the same suite: axe-core checks the landing page and the app in light and dark mode
 (no serious or critical violations); Lighthouse scores both pages 100 for accessibility, best practices and SEO
 (Oct 28). Layout shift is measured while runs load at phone and desktop widths and must stay under 0.1 (it was 0.47

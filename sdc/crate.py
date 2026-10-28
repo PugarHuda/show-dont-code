@@ -22,7 +22,8 @@ MODEL_OUTPUTS = {"steps_raw.json": "Steps found in the video (Muse Spark, stage 
                  "speech.json": "Speech in the video, timestamped (Muse Voice Transcribe)",
                  "tracks_tip.json": "Pipette tip tracked frame by frame (SAM 3.1)"}
 NAMES = {"review.json": "Reviewer agent findings and its simulator tool calls", "answers.json": "The scientist's answers",
-         "receipt.json": "Reproducibility receipt", "analysis.json": "Opentrons protocol analysis"}
+         "receipt.json": "Reproducibility receipt", "analysis.json": "Opentrons protocol analysis",
+         "protocol-designer.json": "The protocol as editable steps for Opentrons Protocol Designer (no code)"}
 
 
 def _when(path):
@@ -97,6 +98,11 @@ def build(run_dir, name, generated, models):
                         "description": "Protocol analysis of the generated file, same as on import into the Opentrons App",
                         "instrument": {"@id": OPENTRONS}, "object": have("protocol.py"), "result": have("analysis.json"),
                         "endTime": _when(d / "analysis.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
+    if "protocol-designer.json" in files:
+        actions.append({"@id": "#designer", "@type": "CreateAction", "name": "Analysed commands to Protocol Designer steps",
+                        "description": "Every transfer, mix and thermocycler step read off Opentrons' own analysis",
+                        "instrument": {"@id": REPO}, "object": have("analysis.json"), "result": have("protocol-designer.json"),
+                        "actionStatus": "http://schema.org/CompletedActionStatus"})
     rv = models.get("reviewer")
     if rv and "review.json" in files:  # which host ran the reviewer: Baseten, or Fireworks after a failover
         host = "https://fireworks.ai" if rv.startswith("fireworks") else "https://www.baseten.co"

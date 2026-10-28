@@ -73,18 +73,29 @@ def web():
     api = webapp.app
     api.add_middleware(CORSMiddleware, allow_origins=["https://show-dont-code.vercel.app", "http://127.0.0.1:8000"],
                        allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Upload-Code"])
-    last_reload = [0.0]
+    last_reload, inflight, idle = [0.0], [0], asyncio.Event()
+    idle.set()
 
     @api.middleware("http")
     async def fresh_volume(request, call_next):
-        # the worker writes from another container; pick up its commits at most every 2 s
-        if request.method == "GET" and time.time() - last_reload[0] > 2:
-            try:
-                await asyncio.to_thread(vol.reload)
-            except RuntimeError:  # reload refuses while files are open; the next request will retry
-                pass
-            last_reload[0] = time.time()
-        response = await call_next(request)
+        # the worker writes from another container; pick up its commits at most every 2 s. A reload swaps the mount,
+        # so a request reading a run at that moment can 404: reload only when no other request is in flight, and make
+        # requests that arrive meanwhile wait for it (one event loop, so the check and the clear can't interleave)
+        await idle.wait()
+        inflight[0] += 1
+        try:
+            if request.method == "GET" and inflight[0] == 1 and time.time() - last_reload[0] > 2:
+                idle.clear()
+                try:
+                    await asyncio.to_thread(vol.reload)
+                except RuntimeError:  # reload refuses while files are open (a video still streaming); retried later
+                    pass
+                finally:
+                    last_reload[0] = time.time()
+                    idle.set()
+            response = await call_next(request)
+        finally:
+            inflight[0] -= 1
         if request.method == "POST":  # answers, tube names: persist them and make them visible to other containers
             await asyncio.to_thread(vol.commit)
         return response

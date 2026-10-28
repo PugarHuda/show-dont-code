@@ -99,6 +99,7 @@
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
   .files { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 0; font-size: 14px; }
   .files a { color: var(--accent); display: inline-block; padding: 6px 0; }  /* 24 px+ tap target (WCAG 2.2) */
+  .hint a { color: var(--accent); }
   button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
   dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 20px; }
   dialog::backdrop { background: rgba(0, 0, 0, .45); }
@@ -222,8 +223,12 @@
       </div>
       <p class="hint" id="plrline"></p>
       <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
+        <a id="f-pd" title="Open designer.opentrons.com, choose Import, and pick this file">Protocol Designer, no code (.json)</a>
         <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
         <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a></p>
+      <p class="hint" id="pdline" hidden>To change a volume or the cycling program without code, open
+        <a href="https://designer.opentrons.com/" target="_blank" rel="noopener">Opentrons Protocol Designer</a>, choose Import
+        and pick the Protocol Designer file: every step arrives editable, named after the moment in the video.</p>
     </section>
     <section id="codebox" hidden>
       <details><summary>Generated protocol</summary><pre id="code"></pre></details>
@@ -317,6 +322,7 @@ function render() {
     $("params").innerHTML = params.map((x) => `<tr><td>${esc(x.name)}</td><td class="t">${esc(x.value)} ${esc(x.unit === "C" ? "°C" : x.unit)}</td></tr>`).join("");
     $("f-proto").href = `${base}/protocol.py`;
     $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
+    $("f-pd").href = `${base}/protocol-designer.json`; $("f-pd").hidden = $("pdline").hidden = !an;
     $("f-receipt").href = `${base}/receipt.json`; $("f-crate").href = `${base}/ro-crate.zip`;
     $("f-plr").href = `${base}/pylabrobot.py`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
     $("plrline").textContent = R.plr_ok === true ? `Also translated for a Hamilton STARlet and run in PyLabRobot's simulator with volume tracking: ${R.plr.actions} aspirate/dispense actions, no errors.`
