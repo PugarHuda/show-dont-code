@@ -111,6 +111,8 @@ def _editable(name):
             if copy:
                 shutil.copytree(pipeline.OUT / name, d, ignore=shutil.ignore_patterns(*pipeline.SHARED))
                 (d / "copy_of").write_text(name)
+            elif not (d / "result.json").exists():  # evicted while this edit waited for the lock
+                raise HTTPException(404, "this edited copy expired; open the sample again to make a new one")
             yield d
         except BaseException:
             if copy:
