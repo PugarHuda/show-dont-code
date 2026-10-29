@@ -73,6 +73,12 @@ Then:
   can change a volume or a temperature there and send it to the robot.
 - A **reproducibility receipt**: SHA-256 of the protocol, the video and every model output, the model IDs, and the
   scientist's answers. Ground-truth replays say no model read them.
+- A **Bitcoin timestamp** on that receipt ([OpenTimestamps](https://opentimestamps.org), `receipt.ots`): the receipt's
+  SHA-256 goes to four public calendars (only the hash leaves, behind a random nonce); once their Bitcoin
+  transaction confirms, the proof upgrades on a later visit and the server checks it against the block header
+  (mempool.space, Blockstream as fallback). That makes it independently checkable that this protocol, video and
+  every model output existed no later than that block: `ots verify -d <stamped_sha256> receipt.ots`. Each edited
+  copy gets its own stamp for its own answers.
 - **Everything as an RO-Crate** (`ro-crate.zip`, [Process Run Crate 0.5](https://w3id.org/ro/wfrun/process/0.5)): the
   protocol, the exports, every model output and the Opentrons analysis, each pinned by SHA-256, plus JSON-LD saying
   which tool (Muse Spark, SAM 3.1, the reviewer on whichever host ran it, the code generator at the hash of its own
@@ -103,8 +109,10 @@ The fixes are not counted in the evaluation table: accepting every proposed fix 
 unchanged on all five test videos (on `pcr_2` the duplicates it skips sit inside groups that already match), so
 their value is in the protocol the robot runs, not in the benchmark.
 
-Note: the participant guide's `meta-models/muse-spark-open-1026` still returned 404 on Baseten on Oct 28, so the
-reviewer uses `meta-models/muse-spark-open` (override with `OPEN_MODEL`). If Baseten fails, the review moves to the same model on
+Baseten keys are tied to one model id: the hackathon key (`BASETEN_HACKATHON_KEY`, Oct 29) serves only
+`meta-models/muse-spark-open-1026` and answers 403 for the bare id, while the earlier key serves only
+`meta-models/muse-spark-open` (`BASETEN_API_KEY`, override with `OPEN_MODEL`) and answers 404 for `-1026`. The reviewer
+tries them in that order. If both fail, the review moves to the same model on
 **Fireworks** (`FIREWORKS_API_KEY`) and stays there for the rest of the conversation. Fireworks' Muse Spark Open
 rejects video input ("does not support video inputs yet", Oct 28), so on that host the agent works from the frames it
 requests with `look_at_moment`; the result records which host ran (`review_model`) and whether it saw the video.
@@ -128,7 +136,7 @@ Protocol Designer round trip on designer.opentrons.com (import, then its own exp
 script carries the nonce, nothing the pages need is blocked), and the MCP server through the official MCP client
 (`get_protocol` must be byte for byte the downloaded file). `BASE=<url>` runs it
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
-`python -m sdc.protocol`, `python -m sdc.designer`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
+`python -m sdc.protocol`, `python -m sdc.designer`, `python -m sdc.stamp`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
 Accessibility runs inside the same suite: axe-core checks the landing page and the app in light and dark mode
 (no serious or critical violations); Lighthouse scores both pages 100 for accessibility, best practices and SEO
 (Oct 28). Layout shift is measured while runs load at phone and desktop widths and must stay under 0.1 (it was 0.47

@@ -38,10 +38,11 @@ image = (
     .add_local_dir("web", "/root/web")
 )
 secret = modal.Secret.from_name("show-dont-code")
+baseten = modal.Secret.from_name("show-dont-code-baseten")  # hackathon Baseten key (muse-spark-open-1026 only)
 backup = modal.Secret.from_name("show-dont-code-fireworks")  # Fireworks key for the reviewer's backup host
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, backup], timeout=3600, cpu=2.0, memory=4096)
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup], timeout=3600, cpu=2.0, memory=4096)
 def process(run_id: str):
     """Run the whole pipeline on an uploaded video. Progress events are committed as they happen."""
     from sdc import pipeline
@@ -57,7 +58,7 @@ def process(run_id: str):
     vol.commit()
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, backup], timeout=900, scaledown_window=1200, max_containers=1,
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup], timeout=900, scaledown_window=1200, max_containers=1,
               min_containers=1)  # always warm for judges: no cold start on the first visit
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
@@ -96,7 +97,8 @@ def web():
             response = await call_next(request)
         finally:
             inflight[0] -= 1
-        if request.method == "POST":  # answers, tube names: persist them and make them visible to other containers
+        # answers, tube names, timestamp proofs: persist them and make them visible to other containers
+        if request.method == "POST" or request.url.path.endswith(("/receipt.json", "/receipt.ots", "/ro-crate.zip")):
             await asyncio.to_thread(vol.commit)
         return response
 

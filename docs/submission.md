@@ -31,13 +31,13 @@ repo (the code lives in `out/upload_code.txt`, which is gitignored).
 Baseten); one question per reagent, pre-filled with a simulator-checked plan; robot replay of the simulator's
 own command log on the deck; downloadable `protocol.py` with Opentrons liquid definitions; three independent checks
 (Opentrons simulator, official `opentrons analyze`, PyLabRobot Hamilton STARlet simulator with volume tracking);
-Methods / Autoprotocol / PyLabRobot exports; reproducibility receipt (SHA-256 of protocol, video and model outputs);
+Methods / Autoprotocol / PyLabRobot exports; reproducibility receipt (SHA-256 of protocol, video and model outputs) anchored in Bitcoin with OpenTimestamps;
 answer by voice (Muse Voice Transcribe + Muse Spark); reviewer agent with a `look_at_moment` tool that proposes one-click fixes (rename reagent, set volume,
 skip invented steps; applied only when the scientist clicks); per-step SAM 3.1 tip evidence; thermal cycling program read off the bench sheet and exposed as Opentrons runtime
 parameters (editable in the Opentrons App); Opentrons Flex liquid classes per reagent (viscous premix, volatile
 ethanol, aqueous), also runtime parameters; liquid presence detection switch (Flex pipette sensor probes each tube);
 STARlet export uses Opentrons' liquid class flow rates; the whole run as an RO-Crate (Process Run Crate, passes rocrate-validator);
-thermocycler time from Opentrons' analysis at the module's rated ramp rates; an MCP server so other agents can read runs and protocols as tools; strict nonce CSP; reviewer fails over from Baseten to Fireworks; Playwright QA suite with axe-core accessibility checks in light and dark mode, CSP, MCP, layout-shift and caption and edit-copy checks (107/107 against production); Lighthouse 100/100/100, app performance 94 with zero layout shift; transcribed speech shown as video captions; the protocol opens as editable no-code steps in Opentrons Protocol Designer, verified by importing it into the live editor and analysing the editor's own export; the same steps also run on a Hamilton STARlet and a Tecan Freedom EVO 150 in PyLabRobot's simulator.
+thermocycler time from Opentrons' analysis at the module's rated ramp rates; an MCP server so other agents can read runs and protocols as tools; strict nonce CSP; reviewer fails over from Baseten to Fireworks; Playwright QA suite with axe-core accessibility checks in light and dark mode, CSP, MCP, layout-shift and caption and edit-copy checks (113/113 against production); Lighthouse 100/100/100, app performance 94 with zero layout shift; transcribed speech shown as video captions; the protocol opens as editable no-code steps in Opentrons Protocol Designer, verified by importing it into the live editor and analysing the editor's own export; the same steps also run on a Hamilton STARlet and a Tecan Freedom EVO 150 in PyLabRobot's simulator.
 
 **Describe your use of Meta products**
 > - Muse Spark 1.3 (Meta Model API, Files + Responses API, strict JSON schema): video → timestamped protocol steps;
@@ -66,7 +66,8 @@ thermocycler time from Opentrons' analysis at the module's rated ramp rates; an 
 
 **Feedback on partner technologies**
 > Baseten: Muse Spark Open with video input and tool calling worked first try over the OpenAI SDK. The
-> `meta-models/muse-spark-open-1026` ID from the participant guide returned 404; the bare ID worked.
+> Each key is bound to one model id: the hackathon key serves only `meta-models/muse-spark-open-1026` (403 on the
+> bare id), the earlier key only `meta-models/muse-spark-open` (404 on `-1026`), so the app keeps both as failover hosts.
 
 ## Demo video (3:00)
 

@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 from mcp import Client
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from sdc import designer, export, protocol  # noqa: E402  (the repo root, for the Protocol Designer round trip)
+from sdc import designer, export, protocol, stamp  # noqa: E402  (the repo root, for the Protocol Designer round trip)
 from playwright.sync_api import sync_playwright
 
 
@@ -190,6 +190,21 @@ def main():
         check("download: receipt hash matches protocol.py byte for byte",
               rec.get("protocol_sha256") == hashlib.sha256(proto).hexdigest(), rec.get("protocol_sha256"))
         check("receipt: replay runs do not claim models read them", "note" in rec.get("models", {}), rec.get("models"))
+        ts = rec.get("timestamp", {})
+        body = {k: v for k, v in rec.items() if k != "timestamp"}
+        check("receipt: OpenTimestamps digest recomputes from the receipt itself",
+              ts.get("stamped_sha256") == hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest(), ts)
+        st, ots = fetch(f"{api}/api/runs/pcr_1-gt/receipt.ots")
+        try:  # parse the proof here and check it independently: digest inside it, and its calendars or Bitcoin block
+            o = stamp.status(ots) if st == 200 else {}
+        except Exception as e:  # noqa: BLE001
+            o = {"error": repr(e)}
+        check("download: receipt.ots is a valid OpenTimestamps proof for that digest, on public calendars or in a Bitcoin block",
+              o.get("digest") == ts.get("stamped_sha256") and (o.get("bitcoin") or len(o.get("calendars", [])) >= 2)
+              and o.get("bitcoin") == ts.get("bitcoin"), (st, o))
+        check("app: the Bitcoin timestamp is shown next to the receipt",
+              page.wait_for_function("() => /OpenTimestamps/.test(document.getElementById('otsline').textContent)", timeout=60000)
+              and page.is_visible("#f-ots"), page.inner_text("#otsline")[:120])
         check("protocol: every transfer uses an Opentrons liquid class, premix pipetted as viscous",
               b".transfer(" not in proto and b"transfer_with_liquid_class(" in proto and b"default='glycerol_50'" in proto)
         check("app: liquid classes listed as runtime parameters", "Viscous (50% glycerol)" in page.inner_text("#params"))
@@ -209,6 +224,9 @@ def main():
         check("RO-Crate: declares Process Run Crate and the actions that made each file",
               ents.get("./", {}).get("conformsTo", {}).get("@id") == "https://w3id.org/ro/wfrun/process/0.5"
               and {"#generate", "#analyze"} <= set(ents))
+        check("RO-Crate: carries the timestamp proof and the action that made it",
+              ents.get("receipt.ots", {}).get("sha256") == hashlib.sha256(ots).hexdigest()
+              and ents.get("#timestamp", {}).get("result", {}).get("@id") == "receipt.ots", ents.get("#timestamp"))
         try:
             from rocrate_validator import models as rv_models, services as rv
         except ImportError:  # dev-only dependency
@@ -339,6 +357,14 @@ def main():
         rc = json.loads(fetch(f"{api}/api/runs/{copy}/receipt.json")[1])
         check("api: the copy shares the sample's footage (same video hash, no 13 MB duplicate)",
               rc["files_sha256"].get("video.mp4") == hashlib.sha256(fetch(f"{api}/api/runs/pcr_1/video")[1]).hexdigest())
+        check("api: the edited copy gets its own Bitcoin timestamp, for its own answers",
+              rc.get("timestamp", {}).get("stamped_sha256") not in (None, ts.get("stamped_sha256"))
+              and rc["timestamp"].get("pending_calendars") and rc["human_input"]["answers"], rc.get("timestamp"))
+        cz = zipfile.ZipFile(io.BytesIO(fetch(f"{api}/api/runs/{copy}/ro-crate.zip")[1]))
+        cents = {e["@id"]: e for e in json.loads(cz.read("ro-crate-metadata.json"))["@graph"]}
+        check("RO-Crate: an edited copy is not credited to the author, but still cites BioVL2",
+              "author" not in cents["./"] and all("agent" not in e for e in cents.values())
+              and cents["./"].get("isBasedOn"), cents["./"])
         page.goto(page.url)
         page.wait_for_selector("#steps li", timeout=60000)
         check("app: the copy's link reopens it after a reload", page.input_value("#run") == copy and page.is_hidden("#qbox"))

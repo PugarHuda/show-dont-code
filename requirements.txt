@@ -2,6 +2,7 @@ fastapi==0.162.0
 meta-sam-parser==0.1.0
 numpy==1.26.4
 openai==3.39.0
+opentimestamps==0.5.0
 opentrons==10.1.0
 pillow==13.0.0
 python-dotenv==1.2.4

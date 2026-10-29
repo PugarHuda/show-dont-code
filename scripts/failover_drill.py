@@ -20,6 +20,7 @@ def drill(run="pcr_3"):
     import json, os, shutil, time
     from pathlib import Path
     os.environ["BASETEN_API_KEY"] = "invalid-key-failover-drill"   # Baseten will answer 401
+    os.environ.pop("BASETEN_HACKATHON_KEY", None)                 # so the drill starts on the failing host
     from sdc import agent, pipeline
     d = Path("/tmp") / run
     shutil.copytree(f"/runs/{run}", d)                               # read-only use of the shared run

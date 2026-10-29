@@ -14,7 +14,9 @@ PROFILE = "https://w3id.org/ro/wfrun/process/0.5"
 BIOVL2 = "https://zenodo.org/records/21495188"
 AUTHOR = "https://github.com/PugarHuda"
 REPO, OPENTRONS, META = "https://github.com/PugarHuda/show-dont-code", "https://github.com/Opentrons/opentrons", "https://api.meta.ai/v1"
-FORMATS = {".py": "text/x-python", ".json": "application/json", ".md": "text/markdown"}
+FORMATS = {".py": "text/x-python", ".json": "application/json", ".md": "text/markdown",
+           ".ots": "application/vnd.opentimestamps.ots"}
+OTS = "https://opentimestamps.org"
 MODEL_OUTPUTS = {"steps_raw.json": "Steps found in the video (Muse Spark, stage 1)",
                  "steps_stage2.json": "Transfers grouped by source tube and named (Muse Spark, stage 2)",
                  "sheet.json": "Bench sheet read from full-resolution stills (Muse Spark)",
@@ -24,7 +26,8 @@ MODEL_OUTPUTS = {"steps_raw.json": "Steps found in the video (Muse Spark, stage 
 NAMES = {"review.json": "Reviewer agent findings and its simulator tool calls", "answers.json": "The scientist's answers",
          "receipt.json": "Reproducibility receipt", "pylabrobot.py": "Hamilton STARlet translation (PyLabRobot)",
          "tecan-evo.py": "Tecan Freedom EVO 150 translation (PyLabRobot)", "analysis.json": "Opentrons protocol analysis",
-         "protocol-designer.json": "The protocol as editable steps for Opentrons Protocol Designer (no code)"}
+         "protocol-designer.json": "The protocol as editable steps for Opentrons Protocol Designer (no code)",
+         "receipt.ots": "OpenTimestamps proof anchoring the receipt in Bitcoin"}
 
 
 def _when(path):
@@ -58,7 +61,8 @@ def build(run_dir, name, generated, models):
            "encodingFormat": "video/mp4"}
     if video.exists():
         src |= {"sha256": hashlib.sha256(video.read_bytes()).hexdigest(), "contentSize": str(video.stat().st_size)}
-    if not name.startswith("u-"):  # sample runs come from BioVL2
+    edited = name.startswith(("u-", "c-"))  # uploads and visitors' edited copies: not the author's work
+    if not name.startswith("u-"):  # sample runs and their edited copies come from BioVL2
         src |= {"isPartOf": {"@id": BIOVL2}, "license": {"@id": "https://creativecommons.org/licenses/by/4.0/"}}
         graph.append({"@id": BIOVL2, "@type": "CreativeWork", "name": "BioVL2 (Nishimura et al., Kyoto University)",
                       "license": {"@id": "https://creativecommons.org/licenses/by/4.0/"}})
@@ -104,6 +108,13 @@ def build(run_dir, name, generated, models):
                         "description": "Every transfer, mix and thermocycler step read off Opentrons' own analysis",
                         "instrument": {"@id": REPO}, "object": have("analysis.json"), "result": have("protocol-designer.json"),
                         "actionStatus": "http://schema.org/CompletedActionStatus"})
+    if "receipt.ots" in files:
+        tools.append(app(OTS, "OpenTimestamps (Bitcoin-anchored timestamp)", OTS))
+        actions.append({"@id": "#timestamp", "@type": "CreateAction", "name": "Timestamp the receipt in Bitcoin",
+                        "description": "sha256 of the receipt (without its 'timestamp' field) sent to public "
+                                       "OpenTimestamps calendars; their Bitcoin transactions anchor it to a block",
+                        "instrument": {"@id": OTS}, "object": have("receipt.json"), "result": have("receipt.ots"),
+                        "actionStatus": "http://schema.org/CompletedActionStatus"})
     rv = models.get("reviewer")
     if rv and "review.json" in files:  # which host ran the reviewer: Baseten, or Fireworks after a failover
         host = "https://fireworks.ai" if rv.startswith("fireworks") else "https://www.baseten.co"
@@ -113,7 +124,7 @@ def build(run_dir, name, generated, models):
                         "instrument": {"@id": host + "#muse-spark-open"},
                         "object": [{"@id": "#source-video"}] + have("steps_stage2.json", "sheet.json"),
                         "result": have("review.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
-    if not name.startswith("u-"):  # the sample runs were run by the author; uploads stay anonymous
+    if not edited:  # the sample runs were run by the author; uploads and edits stay anonymous
         graph += [{"@id": AUTHOR, "@type": "Person", "name": "Pugar Huda Mantoro", "affiliation": {"@id": "https://www.uii.ac.id"}},
                   {"@id": "https://www.uii.ac.id", "@type": "Organization", "name": "Universitas Islam Indonesia",
                    "url": "https://www.uii.ac.id"}]
@@ -133,8 +144,9 @@ def build(run_dir, name, generated, models):
             "hasPart": [{"@id": e["@id"]} for e in entities if e["@type"] == "File"],
             "mentions": [{"@id": a["@id"]} for a in actions]}
     if not name.startswith("u-"):
-        root["license"] = {"@id": "https://creativecommons.org/licenses/by/4.0/"}
         root["isBasedOn"] = {"@id": BIOVL2}
+    if not edited:
+        root["license"] = {"@id": "https://creativecommons.org/licenses/by/4.0/"}
         root["author"] = {"@id": AUTHOR}
     meta = {"@context": ["https://w3id.org/ro/crate/1.1/context", {"sha256": "http://schema.org/sha256"}],
             "@graph": graph + [root] + entities + tools + actions}

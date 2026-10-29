@@ -309,7 +309,7 @@ def receipt(name: str):
     files = {f: _sha256(pipeline.asset(d, f).read_bytes()) for f in ("video.mp4", "steps_raw.json", "steps_stage2.json",
                                                                        "tracks_tip.json", "analysis.json") if pipeline.asset(d, f).exists()}
     answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
-    return {
+    rec = {
         "run": name,
         "protocol_sha256": _sha256(r["protocol"].encode("utf-8")),
         "files_sha256": files,
@@ -323,6 +323,33 @@ def receipt(name: str):
         "reviewer_findings": len(r.get("review") or []),
         "verify": "sha256 of each file must match; the protocol hash covers protocol.py byte for byte (UTF-8)",
     }
+    # anchor the receipt in Bitcoin (OpenTimestamps): proof that these hashes existed no later than that block
+    digest = _sha256(json.dumps(rec, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+    ts = {"stamped_sha256": digest, "how": "sha256 of this receipt without 'timestamp', as JSON with sorted keys, "
+          "',' and ':' separators, ASCII escapes", "proof": f"/api/runs/{name}/receipt.ots",
+          "verify": f"ots verify -d {digest} receipt.ots"}
+    try:
+        from sdc import stamp
+
+        s = stamp.ensure(d / "stamps" / f"{digest}.ots", bytes.fromhex(digest))
+        ts.update(pending_calendars=s["calendars"], bitcoin=s["bitcoin"])
+    except Exception as e:  # noqa: BLE001 - the calendars or the explorer are down: the receipt still stands
+        ts = {"stamped_sha256": digest, "error": f"OpenTimestamps unavailable right now ({type(e).__name__})"}
+    rec["timestamp"] = ts
+    return rec
+
+
+@app.get("/api/runs/{name}/receipt.ots")
+def receipt_ots(name: str):
+    """The OpenTimestamps proof for the current receipt (binary .ots, verifiable with the standard `ots` client)."""
+    from fastapi.responses import Response
+
+    ts = receipt(name)["timestamp"]
+    if "error" in ts:
+        raise HTTPException(503, ts["error"])
+    return Response((_run_dir(name) / "stamps" / f"{ts['stamped_sha256']}.ots").read_bytes(),
+                    media_type="application/vnd.opentimestamps.ots",
+                    headers={"Content-Disposition": f'attachment; filename="{name}-receipt.ots"'})
 
 
 @app.get("/api/runs/{name}/ro-crate.zip")
@@ -341,6 +368,8 @@ def ro_crate(name: str):
            "pylabrobot.py": export.pylabrobot_script(steps).encode("utf-8"),
            "tecan-evo.py": export.pylabrobot_script(steps, "evo150").encode("utf-8"),
            "receipt.json": json.dumps(rec, indent=1).encode("utf-8")}
+    if "error" not in rec["timestamp"]:
+        gen["receipt.ots"] = (d / "stamps" / f"{rec['timestamp']['stamped_sha256']}.ots").read_bytes()
     if (d / "analysis.json").exists():
         gen["protocol-designer.json"] = json.dumps(_designer(d, name), indent=1).encode("utf-8")
     if "review" in r and "note" not in rec["models"]:
@@ -582,7 +611,8 @@ if MCPServer:
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:
-        """Reproducibility receipt: SHA-256 of the protocol, the video and every model output, and which models ran."""
+        """Reproducibility receipt: SHA-256 of the protocol, the video and every model output, and which models ran,
+        anchored in Bitcoin with OpenTimestamps ('timestamp': pending calendars, or the confirming block)."""
         return _http(receipt, name)
 
     app.mount("/", mcp.streamable_http_app(  # mounted last, so every route above matches first

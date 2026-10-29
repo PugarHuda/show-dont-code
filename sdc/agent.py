@@ -15,6 +15,8 @@ from openai import OpenAI
 
 load_dotenv()
 MODEL = os.getenv("OPEN_MODEL", "meta-models/muse-spark-open")
+# the hackathon's credited Baseten key only serves this id (and the older key only the bare one), so it is its own host
+HACKATHON = os.getenv("HACKATHON_MODEL", "meta-models/muse-spark-open-1026")
 # the same open-weights model on a second host: used only when Baseten fails, so a judge never sees "reviewer down"
 BACKUP = ("fireworks", "https://api.fireworks.ai/inference/v1", "FIREWORKS_API_KEY",
           os.getenv("BACKUP_MODEL", "accounts/fireworks/models/muse-spark-open"))
@@ -144,8 +146,8 @@ def clean_fix(fix, steps):
     return {"kind": fix["kind"], "steps": idx, "value": "" if fix["kind"] == "skip_steps" else value}
 
 
-def client():
-    key = os.getenv("BASETEN_API_KEY")
+def client(key=None):
+    key = key or os.getenv("BASETEN_API_KEY")
     if not key:
         raise RuntimeError("BASETEN_API_KEY missing: put it in .env")
     return OpenAI(base_url="https://inference.baseten.co/v1", api_key=key)
@@ -153,12 +155,13 @@ def client():
 
 def providers():
     """(name, client, model, takes_video) in the order to try them; hosts without a key are skipped."""
-    out = [("baseten", client(), MODEL, True)] if os.getenv("BASETEN_API_KEY") else []
+    out = [("baseten", client(os.getenv("BASETEN_HACKATHON_KEY")), HACKATHON, True)] if os.getenv("BASETEN_HACKATHON_KEY") else []
+    out += [("baseten", client(), MODEL, True)] if os.getenv("BASETEN_API_KEY") else []
     name, url, env, model = BACKUP
     if os.getenv(env):  # Fireworks' Muse Spark Open takes images but not video (400 "does not support video inputs yet")
         out.append((name, OpenAI(base_url=url, api_key=os.getenv(env), timeout=300, max_retries=1), model, False))
     if not out:
-        raise RuntimeError("no reviewer host: set BASETEN_API_KEY or FIREWORKS_API_KEY in .env")
+        raise RuntimeError("no reviewer host: set BASETEN_HACKATHON_KEY, BASETEN_API_KEY or FIREWORKS_API_KEY in .env")
     return out
 
 
