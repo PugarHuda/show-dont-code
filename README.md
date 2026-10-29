@@ -122,9 +122,14 @@ requests with `look_at_moment`; the result records which host ran (`review_model
 The landing page and app HTML are on Vercel; the API, uploads and the pipeline worker run on Modal
 (`modal_app.py`), with all runs on one Modal Volume. Live model calls from the page (voice answers, click-to-track) share a daily budget stored on the Volume, so a
 restart doesn't reset it and it refills at 00:00 UTC. Uploads need an access code (fail closed), are trimmed to
-5 minutes, size-capped while streaming, and private to whoever holds the link. Pages are served under a strict
+5 minutes, size-capped while streaming, and private to whoever holds the link. Instead of picking a file, a phone
+can film the protocol in the upload dialog: the back camera is recorded in the browser (MediaRecorder, MP4 where
+the browser records it, else WebM) and sent as the upload; a codec MP4 can't hold as is (VP8) is re-encoded to
+H.264 on the server. The e2e records with Chromium's fake camera, runs the server's ffmpeg step on the clip, and
+sends it to the real endpoint with a wrong code. Pages are served under a strict
 Content-Security-Policy (scripts run only with a per-response nonce; no inline handlers, no `eval`, no framing),
-with `nosniff`, a referrer policy, and a permissions policy that allows only the microphone (voice answers).
+with `nosniff`, a referrer policy, and a permissions policy that allows only the page's own microphone (voice answers)
+and camera (recording).
 
 ## Testing
 
@@ -170,6 +175,25 @@ Regenerate this table with `python scripts/eval_table.py pcr_1 pcr_2 pcr_3 pcr_4
 Evaluator change made after seeing test data, disclosed: `pcr_5` wrote water as "H2O", which the synonym list
 did not know; it was added. Its "PrimeTime mix" was *not* accepted as the PrimeSTAR premix, because it is a
 different product (a hallucinated name).
+
+Why Muse Spark watches and not Muse Wonder: on Oct 29 we ran stage 1 with Meta's newer Muse Wonder 1.0 on the same
+10 fps video file with the same prompt, hints and scorer (`python scripts/wonder_bench.py pcr_1 pcr_2 pcr_3 pcr_4 pcr_5 miniprep_7`).
+
+| Video | Muse Spark 1.3, stage 1: recall / precision / tIoU | Muse Wonder 1.0, stage 1 |
+|---|---|---|
+| pcr_1 (dev) | 1.00 / 1.00 / 0.87 | 0.17 / 0.17 / 0.60 |
+| pcr_2 | 0.83 / 0.50 / 0.51 | 0.33 / 0.22 / 0.78 |
+| pcr_3 | 0.67 / 0.67 / 0.65 | 0.17 / 0.14 / 0.19 |
+| pcr_4 | 0.33 / 0.25 / 0.52 | 0.83 / 0.45 / 0.60 |
+| pcr_5 | 0.67 / 0.50 / 0.57 | 0.33 / 0.33 / 0.65 |
+| **PCR test mean (n=4)** | **0.62 / 0.48** | 0.42 / 0.29 |
+| miniprep_7 | 0.28 / 0.42 / 0.82 | 0.22 / 0.36 / 0.52 |
+
+Wonder spent about 32k reasoning tokens per video and usually found the events, but named reagents from the order
+on the bench sheet or a textbook PCR rather than from the tube in hand (on `pcr_1` it laid the sheet's order over
+evenly spaced 7-second slots; without the sheet hint it put the premix second, where the primers really go: 0.33).
+It did beat Spark on `pcr_4`, the video Spark handles worst. One run per video, prompts tuned on Spark, so this
+favours Spark; it is why the pipeline keeps Spark for watching.
 
 Known failures:
 - `pcr_4`: stage 1 invents a "master mix" preparation that never happens. Stage 2 renames events but cannot

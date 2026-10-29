@@ -142,6 +142,11 @@ def web():
             cut = await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(d / "raw"), "-t",
                                           str(MAX_SECONDS), "-c", "copy", "-movflags", "+faststart", str(d / "input.mp4")],
                                           capture_output=True, timeout=120)
+            if cut.returncode != 0:  # a codec MP4 can't hold as is (VP8 from a browser recording): re-encode instead
+                cut = await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(d / "raw"), "-t",
+                                              str(MAX_SECONDS), "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                                              "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart",
+                                              str(d / "input.mp4")], capture_output=True, timeout=600)
             probe = await asyncio.to_thread(subprocess.run, ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                                             "-of", "csv=p=0", str(d / "input.mp4")], capture_output=True, text=True, timeout=30)
             try:
@@ -172,4 +177,10 @@ def web():
             raise HTTPException(404, "unknown run")
         return {"events": json.loads(f.read_text()), "ready": (Path(RUNS) / name / "result.json").exists()}
 
+    # app.py mounts the MCP server at "/" as its last route; routes added here come after it and would never match
+    # (upload and progress answered 404 until Oct 29), so the catch-all mount moves back to the end
+    from starlette.routing import Mount
+
+    catch_all = [r for r in api.router.routes if isinstance(r, Mount) and r.path == ""]
+    api.router.routes[:] = [r for r in api.router.routes if r not in catch_all] + catch_all
     return api

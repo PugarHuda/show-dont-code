@@ -145,7 +145,7 @@ def _page(path, head=""):
 async def security_headers(request: Request, call_next):
     resp = await call_next(request)
     resp.headers.update({"X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin",
-                         "Permissions-Policy": "camera=(), geolocation=(), microphone=(self)"})  # mic: voice answers
+                         "Permissions-Policy": "camera=(self), geolocation=(), microphone=(self)"})  # voice answers, recording
     return resp
 
 

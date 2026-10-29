@@ -239,14 +239,14 @@ def voice_answers(transcript, questions):
     return [{**a, "key": allowed[norm(a["key"])]} for a in json.loads(r.output_text)["answers"] if norm(a["key"]) in allowed]
 
 
-def extract_steps(file_id, extra=""):
+def extract_steps(file_id, extra="", model=None, max_tokens=16000):
     r = client().responses.create(
-        model=SPARK,
+        model=model or SPARK,
         input=[{"role": "user", "content": [
             {"type": "input_text", "text": PROMPT + extra},
             {"type": "input_file", "file_id": file_id},
         ]}],
-        max_output_tokens=16000,
+        max_output_tokens=max_tokens,  # reasoning tokens count against it too
         text={"format": {"type": "json_schema", "name": "steps", "schema": STEP_SCHEMA, "strict": True}},
     )
     return json.loads(r.output_text)["steps"]

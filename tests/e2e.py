@@ -8,12 +8,14 @@ every download (the receipt's hash must match protocol.py byte for byte), and th
 Nothing here costs model calls unless VOICE=1. Its edits land in private copies (c-*); the shared sample runs never change.
 """
 import asyncio
+import base64
 import hashlib
 import io
 import json
 import logging
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -378,7 +380,13 @@ def main():
             st, _ = fetch(f"{api}/api/runs/{name}")
             check(f"api: unknown run {name} -> 404", st == 404, st)
         st, _ = fetch(f"{api}/api/upload", "POST", b"x" * 2000, {"X-Upload-Code": "wrong"})
-        check("api: upload with a wrong code is refused", st in (403, 404, 405), st)
+        # 403 from the upload route itself; a 404 here once meant the route was shadowed and uploads were down
+        hosted = not BASE.startswith("http://127.0.0.1")  # the upload routes exist only on the Modal backend
+        check("api: upload with a wrong code is refused", st == 403 if hosted else st in (403, 404, 405), st)
+        if hosted:
+            st, body = fetch(f"{api}/api/runs/nope/progress")
+            check("api: the upload progress route answers (its own 404, not the catch-all's)",
+                  st == 404 and body.startswith(b'{"detail":"unknown run"'), (st, body[:80]))
         st, _ = fetch(f"{api}/api/runs/pcr_3/voice", "POST", os.urandom(5000))
         check("api: voice refuses non-audio", st in (415, 503, 404, 405), st)
         dialogs = []
@@ -394,6 +402,38 @@ def main():
             check("upload: dialog opens", page.is_visible("#updlg"))
             page.keyboard.press("Escape")
             check("upload: Escape closes it", not page.is_visible("#updlg"))
+
+        # ---- record with the camera (Chromium's fake camera and microphone) -----------------------
+        policy = urllib.request.urlopen(BASE + "/app", timeout=60).headers.get("Permissions-Policy", "")
+        check("headers: the page may use its own camera, nothing else may", "camera=(self)" in policy, policy)
+        cb = p.chromium.launch(args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"])
+        cp = cb.new_context(permissions=["camera", "microphone"]).new_page()
+        cp.goto(BASE + "/app?run=pcr_1-gt")
+        cp.wait_for_selector("#steps li", timeout=60000)
+        if cp.is_visible("#upbtn"):
+            cp.click("#upbtn")
+            cp.click("#recbtn")
+            cp.wait_for_timeout(7000)
+            check("record: live camera preview with a running clock", cp.is_visible("#recview") and cp.inner_text("#rectime").startswith("0:0"),
+                  cp.inner_text("#rectime"))
+            cp.click("#recbtn")
+            cp.wait_for_function("() => document.getElementById('upform').video.files.length === 1", timeout=15000)
+            clip = base64.b64decode(cp.evaluate("""async () => { const f = document.getElementById('upform').video.files[0];
+                const b = new Uint8Array(await f.arrayBuffer()); let s = ''; for (const x of b) s += String.fromCharCode(x); return btoa(s); }"""))
+            with tempfile.TemporaryDirectory() as tmp:  # the upload endpoint's own ffmpeg step, on the recorded file
+                raw, mp4 = os.path.join(tmp, "raw"), os.path.join(tmp, "input.mp4")
+                open(raw, "wb").write(clip)
+                cut = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", raw, "-t", "300", "-c", "copy", mp4], capture_output=True)
+                dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", mp4],
+                                     capture_output=True, text=True).stdout.strip()
+            check("record: the recording becomes the upload file, and the server's remux reads it (>= 5 s)",
+                  cut.returncode == 0 and float(dur or 0) >= 5, (len(clip), dur, cut.stderr[:120]))
+            cp.fill("#upform input[name=code]", "wrong-code")
+            cp.click("#upgo")
+            cp.wait_for_function("() => /access code/.test(document.getElementById('upmsg').textContent)", timeout=60000)
+            check("record: the recorded clip goes through the real upload endpoint (wrong code refused, nothing stored)",
+                  "access code isn't right" in cp.inner_text("#upmsg"), cp.inner_text("#upmsg"))
+        cb.close()
 
         # ---- optional: spoken answers through a fake microphone --------------------------------------
         if os.getenv("VOICE") == "1" and os.path.exists("out/rec/voice_test.wav"):

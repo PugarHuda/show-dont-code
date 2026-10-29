@@ -111,6 +111,8 @@
   .upsteps li.done::marker { color: var(--accent); }
   .upsteps li.error { color: var(--bad); }
   .upbtns { display: flex; justify-content: flex-end; gap: 8px; }
+  .recrow { display: flex; align-items: center; gap: 12px; }
+  #recview { width: 100%; max-height: 40vh; background: #000; border-radius: 6px; }
   [hidden] { display: none !important; }  /* author display rules must not un-hide */
   .replay { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
   #replaycap { font-size: 13px; color: var(--muted); }
@@ -149,10 +151,13 @@
 <dialog id="updlg" aria-labelledby="uptitle">
   <form id="upform" method="dialog">
     <h2 id="uptitle">Analyse your own lab video</h2>
-    <p class="hint">An MP4 or MOV up to 5 minutes, filmed from your point of view while you pipette. It takes about
+    <p class="hint">An MP4 or MOV up to 5 minutes, filmed from your point of view while you pipette, or record it here with your phone's camera. It takes about
       5 to 8 minutes: Muse Spark watches it, SAM 3.1 tracks the pipette, Muse Voice Transcribe listens, and a
       Muse Spark Open agent checks the result in the Opentrons simulator. Uploaded videos are stored for this demo and only people with the link can open the result.</p>
-    <label>Video <input type="file" name="video" accept="video/mp4,video/quicktime" required></label>
+    <div class="recrow"><button type="button" id="recbtn" class="ghost" hidden>Record with your camera</button>
+      <span id="rectime" class="t" aria-live="off"></span></div>
+    <video id="recview" muted playsinline hidden aria-label="Camera preview"></video>
+    <label>Video <input type="file" name="video" accept="video/mp4,video/quicktime,video/webm" required></label>
     <label>Access code <input type="text" name="code" autocomplete="off" required></label>
     <div class="upbar" hidden><div id="upfill"></div></div>
     <ol class="upsteps" id="upsteps"></ol>
@@ -672,6 +677,42 @@ $("voicebtn").onclick = async () => {
 $("upbtn").hidden = !window.UPLOADS;
 $("upbtn").onclick = () => $("updlg").showModal();
 $("upclose").onclick = () => $("updlg").close();
+// --- or film it right here: the phone's back camera, recorded in the browser, sent as the upload --------------
+let camRec = null;
+$("recbtn").hidden = !(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+$("updlg").addEventListener("close", () => camRec?.stop());
+$("recbtn").onclick = async () => {
+  if (camRec) { camRec.stop(); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true,
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } });
+  } catch (e) { $("upmsg").textContent = `The camera isn't available (${e.name}); choose a video file instead.`; return; }
+  // MP4 where the browser records it (Safari, recent Chrome); otherwise WebM with VP9, which the server can remux
+  const type = ["video/mp4;codecs=avc1,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm"]
+    .find((t) => MediaRecorder.isTypeSupported(t)) || "";
+  const r = camRec = new MediaRecorder(stream, type ? { mimeType: type } : {});
+  const chunks = [], view = $("recview"), t0 = Date.now(), secs = () => Math.floor((Date.now() - t0) / 1000);
+  view.srcObject = stream; view.hidden = false; view.play().catch(() => {});
+  r.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  const tick = setInterval(() => {
+    const s = secs();
+    $("rectime").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} of 5:00`;
+    if (s >= 300) r.stop();  // the server keeps the first 5 minutes anyway
+  }, 500);
+  r.onstop = () => {
+    clearInterval(tick); stream.getTracks().forEach((t) => t.stop());
+    view.srcObject = null; view.hidden = true; camRec = null;
+    $("recbtn").textContent = "Record again";
+    const mime = (r.mimeType || "video/webm").split(";")[0];
+    const file = new File(chunks, `recording.${mime === "video/mp4" ? "mp4" : "webm"}`, { type: mime });
+    const dt = new DataTransfer(); dt.items.add(file); $("upform").video.files = dt.files;
+    $("upmsg").textContent = secs() < 5 ? "That was under 5 seconds; record the whole protocol."
+      : `Recorded ${secs()} s (${(file.size / 1048576).toFixed(1)} MB). Enter the access code and press Upload and analyse.`;
+  };
+  r.start(1000);
+  $("recbtn").textContent = "Stop recording"; $("upmsg").textContent = "Recording: pipette as you normally would, then press Stop.";
+};
 $("upform").onsubmit = (ev) => {
   ev.preventDefault();
   const f = ev.target.video.files[0];
