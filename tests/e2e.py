@@ -260,6 +260,23 @@ def main():
         check("app: says the protocol also ran on a Hamilton STARlet and a Tecan EVO",
               "Hamilton STARlet" in page.inner_text("#plrline") and page.is_visible("#f-evo"), page.inner_text("#plrline"))
 
+        # ---- the same simulations re-run in the visitor's browser (Pyodide: CPython in WebAssembly) ------------
+        done = "() => !document.getElementById('here-evo').disabled && /: (?!loading|running)/.test(document.getElementById('plrhere').textContent)"
+        page.click("#here-evo")
+        page.wait_for_function(done, timeout=300000)
+        here = re.search(r"no errors: (\d+) aspirate/dispense actions \(the server counted (\d+)\)", page.inner_text("#plrhere"))
+        check("browser: tecan-evo.py re-runs in Pyodide with PyLabRobot from PyPI, as many actions as the server counted",
+              here and here[1] == here[2] == str(elog["actions"]), page.inner_text("#plrhere")[:200])
+        # a tube that holds less than the protocol draws: the in-browser run must fail, not echo the server's verdict
+        page.route("**/pcr_1-gt/pylabrobot.py", lambda r: r.fulfill(
+            body=plr.decode("utf-8").replace("tracker.set_volume(57.5)", "tracker.set_volume(5.0)"), content_type="text/x-python"))
+        page.click("#here-plr")
+        page.wait_for_function(done, timeout=300000)
+        check("browser: the in-browser run catches an over-drawn tube (premix stock cut to 5 µL)",
+              "no errors" not in page.inner_text("#plrhere") and re.search(r"(?i)not enough|volume", page.inner_text("#plrhere")),
+              page.inner_text("#plrhere")[-200:])
+        page.unroute("**/pcr_1-gt/pylabrobot.py")
+
         # ---- Opentrons Protocol Designer: the same protocol as editable no-code steps ------------------------
         st, pdf = fetch(f"{api}/api/runs/pcr_1-gt/protocol-designer.json")
         pdj = json.loads(pdf) if st == 200 else {}

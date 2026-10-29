@@ -60,6 +60,11 @@ Then:
   translations for a **Hamilton STARlet** and a **Tecan Freedom EVO 150** (LiHa arm, DiTi tips, the DiTi carrier's
   waste slot), each run in **PyLabRobot**'s simulator with volume tracking on, so over-drawing a tube fails there too.
   The e2e suite runs the downloaded Tecan file and requires as many pipetting actions as the STARlet's.
+- **Re-run those simulations in your own browser**, without trusting our server's "passed": one click loads
+  CPython compiled to WebAssembly ([Pyodide](https://pyodide.org) 0.27.7), installs the same PyLabRobot 0.2.2 from
+  PyPI and executes the downloaded `pylabrobot.py` or `tecan-evo.py` on the page, then compares the action count
+  with the server's. The e2e suite also serves it a copy with the premix stock cut to 5 µL and requires the browser
+  run to fail with PyLabRobot's `TooLittleLiquidError`.
 - `methods.md` (a methods section for a notebook or paper), `autoprotocol.json` (vendor-neutral), `pylabrobot.py`
   (STARlet) and `tecan-evo.py`.
 - **Opentrons Protocol Designer, no code.** `protocol-designer.json` opens in Opentrons' own visual editor
@@ -127,7 +132,7 @@ can film the protocol in the upload dialog: the back camera is recorded in the b
 the browser records it, else WebM) and sent as the upload; a codec MP4 can't hold as is (VP8) is re-encoded to
 H.264 on the server. The e2e records with Chromium's fake camera, runs the server's ffmpeg step on the clip, and
 sends it to the real endpoint with a wrong code. Pages are served under a strict
-Content-Security-Policy (scripts run only with a per-response nonce; no inline handlers, no `eval`, no framing),
+Content-Security-Policy (scripts run only with a per-response nonce, plus the pinned Pyodide release and WebAssembly for the in-browser re-run; no inline handlers, no `eval`, no framing),
 with `nosniff`, a referrer policy, and a permissions policy that allows only the page's own microphone (voice answers)
 and camera (recording).
 

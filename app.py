@@ -135,9 +135,11 @@ def _page(path, head=""):
         raise HTTPException(500, "API_BASE must be an https origin")
     nonce = secrets.token_urlsafe(16)
     html = path.read_text(encoding="utf-8").replace("</head>", head + "</head>", 1).replace("<script>", f'<script nonce="{nonce}">')
-    csp = (f"default-src 'self'; script-src 'nonce-{nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    # Pyodide (CPython in WebAssembly, pinned release) re-runs the PyLabRobot simulations in the visitor's browser
+    pyo = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/"
+    csp = (f"default-src 'self'; script-src 'nonce-{nonce}' 'wasm-unsafe-eval' {pyo}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
            f"font-src https://fonts.gstatic.com; img-src 'self' data: blob: {api}; media-src 'self' blob: {api}; "
-           f"connect-src 'self' {api}; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+           f"connect-src 'self' {api} {pyo} https://pypi.org https://files.pythonhosted.org; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
     return HTMLResponse(html, headers={"Content-Security-Policy": " ".join(csp.split())})
 
 

@@ -227,6 +227,9 @@
         <table class="setup"><thead><tr><th scope="col">Setting</th><th scope="col">Value</th></tr></thead><tbody id="params"></tbody></table>
       </div>
       <p class="hint" id="plrline"></p>
+      <p class="files" id="herebox" hidden><button type="button" class="ghost" id="here-plr">Re-run the Hamilton simulation in this browser</button>
+        <button type="button" class="ghost" id="here-evo">Re-run the Tecan simulation in this browser</button></p>
+      <pre id="plrhere" hidden aria-live="polite"></pre>
       <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
         <a id="f-pd" title="Open designer.opentrons.com, choose Import, and pick this file">Protocol Designer, no code (.json)</a>
         <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-evo">tecan-evo.py (Tecan Freedom EVO)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
@@ -298,6 +301,46 @@ async function load(n) {
 
 const COPY = "your edited copy (private link)";
 
+// re-run a second-robot simulation in this browser: CPython compiled to WebAssembly (Pyodide) installs the same
+// PyLabRobot release from PyPI and executes the downloaded script, so nobody has to trust the server's "passed"
+const PYODIDE = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/";
+let pyReady = null;
+function pyodide() {
+  pyReady ??= new Promise((ok, bad) => {
+    const s = document.createElement("script");
+    s.src = PYODIDE + "pyodide.js";
+    s.onerror = () => bad(new Error("couldn't load Pyodide from cdn.jsdelivr.net"));
+    s.onload = async () => {
+      try {
+        const py = await loadPyodide({ indexURL: PYODIDE });
+        await py.loadPackage(["micropip", "ssl"]);  // websockets, which PyLabRobot imports, needs ssl
+        await py.pyimport("micropip").install("pylabrobot==0.2.2");
+        ok(py);
+      } catch (e) { bad(e); }
+    };
+    document.head.append(s);
+  }).catch((e) => { pyReady = null; throw e; });  // let a later click retry
+  return pyReady;
+}
+async function runHere(url, label, server) {
+  const out = $("plrhere"), btns = [$("here-plr"), $("here-evo")];
+  out.hidden = false; btns.forEach((b) => { b.disabled = true; });
+  out.textContent = `${label}: loading Python and PyLabRobot 0.2.2 into this browser (about 15 MB, once)…`;
+  try {
+    const [py, src] = await Promise.all([pyodide(), fetch(url).then((r) => { if (!r.ok) throw new Error(`download failed (${r.status})`); return r.text(); })]);
+    const lines = [];
+    py.setStdout({ batched: (l) => lines.push(l) }); py.setStderr({ batched: (l) => lines.push(l) });
+    py.globals.set("SRC", src);
+    out.textContent = `${label}: running the downloaded script…`;
+    await py.runPythonAsync("ns = {'__name__': 'plr_protocol'}\nexec(SRC, ns)\nawait ns['main']()");
+    const acts = lines.filter((l) => /^(Aspirating|Dispensing)/.test(l)).length;
+    out.textContent = `${label}: ran in this browser with volume tracking, no errors: ${acts} aspirate/dispense actions`
+      + `${server ? ` (the server counted ${server.actions})` : ""}.\n\n${lines.join("\n")}`;
+  } catch (e) {
+    out.textContent = `${label}: ${String(e.message || e).trim().split("\n").slice(-4).join("\n")}`;
+  } finally { btns.forEach((b) => { b.disabled = false; }); }
+}
+
 // the receipt's OpenTimestamps proof: pending on the public calendars, then anchored in a Bitcoin block
 async function stampLine(base) {
   const line = $("otsline"), link = $("f-ots");
@@ -353,6 +396,10 @@ function render() {
     const failed = robots.filter(([, ok]) => !ok).map(([n, , log]) => `${n}: ${(log?.tail || []).slice(-1)[0] || "see the file"}`);
     $("plrline").textContent = (passed.length ? `Also translated for ${passed.join(" and ")} and run in PyLabRobot's simulator with volume tracking, no errors. ` : "")
       + (failed.length ? `Failed in PyLabRobot's simulator: ${failed.join("; ")}` : "");
+    $("herebox").hidden = !robots.length; $("plrhere").hidden = true;
+    $("here-plr").hidden = R.plr_ok == null; $("here-evo").hidden = R.evo_ok == null;
+    $("here-plr").onclick = () => runHere(`${base}/pylabrobot.py`, "Hamilton STARlet", R.plr);
+    $("here-evo").onclick = () => runHere(`${base}/tecan-evo.py`, "Tecan Freedom EVO 150", R.evo);
   }
   $("download").href = R.protocol ? `${API}/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
   $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";
