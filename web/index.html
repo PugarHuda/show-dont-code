@@ -73,6 +73,10 @@
   .well.src { fill: var(--src); stroke: var(--src); }
   .well.dst { fill: var(--dst); stroke: var(--dst); }
   .well.used { stroke: var(--ink); stroke-width: 1.2; }
+  .well.ok { fill: var(--accent); stroke: var(--accent); }
+  .well.here { stroke: #ffd60a; stroke-width: 3; }
+  .scan { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  #scanview { width: 100%; max-height: 260px; border-radius: 6px; background: #000; }
   .lw-label { fill: var(--ink); font: 10px system-ui; }
   form.q { display: grid; gap: 8px; }
   form.q label { display: grid; grid-template-columns: 1fr 110px; gap: 8px; align-items: center; }
@@ -99,7 +103,8 @@
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
   .files { display: flex; gap: 16px; flex-wrap: wrap; margin: 12px 0 0; font-size: 14px; }
   .files a { color: var(--accent); display: inline-block; padding: 6px 0; }  /* 24 px+ tap target (WCAG 2.2) */
-  .hint a { color: var(--accent); }
+  .hint a, .scan a { color: var(--accent); }
+  .scan a { display: inline-block; padding: 6px 0; font-size: 14px; }
   button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
   dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 20px; }
   dialog::backdrop { background: rgba(0, 0, 0, .45); }
@@ -200,6 +205,13 @@
         <span id="replaycap" aria-live="polite"></span>
         <span id="replaystep" class="hint"></span>
       </div>
+      <div class="scan" id="scanbox" hidden>
+        <button id="scanbtn" type="button" class="ghost">Check the tube rack with your camera</button>
+        <a id="f-labels" target="_blank" rel="noopener">Print the tube labels (QR, Avery L7160)</a>
+        <video id="scanview" muted playsinline hidden aria-label="Camera, reading tube labels"></video>
+        <p id="scanmsg" class="hint" aria-live="polite">Print the labels, stick one on each tube, then scan each tube as you put it in the rack:
+          the deck shows where it goes and ticks it off.</p>
+      </div>
     </section>
     <section id="qbox" hidden>
       <h2>Needs your confirmation</h2>
@@ -279,17 +291,26 @@ async function init() {
   if (want && runs.includes(want)) $("run").value = want;
   $("run").onchange = () => openRun($("run").value);
   if (upload) {
-    try { await load(upload); }  // finished: open it
+    try { await load(upload); tubeFromLink(want); }  // finished: open it
     catch { $("status").textContent = "analysing your video…"; $("updlg").showModal(); follow(upload); }  // still running
     return;
   }
-  if (runs.length) openRun($("run").value); else $("status").textContent = "no runs yet";
+  if (!runs.length) { $("status").textContent = "no runs yet"; return; }
+  await openRun($("run").value);
+  tubeFromLink(want);
+}
+
+// opened from a tube label's QR code (any phone camera app): show where that tube goes
+function tubeFromLink(want) {
+  const tube = new URLSearchParams(location.search).get("tube");
+  if (R && tube && want === name && rackTubes().includes(tube)) { placeTube(tube); $("deckbox").scrollIntoView({ block: "center" }); }
 }
 
 // a run that can't be opened (a stale link, the API restarting) says so in the status pill, not as an uncaught error
 const openRun = (n) => load(n).catch((e) => { $("status").className = "pill bad"; $("status").textContent = e.message; });
 
 async function load(n) {
+  if (n !== name) { placed.clear(); hereTube = null; scanStop(); }
   name = n;
   R = await api(`/api/runs/${encodeURIComponent(n)}`);
   $("video").src = `${API}/api/runs/${encodeURIComponent(n)}/video`;
@@ -369,6 +390,8 @@ function render() {
   else { st.className = "pill bad"; st.textContent = "simulator failed"; }
   $("dl").disabled = !R.protocol;
   $("replaybox").hidden = !R.sim_ok;
+  $("scanbox").hidden = !R.protocol || !rackTubes().length;  // labels need the confirmed steps
+  $("f-labels").href = `${API}/api/runs/${encodeURIComponent(name)}/labels.svg`;
   // panels appear together once a run is loaded; empty ones shown earlier get pushed down the screen (layout shift)
   for (const id of ["stepsbox", "deckbox", "codebox", "simbox"]) $(id).hidden = false;
   const an = R.analysis;
@@ -570,10 +593,82 @@ function deck(stepIdx) {
     $("deck").querySelector(`[data-lw="${lw}"][data-w="${w}"]`)?.classList.add(cls);
   };
   Object.keys(R.layout).forEach((n) => mark(n, "used"));
+  placed.forEach((n) => mark(n, "ok"));
+  if (hereTube) mark(hereTube, "here");
   const st = R.steps[stepIdx];
   if (st && st.action === "transfer") { mark(st.source || st.reagent || "reagent", "src"); mark(st.destination || "sample tube", "dst"); }
   if (st && st.action === "mix") mark(st.destination || "sample tube", "dst");
 }
+
+// --- load the tube rack against printed labels: each label's QR opens ?run=..&tube=.., scanned here or by any camera app
+const JSQR = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";  // pinned, with subresource integrity
+let qrReady = null, scan = null, hereTube = null;
+const placed = new Set();
+function jsqr() {
+  qrReady ??= new Promise((ok, bad) => {
+    const s = document.createElement("script");
+    Object.assign(s, { src: JSQR, crossOrigin: "anonymous", integrity: "sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx" });
+    s.onload = () => ok(window.jsQR);
+    s.onerror = () => bad(new Error("couldn't load the QR reader from cdn.jsdelivr.net"));
+    document.head.append(s);
+  }).catch((e) => { qrReady = null; throw e; });
+  return qrReady;
+}
+const rackTubes = () => Object.keys(R.layout).filter((n) => R.layout[n].startsWith("reagents"));
+function where(tube) {
+  const [rack, well] = R.layout[tube].split(":");
+  return `tube rack in slot ${rack === "reagents" ? "C2" : Object.fromEntries(extraRacks())[rack]}, well ${well}`;
+}
+function placeTube(tube, note = "") {
+  placed.add(tube); hereTube = tube;
+  if (!replaying) deck(active);
+  const n = rackTubes().filter((t) => placed.has(t)).length, all = rackTubes().length;
+  $("scanmsg").textContent = `${tube} → ${where(tube)}${note}. ${n} of ${all} tubes checked`
+    + (n === all ? ": the rack is loaded the way protocol.py expects." : ".");
+  if (scan) navigator.vibrate?.(60);  // a buzz on the phone while scanning (browsers refuse it without a tap)
+}
+function onLabel(text) {
+  let u = null;
+  try { u = new URL(text); } catch { /* not a link */ }
+  const tube = u?.searchParams.get("tube"), run = u?.searchParams.get("run");
+  if (!tube) { $("scanmsg").textContent = "That QR code isn't one of these tube labels."; return; }
+  if (!rackTubes().includes(tube)) { $("scanmsg").textContent = `“${tube}” (a label from run ${run}) isn't a tube in this run's rack.`; return; }
+  placeTube(tube, run === name ? "" : ` (label printed for run ${run})`);
+}
+function scanStop() {
+  if (scan) { clearTimeout(scan.timer); scan.stream.getTracks().forEach((t) => t.stop()); scan = null; }
+  $("scanview").hidden = true; $("scanbtn").textContent = "Check the tube rack with your camera";
+}
+async function scanStart() {
+  if (scan) return scanStop();
+  const btn = $("scanbtn"), v = $("scanview");
+  btn.disabled = true; $("scanmsg").textContent = "Starting the camera…";
+  try {
+    const [decode, stream] = await Promise.all([jsqr(), navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })]);
+    scan = { stream, last: "" };
+    v.srcObject = stream; v.hidden = false; await v.play();
+    btn.textContent = "Stop the camera";
+    $("scanmsg").textContent = "Hold a tube's label up to the camera.";
+    const c = document.createElement("canvas"), g = c.getContext("2d", { willReadFrequently: true });
+    const look = () => {
+      if (!scan) return;
+      if (v.videoWidth) {
+        const k = Math.min(1, 800 / v.videoWidth);  // ponytail: 800 px wide is plenty for a label held up close
+        c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+        g.drawImage(v, 0, 0, c.width, c.height);
+        const hit = decode(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height, { inversionAttempts: "dontInvert" });
+        if (hit && hit.data !== scan.last) { scan.last = hit.data; onLabel(hit.data); }
+      }
+      scan.timer = setTimeout(look, 150);
+    };
+    look();
+  } catch (e) {
+    scanStop();
+    $("scanmsg").textContent = e.name === "NotAllowedError" ? "Camera access was refused: allow it for this site to scan tube labels."
+      : e.name === "NotFoundError" ? "No camera found on this device. Any phone camera app can open a label's QR code instead." : e.message;
+  } finally { btn.disabled = false; }
+}
+$("scanbtn").onclick = scanStart;
 
 // --- robot replay: animate the simulator's own command log on the deck ---------------------------
 let replaying = null;

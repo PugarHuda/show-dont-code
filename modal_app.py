@@ -32,7 +32,7 @@ image = (
     .pip_install("PyLabRobot==0.2.2")  # second-robot check; kept out of requirements.txt so Vercel stays small
     .pip_install("mcp==2.3.0")  # /mcp for other agents; own step: it lifts jsonschema past opentrons' pin (see app.py)
     .env({"OT_API_CONFIG_DIR": "/tmp/opentrons", "PYTHONIOENCODING": "utf-8", "UPLOADS": "1",
-          "REVIEW_ON_EDIT": "0", "LIVE_CALL_LIMIT": "30"})
+          "REVIEW_ON_EDIT": "0", "LIVE_CALL_LIMIT": "30", "PUBLIC_URL": "https://show-dont-code.vercel.app"})
     .add_local_python_source("sdc")
     .add_local_file("app.py", "/root/app.py")
     .add_local_dir("web", "/root/web")

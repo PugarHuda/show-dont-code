@@ -67,6 +67,16 @@ Then:
   run to fail with PyLabRobot's `TooLittleLiquidError`.
 - `methods.md` (a methods section for a notebook or paper), `autoprotocol.json` (vendor-neutral), `pylabrobot.py`
   (STARlet) and `tecan-evo.py`.
+- **Load the tube rack by scanning labels.** `labels.svg` is a sheet of tube labels sized for Avery L7160 / J8160
+  (3 x 7 on A4). Each label carries the tube's name, its deck slot and well, how much to fill it with (what the
+  protocol draws, plus 10 % and the tube's dead volume, the same number `protocol.py` loads), and a QR code (made
+  with [segno](https://github.com/heuer/segno)) linking to `/app?run=...&tube=...`. Any phone camera app opens that
+  link on the tube's place in the rack. In the app, "Check the tube rack with your camera" reads labels live
+  ([jsQR](https://github.com/cozmo/jsQR) 1.4.0, pinned with subresource integrity): each tube scanned lights its well
+  on the deck, and the count says when the rack is loaded the way `protocol.py` expects. A mis-loaded rack is the
+  usual way a correct protocol still ruins a run. The e2e suite photographs a label from the real sheet, feeds it to
+  Chromium's fake camera, and requires the scan to light the right well; it also opens a label's link directly and
+  checks that a label from another run's rack is refused.
 - **Opentrons Protocol Designer, no code.** `protocol-designer.json` opens in Opentrons' own visual editor
   ([designer.opentrons.com](https://designer.opentrons.com/), Import): every transfer, mix and thermocycler step
   arrives as an editable form named after its moment in the video ("Add Primer1", "Step 2, video 64-99 s"), with the
@@ -132,9 +142,10 @@ can film the protocol in the upload dialog: the back camera is recorded in the b
 the browser records it, else WebM) and sent as the upload; a codec MP4 can't hold as is (VP8) is re-encoded to
 H.264 on the server. The e2e records with Chromium's fake camera, runs the server's ffmpeg step on the clip, and
 sends it to the real endpoint with a wrong code. Pages are served under a strict
-Content-Security-Policy (scripts run only with a per-response nonce, plus the pinned Pyodide release and WebAssembly for the in-browser re-run; no inline handlers, no `eval`, no framing),
+Content-Security-Policy (scripts run only with a per-response nonce, plus the pinned Pyodide release and WebAssembly for the in-browser re-run, and the pinned QR reader; no inline handlers, no `eval`, no framing),
 with `nosniff`, a referrer policy, and a permissions policy that allows only the page's own microphone (voice answers)
-and camera (recording).
+and camera (recording, label scanning). The Vercel front end holds only a read-only demo bundle, so its `/api/*` and
+`/mcp` redirect (307) to the Modal backend: one source of truth for receipts, timestamp proofs and edits.
 
 ## Testing
 

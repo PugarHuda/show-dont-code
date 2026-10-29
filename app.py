@@ -137,7 +137,8 @@ def _page(path, head=""):
     html = path.read_text(encoding="utf-8").replace("</head>", head + "</head>", 1).replace("<script>", f'<script nonce="{nonce}">')
     # Pyodide (CPython in WebAssembly, pinned release) re-runs the PyLabRobot simulations in the visitor's browser
     pyo = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/"
-    csp = (f"default-src 'self'; script-src 'nonce-{nonce}' 'wasm-unsafe-eval' {pyo}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    jsqr = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"  # reads tube labels from the camera (pinned + SRI)
+    csp = (f"default-src 'self'; script-src 'nonce-{nonce}' 'wasm-unsafe-eval' {pyo} {jsqr}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
            f"font-src https://fonts.gstatic.com; img-src 'self' data: blob: {api}; media-src 'self' blob: {api}; "
            f"connect-src 'self' {api} {pyo} https://pypi.org https://files.pythonhosted.org; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
     return HTMLResponse(html, headers={"Content-Security-Policy": " ".join(csp.split())})
@@ -145,7 +146,17 @@ def _page(path, head=""):
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    resp = await call_next(request)
+    api = os.getenv("API_BASE", "")
+    if api and request.url.path.startswith(("/api/", "/mcp")):
+        # the front end (Vercel) only holds a read-only demo bundle: no footage to hash, nowhere to keep a timestamp
+        # proof. Its /api answered with receipts that left the video out and re-stamped forever; send callers to the
+        # backend instead (307 keeps the method and body)
+        from fastapi.responses import RedirectResponse
+
+        q = f"?{request.url.query}" if request.url.query else ""
+        resp = RedirectResponse(api + request.url.path + q, 307)
+    else:
+        resp = await call_next(request)
     resp.headers.update({"X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin",
                          "Permissions-Policy": "camera=(self), geolocation=(), microphone=(self)"})  # voice answers, recording
     return resp
@@ -233,6 +244,21 @@ def _confirmed_steps(name):
     if not r.get("protocol"):
         raise HTTPException(409, "no protocol yet: answer the open questions first")
     return r["steps"]
+
+
+@app.get("/api/runs/{name}/labels.svg")
+def labels_file(name: str, request: Request):
+    """Tube labels to print on an Avery L7160 sheet. Each QR code opens the app at this run and tube, and the app's
+    camera check ticks the tube off and shows its deck slot, so the rack is loaded the way protocol.py expects."""
+    from fastapi.responses import Response
+
+    from sdc import export
+
+    site = os.getenv("PUBLIC_URL") or str(request.base_url).rstrip("/")  # Modal: the Vercel front end
+    svg, _ = export.tube_labels(_confirmed_steps(name), f"{site}/app?run={name}")
+    return Response(svg, media_type="image/svg+xml", headers={  # served from the API origin: no script may run in it
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
+        "Content-Disposition": f'inline; filename="{name}-tube-labels.svg"'})
 
 
 @app.get("/api/runs/{name}/methods.md")

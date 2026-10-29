@@ -452,6 +452,56 @@ def main():
                   "access code isn't right" in cp.inner_text("#upmsg"), cp.inner_text("#upmsg"))
         cb.close()
 
+        # ---- tube labels: print, stick on, scan each tube into the rack ------------------------------
+        if hosted:  # the front end's /api answered from a read-only bundle (no footage, re-stamped forever) until Oct 29
+            with urllib.request.urlopen(BASE + "/api/runs/pcr_1-gt/receipt.json", timeout=120) as r:
+                landed, rr = r.url, json.load(r)
+            check("api: the front end's /api goes to the backend, whose receipt hashes the footage",
+                  landed.startswith(api) and "video.mp4" in rr["files_sha256"], (landed, list(rr["files_sha256"])))
+        req = urllib.request.urlopen(f"{api}/api/runs/pcr_1-gt/labels.svg", timeout=120)
+        svg, lh = req.read().decode(), req.headers
+        layout = json.loads(fetch(f"{api}/api/runs/pcr_1-gt")[1])["layout"]
+        rack = [n for n, loc in layout.items() if loc.startswith("reagents")]
+        check("labels: one QR label per tube in the rack, served as an inert SVG",
+              lh.get_content_type() == "image/svg+xml" and "default-src 'none'" in lh.get("Content-Security-Policy", "")
+              and svg.count("<path") == len(rack) and "<script" not in svg, (len(rack), svg.count("<path")))
+        sheet = os.path.abspath("out/rec")
+        os.makedirs(sheet, exist_ok=True)
+        lb = p.chromium.launch()
+        lp = lb.new_page(device_scale_factor=4, viewport={"width": 800, "height": 1130})
+        lp.goto(f"{api}/api/runs/pcr_1-gt/labels.svg")
+        mm = 96 / 25.4  # the second label on the sheet (Avery L7160: 3 across), photographed as a camera would see it
+        lp.screenshot(path=f"{sheet}/label.png", clip={"x": (7.2 + 66.04) * mm, "y": 15.15 * mm, "width": 63.5 * mm, "height": 38.1 * mm})
+        lb.close()
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-loop", "1", "-i", f"{sheet}/label.png", "-t", "4", "-r", "10", "-vf",
+                        "scale=600:-2,pad=640:480:(ow-iw)/2:(oh-ih)/2:white", "-pix_fmt", "yuv420p", f"{sheet}/label.y4m"], check=True)
+        sb = p.chromium.launch(args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream",
+                                     f"--use-file-for-fake-video-capture={sheet}/label.y4m"])
+        sp = sb.new_context(permissions=["camera"]).new_page()
+        sp.add_init_script("document.addEventListener('securitypolicyviolation', "
+                           "e => (window.__csp = window.__csp || []).push(e.violatedDirective + ' ' + e.blockedURI))")
+        sp.goto(BASE + "/app?run=pcr_1-gt")
+        sp.wait_for_selector("#scanbtn", state="visible", timeout=60000)
+        sp.click("#scanbtn")
+        sp.wait_for_function("() => /tubes checked/.test(document.getElementById('scanmsg').textContent)", timeout=60000)
+        read = sp.evaluate("() => scan.last")  # what jsQR decoded off the camera frame
+        tube = rack[1]
+        well = layout[tube].split(":")[1]
+        check("labels: the camera reads a printed label (jsQR) and the deck ticks off that tube's well",
+              read.startswith(BASE + "/app?run=pcr_1-gt&tube=") and f"well {well}" in sp.inner_text("#scanmsg")
+              and sp.evaluate("() => [...document.querySelectorAll('#deck .well.ok')].map(w => w.dataset.w)") == [well],
+              (read, sp.inner_text("#scanmsg")))
+        sp.goto(BASE + f"/app?run=pcr_1-gt&tube={urllib.request.quote(rack[0])}")  # the label's link, opened by a phone's camera app
+        sp.wait_for_function("() => /tubes checked/.test(document.getElementById('scanmsg').textContent)", timeout=60000)
+        check("labels: a label's link opens the app on that tube's place in the rack",
+              layout[rack[0]].split(":")[1] in sp.inner_text("#scanmsg") and sp.evaluate("() => document.querySelectorAll('#deck .well.here').length") == 1,
+              sp.inner_text("#scanmsg"))
+        sp.evaluate("tube => onLabel(`https://elsewhere.example/app?run=pcr_3&tube=${tube}`)", "not a tube here")
+        check("labels: a label from another run's rack is refused by name", "isn't a tube in this run's rack" in sp.inner_text("#scanmsg"),
+              sp.inner_text("#scanmsg"))
+        check("labels: no CSP violation (pinned jsQR with integrity)", not sp.evaluate("() => window.__csp || []"), sp.evaluate("() => window.__csp || []"))
+        sb.close()
+
         # ---- optional: spoken answers through a fake microphone --------------------------------------
         if os.getenv("VOICE") == "1" and os.path.exists("out/rec/voice_test.wav"):
             vb = p.chromium.launch(channel="chrome", args=["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream",

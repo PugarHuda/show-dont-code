@@ -180,6 +180,52 @@ def pylabrobot_script(steps, robot="starlet"):
     return "\n".join(L)
 
 
+# Avery L7160 / J8160 (A4, 3 x 7 labels of 63.5 x 38.1 mm): a sheet most lab printers already take
+SHEET_W, SHEET_H, LABEL_W, LABEL_H, LEFT, TOP, PITCH_X, COLS, ROWS = 210, 297, 63.5, 38.1, 7.2, 15.15, 66.04, 3, 7
+
+
+def tube_labels(steps, link):
+    """Printable SVG labels, one per tube on the tube racks: a QR code that opens `link` + &tube=<name> (the app then
+    shows where that tube goes on the deck), the tube's deck slot and well, and how much to fill a source tube with.
+    Returns (svg, number of labels). Model text is escaped; it never becomes markup."""
+    from urllib.parse import quote
+    from xml.sax.saxutils import escape
+
+    import segno
+
+    from .protocol import extra_racks, load_ul
+
+    sources, dests, _ = _plan(steps)
+    slot_of = {"reagents": "C2", **dict(extra_racks(sources, dests))}
+    need = _needs(steps)
+    tubes = [(n, rw, n in sources) for n, rw in {**sources, **dests}.items() if rw[0].startswith("reagents")]
+    pages = max(1, -(-len(tubes) // (COLS * ROWS)))  # ponytail: >21 tubes stack sheets in one tall SVG
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{SHEET_W}mm" height="{SHEET_H * pages}mm" '
+           f'viewBox="0 0 {SHEET_W} {SHEET_H * pages}" font-family="Helvetica, Arial, sans-serif">']
+    for i, (name, (rack, well), is_source) in enumerate(tubes):
+        page, k = divmod(i, COLS * ROWS)
+        x, y = LEFT + (k % COLS) * PITCH_X, page * SHEET_H + TOP + (k // COLS) * LABEL_H
+        qr = segno.make(f"{link}&tube={quote(name)}", error="m")
+        size = 26.0  # ~0.7 mm modules for a ~90 character link: a phone camera reads them from a hand's length
+        mod = size / qr.symbol_size(border=0)[0]
+        qy = y + (LABEL_H - size) / 2
+        path = "".join(f"M{x + 3 + c * mod:.3f} {qy + r * mod:.3f}h{mod:.3f}v{mod:.3f}h{-mod:.3f}z"
+                       for r, row in enumerate(qr.matrix) for c, dark in enumerate(row) if dark)
+        drawn = need.get(name, (None, 0.0, 0))[1]
+        fill = (f"fill with {load_ul(drawn):g} µL", f"({drawn:g} µL drawn + 10 % + dead volume)") if is_source \
+            else ("starts empty", "the robot fills it")
+        tx, room = x + size + 5, LABEL_W - size - 7
+        lines = [(_clean(name, 40), 3.6, "bold"), (f"slot {slot_of[rack]} · well {well}", 3.2, "normal"),
+                 (fill[0], 3.0, "normal"), (fill[1], 2.0, "normal")]
+        out.append(f'<rect x="{x}" y="{y}" width="{LABEL_W}" height="{LABEL_H}" rx="2" fill="none" stroke="#ccc" stroke-width=".2"/>'
+                   f'<path d="{path}" fill="#000"/>')
+        for j, (t, fs, fw) in enumerate(lines):  # squeeze a long name into the label instead of running off it
+            fit = f' textLength="{room}" lengthAdjust="spacingAndGlyphs"' if len(t) * fs * .56 > room else ""
+            out.append(f'<text x="{tx:.2f}" y="{y + 10 + j * 6:.2f}" font-size="{fs}" font-weight="{fw}"{fit}>{escape(t)}</text>')
+    out.append("</svg>")
+    return "".join(out), len(tubes)
+
+
 def run_pylabrobot(source, timeout=120):
     """Execute the generated script in a separate process with PyLabRobot's simulator. Returns (ok, last log lines)."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -217,4 +263,9 @@ if __name__ == "__main__":
     assert run_pylabrobot(pylabrobot_script(over, "evo150").replace("set_volume(74.0)", "set_volume(25.0)"))[0] is False
     src2 = pylabrobot_script(over).replace("set_volume(74.0)", "set_volume(25.0)")
     assert run_pylabrobot(src2)[0] is False, "volume tracking must catch drawing 40 µL from a 25 µL tube"
+    svg, n = tube_labels(demo, "https://example.org/app?run=demo")
+    # the thermocycler takes tube 1 into its plate, so only the two source tubes get labels
+    assert n == 2 and svg.count("<path") == 2 and "fill with 52 µL" in svg and "slot C2 · well B1" in svg, n
+    svg, n = tube_labels(demo[:2] + [{**demo[0], "reagent": "<script>x</script>", "destination": "tube 2"}], "https://e.org/app?run=d")
+    assert n == 5 and svg.count("starts empty") == 2 and "<script>" not in svg and "&lt;script&gt;" in svg, n
     print("export self-check OK:", json.dumps(log))

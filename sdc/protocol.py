@@ -19,6 +19,11 @@ TC_HEAT, TC_COOL, AMBIENT_C = 4.25, 2.0, 25.0
 LIQUID_COLORS = ["#2f63d8", "#d9480f", "#0f7a5c", "#9c36b5", "#e8590c", "#1098ad", "#5c940d", "#c2255c"]
 
 
+def load_ul(drawn):
+    """What to fill a source tube with: 10 % overage plus the tube's dead volume, capped at the tube."""
+    return min(round(drawn * 1.1 + DEAD_UL, 1), TUBE_UL)
+
+
 class NeedsInput(Exception):
     """Steps are missing values only the scientist can give (e.g. a volume)."""
 
@@ -230,7 +235,7 @@ def generate(steps, title="Show, Don't Code protocol"):
     # liquids: the Opentrons App shows these on its deck map and in Liquid Setup before anyone presses run
     for n, (key, (reagent, total)) in enumerate(need.items()):
         name = " ".join(str(reagent).split())[:60]  # model text only ever lands inside a string literal
-        load = min(round(total * 1.1 + DEAD_UL, 1), TUBE_UL)  # 10 % overage plus the tube's dead volume
+        load = load_ul(total)
         L += [f"    liquid{n} = ctx.define_liquid({name!r}, description={f'{total:g} uL drawn over the run'!r}, "
               f"display_color={LIQUID_COLORS[n % len(LIQUID_COLORS)]!r})",
               f"    {sources[key][0]}[{sources[key][1]!r}].load_liquid(liquid{n}, {load})",
