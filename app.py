@@ -336,7 +336,7 @@ _rx_slots = threading.Semaphore(2)  # opentrons analyze is a ~5 s subprocess: at
 def reactions_analysis(name: str, n: int):
     """Opentrons' own analysis of protocol.py with its Reactions parameter set to n, as the Opentrons App runs it after
     run setup: whether it passes, what to load into each tube, which plate wells get a copy, tips and tip racks.
-    Cached per protocol version and n, failures included (at most max_reactions analyses per protocol)."""
+    Cached per protocol version and n once the analyzer finishes, pass or fail (at most max_reactions per protocol)."""
     import hashlib
     import tempfile
 
@@ -354,8 +354,10 @@ def reactions_analysis(name: str, n: int):
         out = {"reactions": n, "ok": ok, "errors": an.get("errors") or ([an["error"]] if "error" in an else []),
                "liquid_setup": an.get("liquid_setup", []), "commands": an.get("commands"), "cycling_s": an.get("cycling_s"),
                **protocol.plate_summary(full)}
-        cache.parent.mkdir(exist_ok=True)  # a failure is cached too: asking again can't start another subprocess
-        cache.write_text(json.dumps(out), encoding="utf-8")
+        if full:  # the analyzer finished (passed or found protocol errors): the same answer every time, so keep it.
+            # A crash or missing output may be transient and is not cached; the lock and the two slots still bound retries
+            cache.parent.mkdir(exist_ok=True)
+            cache.write_text(json.dumps(out), encoding="utf-8")
     return out
 
 
