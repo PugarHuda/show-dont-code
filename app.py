@@ -328,6 +328,33 @@ def analysis_file(name: str):
     return FileResponse(f, media_type="application/json", filename=f"{name}-opentrons-analysis.json")
 
 
+@app.get("/api/runs/{name}/reactions/{n}")
+def reactions_analysis(name: str, n: int):
+    """Opentrons' own analysis of protocol.py with its Reactions parameter set to n, as the Opentrons App runs it after
+    run setup: whether it passes, what to load into each tube, which plate wells get a copy, tips and tip racks.
+    Cached per protocol version and n (at most max_reactions analyses per protocol)."""
+    import hashlib
+    import tempfile
+
+    d = _run_dir(name)
+    steps = _confirmed_steps(name)
+    _reactions(steps, n)
+    src = json.loads((d / "result.json").read_text(encoding="utf-8"))["protocol"]
+    cache = d / "reactions" / f"{hashlib.sha256(src.encode()).hexdigest()[:16]}-{n}.json"
+    if cache.exists():
+        return json.loads(cache.read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory() as tmp:
+        ok, an = protocol.analyze(src, Path(tmp) / "a.json", rtp={"reactions": n} if n > 1 else None)
+        full = json.loads((Path(tmp) / "a.json").read_text(encoding="utf-8")) if (Path(tmp) / "a.json").exists() else {}
+    out = {"reactions": n, "ok": ok, "errors": an.get("errors") or ([an["error"]] if "error" in an else []),
+           "liquid_setup": an.get("liquid_setup", []), "commands": an.get("commands"), "cycling_s": an.get("cycling_s"),
+           **protocol.plate_summary(full)}
+    if ok:
+        cache.parent.mkdir(exist_ok=True)
+        cache.write_text(json.dumps(out), encoding="utf-8")
+    return out
+
+
 def _designer(d, name):
     from sdc import designer
 

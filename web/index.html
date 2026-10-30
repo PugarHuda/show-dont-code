@@ -214,6 +214,7 @@
         <p id="rxbox" class="rx" hidden><label for="rx">Reactions</label>
           <input id="rx" type="number" min="1" value="1" inputmode="numeric">
           <span class="hint" id="rxnote"></span></p>
+        <p class="hint" id="rxline" aria-live="polite"></p>
         <a id="f-labels" target="_blank" rel="noopener">Print the tube labels (QR, Avery L7160)</a>
         <a id="f-zpl" download>Zebra printer file (ZPL, 2 × 1 in labels)</a>
         <button id="zplbtn" type="button" class="ghost">Preview the Zebra labels</button>
@@ -320,7 +321,7 @@ function tubeFromLink(want) {
 const openRun = (n) => load(n).catch((e) => { $("status").className = "pill bad"; $("status").textContent = e.message; });
 
 async function load(n) {
-  if (n !== name) { placed.clear(); hereTube = null; scanStop(); $("zplview").hidden = true; $("zplview").replaceChildren(); }
+  if (n !== name) { placed.clear(); hereTube = null; scanStop(); rxWells = []; rxTips = []; $("rx").value = 1; $("rxline").textContent = ""; $("zplview").hidden = true; $("zplview").replaceChildren(); }
   name = n;
   R = await api(`/api/runs/${encodeURIComponent(n)}`);
   $("video").src = `${API}/api/runs/${encodeURIComponent(n)}/video`;
@@ -415,8 +416,7 @@ function render() {
     $("analysisline").textContent = !an ? "Opentrons analysis has not run for this protocol yet."
       : R.analysis_ok ? `Opentrons' own protocol analysis passed: ${an.commands} commands, the same check the Opentrons App runs when you import the file.${an.cycling_s ? ` The thermocycler needs at least ${hm(an.cycling_s)} for this program (every hold, plus ramps at the module's rated 4.25 °C/s heating and 2.0 °C/s cooling).` : ""}`
       : `Opentrons' protocol analysis reported a problem: ${(an.errors || [an.error]).join("; ")}`;
-    $("setup").innerHTML = (an?.liquid_setup || []).map((x) =>
-      `<tr><td><i class="dot" style="background:${esc(x.color)}"></i>${esc(x.liquid)}</td><td>${esc(x.labware)} ${esc(x.well)}</td><td class="t">${esc(x.volume_ul)} µL</td></tr>`).join("");
+    if (!rxWells.length) setupRows(an?.liquid_setup);
     const params = an?.parameters || [], tc = R.steps.find((x) => x.action === "thermocycle");
     $("paramsbox").hidden = !params.length;
     $("paramsline").textContent = `How each reagent is pipetted (an Opentrons liquid class picked from its name: viscous for enzyme mixes, volatile for ethanol, otherwise aqueous), whether the pipette sensor checks each tube for liquid first${tc ? ` and the thermal cycling program (${tc.profile?.found && tc.profile.cycle?.length ? "read off the bench sheet by Muse Spark" : "default; none legible on the bench sheet"})` : ""}. These are Opentrons runtime parameters: change them in the Opentrons App at run setup, no code editing.`;
@@ -598,6 +598,9 @@ function deck(stepIdx) {
   }
   [x, y] = slotXY("C1"); s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 16}">tips 1000 µL</text>`;
   if (R.steps.some((t) => t.volume_ul && t.volume_ul <= 50)) { [x, y] = slotXY("D1"); s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 16}">tips 50 µL</text>`; }
+  for (const t of rxTips) if (t.slot && t.slot !== "C1" && t.slot !== "D1") {  // more tip racks for more reactions
+    [x, y] = slotXY(t.slot); s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 16}">tips ${t.ul} µL</text>`;
+  }
   [x, y] = slotXY("A3"); s += `<rect class="lw" x="${x + 6}" y="${y + 4}" width="${SX - 12}" height="${SY - 16}" rx="4"/><text class="lw-label" x="${x + 10}" y="${y + 16}">trash</text>`;
   $("deck").innerHTML = s;
 
@@ -607,6 +610,7 @@ function deck(stepIdx) {
     $("deck").querySelector(`[data-lw="${lw}"][data-w="${w}"]`)?.classList.add(cls);
   };
   Object.keys(R.layout).forEach((n) => mark(n, "used"));
+  rxWells.forEach((w) => $("deck").querySelector(`[data-lw="dest"][data-w="${w}"]`)?.classList.add("used"));
   placed.forEach((n) => mark(n, "ok"));
   if (hereTube) mark(hereTube, "here");
   const st = R.steps[stepIdx];
@@ -695,7 +699,31 @@ function labelLinks() {
     `Copy ${n > 1 ? `2–${n} go` : "2 onwards goes"} into the next PCR plate wells.`;
   $("zplview").hidden = true; $("zplview").replaceChildren();
 }
-$("rx").oninput = labelLinks;
+// the chosen number, checked the way the Opentrons App will: its own analysis with Reactions set, on the server
+let rxWells = [], rxTips = [], rxTimer = 0, rxSeq = 0;
+function setupRows(liquids) {
+  $("setup").innerHTML = (liquids || []).map((x) =>
+    `<tr><td><i class="dot" style="background:${esc(x.color)}"></i>${esc(x.liquid)}</td><td>${esc(x.labware)} ${esc(x.well)}</td><td class="t">${esc(x.volume_ul)} µL</td></tr>`).join("");
+}
+async function rxAnalysis() {
+  const n = Math.round(+$("rx").value), top = R.max_reactions || 1, seq = ++rxSeq, line = $("rxline");
+  if (!(n >= 1 && n <= top)) { line.textContent = `Pick 1 to ${top} reactions.`; return; }
+  if (n === 1) { rxWells = []; rxTips = []; setupRows(R.analysis?.liquid_setup); line.textContent = ""; if (!replaying) deck(active); return; }
+  line.textContent = `Running Opentrons' analysis with Reactions = ${n}…`;
+  try {
+    const r = await fetch(`${API}/api/runs/${encodeURIComponent(name)}/reactions/${n}`);
+    const a = await r.json();
+    if (seq !== rxSeq) return;  // a newer number was typed meanwhile
+    if (!r.ok) throw new Error(a.detail || r.status);
+    if (!a.ok) { line.textContent = `Opentrons' analysis with Reactions = ${n} failed: ${a.errors.join("; ")}`; return; }
+    rxWells = a.plate_wells; rxTips = a.tip_rack_slots; setupRows(a.liquid_setup);
+    const span = rxWells.length > 1 ? `${rxWells[0]}–${rxWells[rxWells.length - 1]}` : rxWells[0];
+    line.textContent = `Opentrons' analysis with Reactions = ${n} passed: ${a.commands} commands, ${rxWells.length} plate wells (${span}), ` +
+      `${a.tips} tips from ${a.tip_racks} tip racks. "Before you run" now shows the volumes for ${n} reactions.`;
+    if (!replaying) deck(active);
+  } catch (e) { if (seq === rxSeq) line.textContent = `Couldn't run the analysis for ${n} reactions (${e.message}).`; }
+}
+$("rx").oninput = () => { labelLinks(); clearTimeout(rxTimer); rxTimer = setTimeout(rxAnalysis, 500); };
 
 // the Zebra file drawn the way the printer will print it: zebrash (a Go ZPL renderer) in WebAssembly, in this
 // browser, so the labels never go to a third-party render service. Module and wasm both checked by their hashes

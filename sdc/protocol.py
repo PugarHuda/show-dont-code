@@ -377,6 +377,20 @@ def analyze(source, json_path, filename="protocol.py", rtp=None):
                        for q in a.get("runTimeParameters", [])]}
 
 
+def plate_summary(a):
+    """From an analysis: PCR plate wells the pipettes dispense into, tips picked up, tip racks loaded."""
+    plate = {lw["id"] for lw in a.get("labware", []) if lw["loadName"] == PCR_PLATE}
+    cmds = a.get("commands", [])
+    wells = {c["params"]["wellName"] for c in cmds if c["commandType"] in ("dispense", "dispenseInPlace", "moveToWell")
+             and c.get("params", {}).get("labwareId") in plate}
+    return {"plate_wells": sorted(wells, key=lambda w: (int(w[1:]), w[0])),
+            "tips": sum(c["commandType"] == "pickUpTip" for c in cmds),
+            "tip_racks": sum(lw["loadName"].startswith("opentrons_flex_96_tiprack") for lw in a.get("labware", [])),
+            # where the analysis put each tip rack, so the deck drawing matches the robot
+            "tip_rack_slots": [{"slot": lw.get("location", {}).get("slotName"), "ul": 50 if "50ul" in lw["loadName"] else 1000}
+                               for lw in a.get("labware", []) if lw["loadName"].startswith("opentrons_flex_96_tiprack")]}
+
+
 def block_time(commands):
     """Seconds the thermocycler block needs for the analysed commands: every hold plus every ramp at the spec's max
     rates, so a lower bound (lid preheat not included). None when the protocol does not cycle."""
@@ -485,11 +499,9 @@ if __name__ == "__main__":
     assert ok, an
     water = next(q for q in an["liquid_setup"] if q["liquid"] == "water")
     assert water["volume_ul"] == load_ul(20 * top), water  # filled for every reaction
-    plate = {lw["id"] for lw in a["labware"] if lw["loadName"] == PCR_PLATE}
-    tips = sum(c["commandType"] == "pickUpTip" for c in a["commands"])
-    wells = {c["params"]["wellName"] for c in a["commands"] if c["commandType"] in ("dispense", "dispenseInPlace", "moveToWell")
-             and c["params"].get("labwareId") in plate}
+    ps = plate_summary(a)
     racks = sum(lw["loadName"] == "opentrons_flex_96_tiprack_50ul" for lw in a["labware"])
-    assert tips == 4 * top and len(wells) == top and racks == -(-4 * top // 96), (tips, len(wells), racks)
+    assert ps["tips"] == 4 * top and len(ps["plate_wells"]) == top and racks == -(-4 * top // 96), (ps, racks)
+    assert ps["plate_wells"][:9] == ["A1", "B1", "C1", "D1", "E1", "F1", "G1", "H1", "A2"], ps  # down the columns
     assert "reactions" not in generate([{**demo[0], "destination": "tube A"}])[0]  # no plate: no parameter
     print(json.dumps(layout), f"\n{len(log)} simulator lines OK; {top} reactions analysed")

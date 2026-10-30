@@ -529,6 +529,18 @@ def main():
               sp.get_attribute("#f-zpl", "href").endswith("/labels.zpl?reactions=8")
               and sp.get_attribute("#f-labels", "href").endswith("/labels.svg?reactions=8") and "Reactions" in sp.inner_text("#rxnote"),
               sp.get_attribute("#f-zpl", "href"))
+        sp.wait_for_function("() => /passed|failed|Couldn't/.test(document.getElementById('rxline').textContent)", timeout=180000)
+        rx_used = sp.evaluate("() => [...document.querySelectorAll('#deck [data-lw=dest].used')].map(w => w.dataset.w)")
+        water = next((r for r in sp.inner_text("#setup").splitlines() if "water" in r.lower()), "")
+        check("reactions: Opentrons analyses the chosen 8 on the server; the deck marks 8 plate wells and the setup table "
+              "shows the volumes for 8", "passed" in sp.inner_text("#rxline") and rx_used == [f"{r}1" for r in "ABCDEFGH"]
+              and "206 µL" in water, (sp.inner_text("#rxline"), rx_used, water))
+        st_rx, rxj = fetch(f"{api}/api/runs/pcr_1-gt/reactions/8")
+        rxj = json.loads(rxj) if st_rx == 200 else {}
+        check("reactions: the per-number analysis endpoint answers from its cache with tips, wells and tip-rack slots, "
+              "and refuses a number the deck can't hold",
+              rxj.get("ok") and len(rxj["plate_wells"]) == 8 and rxj["tips"] % 8 == 0 and len(rxj["tip_rack_slots"]) == rxj["tip_racks"]
+              and fetch(f"{api}/api/runs/pcr_1-gt/reactions/999")[0] == 422, str(rxj)[:200])
         req = urllib.request.urlopen(f"{api}/api/runs/pcr_1-gt/labels.zpl", timeout=120)
         zpl = req.read().decode()
         check("labels: a Zebra ZPL file, one ^XA..^XZ label per tube in the rack",

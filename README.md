@@ -62,7 +62,10 @@ Then:
   `pcr_1-gt`, bound by 25 µL of premix each), and free slots for tip racks. The protocol self-check and the e2e suite
   run `opentrons analyze --rtp-values` at that maximum and require one plate well per copy, one tip per copy of each
   step, and tubes filled for all of them. The Reactions box next to the labels, `?reactions=N` on `labels.svg` and
-  `labels.zpl`, and MCP `get_tube_labels(name, reactions)` give the fill volumes for that number. The PyLabRobot,
+  `labels.zpl`, and MCP `get_tube_labels(name, reactions)` give the fill volumes for that number. Typing a number there
+  also runs Opentrons' analysis on the server with Reactions set to it (`/api/runs/<run>/reactions/<n>`, cached per
+  protocol version): the deck marks the plate wells the copies go into and draws the extra tip racks in the slots the
+  analysis loaded them, and "Before you run" switches to that number's volumes. The PyLabRobot,
   Autoprotocol and Protocol Designer exports stay at the one filmed reaction.
 - **Four independent checks on three vendors' robots** for every confirmed protocol: the Opentrons simulator,
   Opentrons' own protocol analysis (`opentrons analyze`, what the App runs on import, saved as `analysis.json`), and
