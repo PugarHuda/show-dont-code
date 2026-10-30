@@ -76,6 +76,8 @@
   .well.ok { fill: var(--accent); stroke: var(--accent); }
   .well.here { stroke: #ffd60a; stroke-width: 3; }
   .scan { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .rx { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; margin: 0; }
+  .rx input { width: 5em; }
   .zplview { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
   .zplview img { width: 203px; height: auto; background: #fff; border: 1px solid var(--line, #ccc); border-radius: 4px; }
   #scanview { width: 100%; max-height: 260px; border-radius: 6px; background: #000; }
@@ -209,6 +211,9 @@
       </div>
       <div class="scan" id="scanbox" hidden>
         <button id="scanbtn" type="button" class="ghost">Check the tube rack with your camera</button>
+        <p id="rxbox" class="rx" hidden><label for="rx">Reactions</label>
+          <input id="rx" type="number" min="1" value="1" inputmode="numeric">
+          <span class="hint" id="rxnote"></span></p>
         <a id="f-labels" target="_blank" rel="noopener">Print the tube labels (QR, Avery L7160)</a>
         <a id="f-zpl" download>Zebra printer file (ZPL, 2 × 1 in labels)</a>
         <button id="zplbtn" type="button" class="ghost">Preview the Zebra labels</button>
@@ -396,8 +401,11 @@ function render() {
   $("dl").disabled = !R.protocol;
   $("replaybox").hidden = !R.sim_ok;
   $("scanbox").hidden = !R.protocol || !rackTubes().length;  // labels need the confirmed steps
-  $("f-labels").href = `${API}/api/runs/${encodeURIComponent(name)}/labels.svg`;
-  $("f-zpl").href = `${API}/api/runs/${encodeURIComponent(name)}/labels.zpl`;
+  const top = R.max_reactions || 1;
+  $("rxbox").hidden = top < 2;
+  $("rx").max = top;
+  if (!(+$("rx").value <= top)) $("rx").value = top;
+  labelLinks();
   // panels appear together once a run is loaded; empty ones shown earlier get pushed down the screen (layout shift)
   for (const id of ["stepsbox", "deckbox", "codebox", "simbox"]) $(id).hidden = false;
   const an = R.analysis;
@@ -675,6 +683,19 @@ async function scanStart() {
   } finally { btn.disabled = false; }
 }
 $("scanbtn").onclick = scanStart;
+
+// protocol.py's Reactions runtime parameter repeats the filmed reaction down the PCR plate; the labels say how much to
+// fill each tube for the number the lab will pick on the robot's touchscreen
+function labelLinks() {
+  const top = R.max_reactions || 1, n = Math.min(Math.max(Math.round(+$("rx").value) || 1, 1), top);
+  const q = n > 1 ? `?reactions=${n}` : "", base = `${API}/api/runs/${encodeURIComponent(name)}`;
+  $("f-labels").href = `${base}/labels.svg${q}`;
+  $("f-zpl").href = `${base}/labels.zpl${q}`;
+  $("rxnote").textContent = `of up to ${top}: pick the same number under "Reactions" when you start the run on the robot. ` +
+    `Copy ${n > 1 ? `2–${n} go` : "2 onwards goes"} into the next PCR plate wells.`;
+  $("zplview").hidden = true; $("zplview").replaceChildren();
+}
+$("rx").oninput = labelLinks;
 
 // the Zebra file drawn the way the printer will print it: zebrash (a Go ZPL renderer) in WebAssembly, in this
 // browser, so the labels never go to a third-party render service. Module and wasm both checked by their hashes

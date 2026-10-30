@@ -144,6 +144,41 @@ def extra_racks(sources, dests):
     return list(zip(names, SPARE_SLOTS))
 
 
+def _drawn(steps):
+    """Source tube -> (reagent, total µL drawn for one reaction), in first-use order."""
+    need = {}
+    for s in steps:
+        if s["action"] == "transfer":
+            key = s.get("source") or s.get("reagent") or "reagent"
+            reagent, total = need.get(key, (s.get("reagent") or key, 0.0))
+            need[key] = (reagent, total + float(s["volume_ul"]))
+    return need
+
+
+def _tip_counts(steps):
+    liquid = [s for s in steps if s["action"] in ("transfer", "mix")]
+    n50 = sum(1 for s in liquid if float(s["volume_ul"]) <= 50)  # one fresh tip per transfer / mix
+    return n50, len(liquid) - n50
+
+
+def max_reactions(steps):
+    """How many copies of the filmed reaction the deck can set up in the PCR plate: limited by the plate's wells,
+    by a 1.5 mL tube holding every reaction's draw (+10 % and dead volume), and by deck slots for tip racks.
+    1 when the protocol has no thermocycler plate (its destinations are named tubes in the rack)."""
+    sources, dests, uses_tc = _plan(steps)
+    if not uses_tc or not dests:
+        return 1
+    n = 96 // len(dests)
+    for _, total in _drawn(steps).values():
+        if total > 0:
+            n = min(n, int((TUBE_UL - DEAD_UL) / 1.1 / total))
+    n50, n1000 = _tip_counts(steps)
+    free = len(SPARE_SLOTS) - len(extra_racks(sources, dests))
+    while n > 1 and max(0, -(-n50 * n // 96) - 1) + max(0, -(-n1000 * n // 96) - 1) > free:
+        n -= 1
+    return max(n, 1)
+
+
 def generate(steps, title="Show, Don't Code protocol"):
     """Return (python_source, layout). layout maps each reagent/tube name to a deck location."""
     questions = missing_inputs(steps)
@@ -151,26 +186,25 @@ def generate(steps, title="Show, Don't Code protocol"):
         raise NeedsInput(questions)
     sources, dests, uses_tc = _plan(steps)
 
-    liquid_steps = [s for s in steps if s["action"] in ("transfer", "mix")]
-    n50 = sum(1 for s in liquid_steps if float(s["volume_ul"]) <= 50)  # one fresh tip per transfer / mix
-    n1000 = len(liquid_steps) - n50
+    n50, n1000 = _tip_counts(steps)
     small = n50 > 0
     more = extra_racks(sources, dests)
     free = iter(SPARE_SLOTS[len(more):])  # extra tip racks go to the slots tube racks left; >96 transfers need more
+    top = max_reactions(steps)  # >1: a "Reactions" runtime parameter repeats the filmed reaction down the plate
+    R = "ctx.params.reactions" if top > 1 else None
 
     def racks(name, count, first_slot):
-        n = max(1, -(-count // 96))
+        """Tip racks for `count` tips per reaction. With a Reactions parameter, the slots for the most reactions are
+        set aside here and the protocol loads only as many racks as the chosen number needs."""
+        n = max(1, -(-count * top // 96))
         slots = [first_slot] + [slot for _, slot in zip(range(n - 1), free)]
         if len(slots) < n:
             raise ValueError(f"{count} transfers need {n} racks of {name}; no free deck slot left")
-        return [f"ctx.load_labware({name!r}, {slot!r})" for slot in slots]
+        if R and n > 1:
+            return f"[ctx.load_labware({name!r}, s) for s in {slots!r}[:max(1, -(-{count} * {R} // 96))]]"
+        return "[" + ", ".join(f"ctx.load_labware({name!r}, {slot!r})" for slot in slots) + "]"
 
-    need = {}  # source tube -> (reagent, total uL drawn); one liquid and one liquid class each
-    for s in steps:
-        if s["action"] == "transfer":
-            key = s.get("source") or s.get("reagent") or "reagent"
-            reagent, total = need.get(key, (s.get("reagent") or key, 0.0))
-            need[key] = (reagent, total + float(s["volume_ul"]))
+    need = _drawn(steps)  # source tube -> (reagent, total uL drawn); one liquid and one liquid class each
     lc_of = {key: n for n, key in enumerate(need)}
 
     L = [
@@ -184,6 +218,10 @@ def generate(steps, title="Show, Don't Code protocol"):
     tcs = [(i, thermal(s)) for i, s in enumerate(steps) if s["action"] == "thermocycle"]
     if tcs or need:
         L.append("def add_parameters(parameters):")
+    if R:  # film one reaction, run a plate: the lab picks the number on the robot's touchscreen
+        L.append("    parameters.add_int(variable_name='reactions', display_name='Reactions', description="
+                 "'Copies of the filmed reaction, in the next PCR plate wells; tubes are filled for all of them', "
+                 f"default=1, minimum=1, maximum={top})")
     if need:  # the Flex pipettes' pressure sensor: off by default because probing adds seconds to every draw
         L.append("    parameters.add_bool(variable_name='detect_liquid', display_name='Check tubes for liquid', "
                  "description='Probe each source tube with the pipette sensor before drawing; an empty tube stops the run', "
@@ -224,26 +262,36 @@ def generate(steps, title="Show, Don't Code protocol"):
             f"    dest = tc.load_labware({PCR_PLATE!r})",
         ]
     L += [
-        f"    tips1000 = [{', '.join(racks('opentrons_flex_96_tiprack_1000ul', n1000, 'C1'))}]",
+        f"    tips1000 = {racks('opentrons_flex_96_tiprack_1000ul', n1000, 'C1')}",
         "    p1000 = ctx.load_instrument('flex_1channel_1000', 'right', tip_racks=tips1000)",
     ]
     if small:
         L += [
-            f"    tips50 = [{', '.join(racks('opentrons_flex_96_tiprack_50ul', n50, 'D1'))}]",
+            f"    tips50 = {racks('opentrons_flex_96_tiprack_50ul', n50, 'D1')}",
             "    p50 = ctx.load_instrument('flex_1channel_50', 'left', tip_racks=tips50)",
         ]
     # liquids: the Opentrons App shows these on its deck map and in Liquid Setup before anyone presses run
     for n, (key, (reagent, total)) in enumerate(need.items()):
         name = " ".join(str(reagent).split())[:60]  # model text only ever lands inside a string literal
-        load = load_ul(total)
-        L += [f"    liquid{n} = ctx.define_liquid({name!r}, description={f'{total:g} uL drawn over the run'!r}, "
+        # same rule as load_ul(), for however many reactions the lab picked
+        load = f"min(round({total} * {R} * 1.1 + {DEAD_UL}, 1), {TUBE_UL})" if R else load_ul(total)
+        what = f"{total:g} uL drawn per reaction" if R else f"{total:g} uL drawn over the run"
+        L += [f"    liquid{n} = ctx.define_liquid({name!r}, description={what!r}, "
               f"display_color={LIQUID_COLORS[n % len(LIQUID_COLORS)]!r})",
               f"    {sources[key][0]}[{sources[key][1]!r}].load_liquid(liquid{n}, {load})",
               f"    lc{n} = ctx.get_liquid_class(ctx.params.lc{n})"]
 
+    dest_index = {name: i for i, name in enumerate(dests)}
+
     def loc(place):
         rack, well = place
         return f"{rack}[{well!r}]"
+
+    def where(name):  # a destination; with Reactions, reaction r's copy sits len(dests) wells further down the plate
+        return f"dest.wells()[{dest_index[name]} + {len(dests)} * r]" if R else loc(dests[name])
+
+    def each(lines):  # the filmed step, once per reaction
+        return ([f"    for r in range({R}):"] + ["    " + x for x in lines]) if R else lines
 
     for i, s in enumerate(steps):
         # model output never reaches the source raw: one-line comment, numbers forced to float
@@ -257,18 +305,18 @@ def generate(steps, title="Show, Don't Code protocol"):
             v = float(s["volume_ul"])
             pip = "p50" if v <= 50 else "p1000"
             key = s.get("source") or s.get("reagent") or "reagent"
-            src, dst = loc(sources[key]), loc(dests[s.get("destination") or "sample tube"])
-            L += [f"    {pip}.pick_up_tip()",
-                  "    if ctx.params.detect_liquid:",
-                  f"        {pip}.require_liquid_presence({src})",
-                  f"    {pip}.transfer_with_liquid_class(liquid_class=lc{lc_of[key]}, volume={v}, source={src}, "
-                  f"dest={dst}, new_tip='never')",
-                  f"    {pip}.drop_tip()"]
+            src, dst = loc(sources[key]), where(s.get("destination") or "sample tube")
+            L += each([f"    {pip}.pick_up_tip()",
+                       "    if ctx.params.detect_liquid:",
+                       f"        {pip}.require_liquid_presence({src})",
+                       f"    {pip}.transfer_with_liquid_class(liquid_class=lc{lc_of[key]}, volume={v}, source={src}, "
+                       f"dest={dst}, new_tip='never')",
+                       f"    {pip}.drop_tip()"])
         elif a == "mix":
             v = float(s["volume_ul"])
             pip = "p50" if v <= 50 else "p1000"
-            dst = loc(dests[s.get("destination") or "sample tube"])
-            L += [f"    {pip}.pick_up_tip()", f"    {pip}.mix(3, {v}, {dst})", f"    {pip}.drop_tip()"]
+            dst = where(s.get("destination") or "sample tube")
+            L += each([f"    {pip}.pick_up_tip()", f"    {pip}.mix(3, {v}, {dst})", f"    {pip}.drop_tip()"])
         elif a == "thermocycle":
             j = [t[0] for t in tcs].index(i)
             pre = f"pcr{j + 1}_" if len(tcs) > 1 else ""
@@ -291,9 +339,10 @@ def generate(steps, title="Show, Don't Code protocol"):
     return "\n".join(L) + "\n", layout
 
 
-def analyze(source, json_path, filename="protocol.py"):
+def analyze(source, json_path, filename="protocol.py", rtp=None):
     """Opentrons' own protocol analysis (what the Opentrons App runs on import). Writes the full JSON to json_path
-    and returns (ok, summary) where summary lists what to load into which tube before the run."""
+    and returns (ok, summary) where summary lists what to load into which tube before the run. rtp: runtime parameter
+    values to analyse with instead of the defaults, as the App does after run setup."""
     import subprocess
     import sys
     import tempfile
@@ -302,7 +351,9 @@ def analyze(source, json_path, filename="protocol.py"):
     with tempfile.TemporaryDirectory() as tmp:
         proto = Path(tmp) / filename  # .py, or .json for a Protocol Designer file
         proto.write_text(source, encoding="utf-8")
-        p = subprocess.run([sys.executable, "-m", "opentrons.cli", "analyze", "--json-output", str(json_path), str(proto)],
+        extra = ["--rtp-values", json.dumps(rtp)] if rtp else []
+        p = subprocess.run([sys.executable, "-m", "opentrons.cli", "analyze", "--json-output", str(json_path), *extra,
+                            str(proto)],
                            capture_output=True, text=True, timeout=240)
     if p.returncode != 0 or not Path(json_path).exists():
         return False, {"error": (p.stderr or p.stdout)[-300:]}
@@ -425,4 +476,20 @@ if __name__ == "__main__":
     ok, an = analyze(src, Path(tempfile.mkdtemp()) / "a.json")
     expect = 73 / 4.25 + 30 + 35 * (10 + 43 / 2 + 5 + 17 / 4.25 + 5) + 34 * 26 / 4.25 + 68 / 2
     assert ok and abs(an["cycling_s"] - expect) < 1, (an["cycling_s"], expect)
-    print(json.dumps(layout), f"\n{len(log)} simulator lines OK")
+    # film one reaction, run a plate: analysed at the most reactions the deck allows, every copy in its own well
+    top = max_reactions(demo)
+    assert top == 53 and "variable_name='reactions'" in src and f"maximum={top}" in src, top  # premix 25 uL: tube-bound
+    with tempfile.TemporaryDirectory() as tmp:
+        ok, an = analyze(src, Path(tmp) / "a.json", rtp={"reactions": top})
+        a = json.loads((Path(tmp) / "a.json").read_text())
+    assert ok, an
+    water = next(q for q in an["liquid_setup"] if q["liquid"] == "water")
+    assert water["volume_ul"] == load_ul(20 * top), water  # filled for every reaction
+    plate = {lw["id"] for lw in a["labware"] if lw["loadName"] == PCR_PLATE}
+    tips = sum(c["commandType"] == "pickUpTip" for c in a["commands"])
+    wells = {c["params"]["wellName"] for c in a["commands"] if c["commandType"] in ("dispense", "dispenseInPlace", "moveToWell")
+             and c["params"].get("labwareId") in plate}
+    racks = sum(lw["loadName"] == "opentrons_flex_96_tiprack_50ul" for lw in a["labware"])
+    assert tips == 4 * top and len(wells) == top and racks == -(-4 * top // 96), (tips, len(wells), racks)
+    assert "reactions" not in generate([{**demo[0], "destination": "tube A"}])[0]  # no plate: no parameter
+    print(json.dumps(layout), f"\n{len(log)} simulator lines OK; {top} reactions analysed")

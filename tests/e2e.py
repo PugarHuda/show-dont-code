@@ -41,7 +41,8 @@ async def mcp_session(url):
         bad = await c.call_tool("get_run", {"name": "no-such-run"})
         pd = json.loads((await c.call_tool("get_protocol_designer", {"name": "pcr_1-gt"})).content[0].text)
         lab = json.loads((await c.call_tool("get_tube_labels", {"name": "pcr_1-gt"})).content[0].text)
-        return tools, proto, run, (bad.is_error, bad.content[0].text), pd, lab
+        lab8 = json.loads((await c.call_tool("get_tube_labels", {"name": "pcr_1-gt", "reactions": 8})).content[0].text)
+        return tools, proto, run, (bad.is_error, bad.content[0].text), pd, (lab, lab8)
 
 BASE = os.getenv("BASE", "http://127.0.0.1:8000").rstrip("/")
 RESULTS = []
@@ -296,6 +297,24 @@ def main():
             pd_cmds = json.loads(open(os.path.join(tmp, "pd.json"), encoding="utf-8").read())["commands"] if ok else []
         check("protocol designer: Opentrons analyses the file with the same volumes and cycling time as protocol.py",
               ok and designer.moved(pd_cmds) == designer.moved(an_cmds) and pda["cycling_s"] == protocol.block_time(an_cmds), pda.get("errors"))
+        # film one reaction, run a plate: the Reactions runtime parameter, analysed by Opentrons at the deck's maximum
+        top = json.loads(fetch(f"{api}/api/runs/pcr_1-gt")[1])["max_reactions"]
+        with tempfile.TemporaryDirectory() as tmp:
+            ok, rx = protocol.analyze(proto.decode("utf-8"), os.path.join(tmp, "rx.json"), rtp={"reactions": top})
+            rxa = json.loads(open(os.path.join(tmp, "rx.json"), encoding="utf-8").read()) if ok else {"commands": [], "labware": []}
+        plate = {lw["id"] for lw in rxa["labware"] if lw["loadName"] == protocol.PCR_PLATE}
+        rx_wells = {c["params"]["wellName"] for c in rxa["commands"] if c["params"].get("labwareId") in plate
+                    and c["commandType"] in ("dispense", "dispenseInPlace", "moveToWell")}
+        one_tips = sum(c["commandType"] == "pickUpTip" for c in an_cmds)
+        check("reactions: protocol.py asks for Reactions at run setup; Opentrons analyses the most the deck allows, "
+              "each copy in its own plate well, with tubes filled for all of them",
+              top > 1 and ok and len(rx_wells) == top and sum(c["commandType"] == "pickUpTip" for c in rxa["commands"]) == one_tips * top
+              and any(q["name"] == "Reactions" for q in rx.get("parameters", []))
+              and all(q["volume_ul"] > 50 for q in rx["liquid_setup"]), (top, len(rx_wells), rx.get("errors")))
+        st8, svg8 = fetch(f"{api}/api/runs/pcr_1-gt/labels.svg?reactions=8")
+        stbad, _ = fetch(f"{api}/api/runs/pcr_1-gt/labels.svg?reactions={top + 1}")
+        check("reactions: labels for 8 reactions say how much to fill for 8, and more than the deck allows is refused",
+              st8 == 200 and "(8 × " in svg8.decode() and stbad == 422, (st8, stbad))
         # the real editor: import, every step builds a robot state, then export (Protocol Designer 9 writes Python)
         pdp = b.new_page(viewport={"width": 1440, "height": 900}, accept_downloads=True)
         warns = []
@@ -503,6 +522,13 @@ def main():
         sp.evaluate("tube => onLabel(`https://elsewhere.example/app?run=pcr_3&tube=${tube}`)", "not a tube here")
         check("labels: a label from another run's rack is refused by name", "isn't a tube in this run's rack" in sp.inner_text("#scanmsg"),
               sp.inner_text("#scanmsg"))
+        sp.goto(BASE + "/app?run=pcr_1-gt")
+        sp.wait_for_selector("#rx", state="visible", timeout=60000)
+        sp.fill("#rx", "8")
+        check("reactions: the Reactions box points both label files at 8 reactions",
+              sp.get_attribute("#f-zpl", "href").endswith("/labels.zpl?reactions=8")
+              and sp.get_attribute("#f-labels", "href").endswith("/labels.svg?reactions=8") and "Reactions" in sp.inner_text("#rxnote"),
+              sp.get_attribute("#f-zpl", "href"))
         req = urllib.request.urlopen(f"{api}/api/runs/pcr_1-gt/labels.zpl", timeout=120)
         zpl = req.read().decode()
         check("labels: a Zebra ZPL file, one ^XA..^XZ label per tube in the rack",
@@ -563,7 +589,7 @@ def main():
         page.goto(BASE + "/app?run=pcr_2")
         page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
         check("captions: no empty track when nobody spoke", page.evaluate("() => !document.querySelector('#video track')"))
-        tools, mproto, mrun, (err, msg), mpd, mlab = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
+        tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8) = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
         check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer",
                                                      "get_tube_labels", "get_receipt"], tools)
         check("mcp: get_tube_labels gives each rack tube's well, fill volume and label link",
@@ -571,6 +597,9 @@ def main():
               and all(t["well"] == layout[t["tube"]].split(":")[1] and (t["fill_ul"] > t["drawn_ul"] > 0 or not t["source"])
                       and t["qr"].endswith(f"/app?run=pcr_1-gt&tube={urllib.request.quote(t['tube'])}") for t in mlab["tubes"])
               and mlab["labels_zpl"].endswith("/labels.zpl"), str(mlab)[:200])
+        check("mcp: get_tube_labels scales the fill volumes to the reactions asked for",
+              mlab8["reactions"] == 8 and mlab8["max_reactions"] == top and mlab8["labels_zpl"].endswith("?reactions=8")
+              and all(b["fill_ul"] > a["fill_ul"] for a, b in zip(mlab["tubes"], mlab8["tubes"]) if a["source"]), str(mlab8)[:200])
         check("mcp: get_protocol_designer is the downloaded Protocol Designer file", mpd == pdj, str(mpd)[:120])
         check("mcp: get_protocol is byte for byte the downloaded protocol.py", mproto.encode() == proto)
         check("mcp: get_run carries the steps and the thermocycler time",

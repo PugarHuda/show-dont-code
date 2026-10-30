@@ -55,6 +55,15 @@ Then:
   5min"). A temperature written without a time gets 30 s and says so; nothing legible means a stated default. Every
   temperature, time and the cycle count are **Opentrons runtime parameters**, so the lab changes them in the
   Opentrons App at run setup without touching code. `methods.md` and `autoprotocol.json` use the same program.
+- **Film one reaction, run a plate.** A protocol that ends on the thermocycler gets a **Reactions** runtime parameter:
+  the lab picks a number on the robot's touchscreen, and every transfer and mix repeats into the next PCR plate wells,
+  the source tubes are filled for all of them, and only as many tip racks as that number needs are loaded. The maximum
+  comes from the deck itself: plate wells, a 1.5 mL tube holding every reaction's draw (+10 % and dead volume; 53 for
+  `pcr_1-gt`, bound by 25 µL of premix each), and free slots for tip racks. The protocol self-check and the e2e suite
+  run `opentrons analyze --rtp-values` at that maximum and require one plate well per copy, one tip per copy of each
+  step, and tubes filled for all of them. The Reactions box next to the labels, `?reactions=N` on `labels.svg` and
+  `labels.zpl`, and MCP `get_tube_labels(name, reactions)` give the fill volumes for that number. The PyLabRobot,
+  Autoprotocol and Protocol Designer exports stay at the one filmed reaction.
 - **Four independent checks on three vendors' robots** for every confirmed protocol: the Opentrons simulator,
   Opentrons' own protocol analysis (`opentrons analyze`, what the App runs on import, saved as `analysis.json`), and
   translations for a **Hamilton STARlet** and a **Tecan Freedom EVO 150** (LiHa arm, DiTi tips, the DiTi carrier's

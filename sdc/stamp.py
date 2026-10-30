@@ -106,7 +106,13 @@ def _write(path, data: bytes):
     (BadMagicError). Write beside it, then rename over it (atomic on one filesystem)."""
     tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_bytes(data)
-    os.replace(tmp, path)
+    for wait in (0.05, 0.2, 0.5, None):  # Windows refuses to replace a file another thread is reading; Linux never does
+        try:
+            return os.replace(tmp, path)
+        except PermissionError:
+            if wait is None:
+                raise
+            time.sleep(wait)
 
 
 def ensure(path, digest: bytes) -> dict:

@@ -184,8 +184,9 @@ def pylabrobot_script(steps, robot="starlet"):
 SHEET_W, SHEET_H, LABEL_W, LABEL_H, LEFT, TOP, PITCH_X, COLS, ROWS = 210, 297, 63.5, 38.1, 7.2, 15.15, 66.04, 3, 7
 
 
-def label_tubes(steps):
-    """The tubes on the tube racks, in label order (sources first): name, deck slot, well, and what goes in it."""
+def label_tubes(steps, reactions=1):
+    """The tubes on the tube racks, in label order (sources first): name, deck slot, well, and what goes in it, for
+    `reactions` copies of the filmed reaction (protocol.py's Reactions parameter)."""
     from .protocol import extra_racks, load_ul
 
     sources, dests, _ = _plan(steps)
@@ -196,17 +197,18 @@ def label_tubes(steps):
         if not rack.startswith("reagents"):
             continue
         drawn = need.get(name, (None, 0.0, 0))[1]
-        out.append({"tube": name, "slot": slot_of[rack], "well": well, "source": name in sources,
-                    "fill_ul": load_ul(drawn) if name in sources else 0, "drawn_ul": drawn})
+        out.append({"tube": name, "slot": slot_of[rack], "well": well, "source": name in sources, "reactions": reactions,
+                    "fill_ul": load_ul(drawn * reactions) if name in sources else 0, "drawn_ul": drawn})
     return out
 
 
 def _fill_lines(t):
-    return (f"fill with {t['fill_ul']:g} µL", f"({t['drawn_ul']:g} µL drawn + 10 % + dead volume)") if t["source"] \
+    per = f"{t['reactions']} × {t['drawn_ul']:g}" if t.get("reactions", 1) > 1 else f"{t['drawn_ul']:g}"
+    return (f"fill with {t['fill_ul']:g} µL", f"({per} µL drawn + 10 % + dead volume)") if t["source"] \
         else ("starts empty", "the robot fills it")
 
 
-def tube_labels(steps, link):
+def tube_labels(steps, link, reactions=1):
     """Printable SVG labels, one per tube on the tube racks: a QR code that opens `link` + &tube=<name> (the app then
     shows where that tube goes on the deck), the tube's deck slot and well, and how much to fill a source tube with.
     Returns (svg, number of labels). Model text is escaped; it never becomes markup."""
@@ -215,7 +217,7 @@ def tube_labels(steps, link):
 
     import segno
 
-    tubes = label_tubes(steps)
+    tubes = label_tubes(steps, reactions)
     pages = max(1, -(-len(tubes) // (COLS * ROWS)))  # ponytail: >21 tubes stack sheets in one tall SVG
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{SHEET_W}mm" height="{SHEET_H * pages}mm" '
            f'viewBox="0 0 {SHEET_W} {SHEET_H * pages}" font-family="Helvetica, Arial, sans-serif">']
@@ -248,12 +250,12 @@ def _zpl_field(text):
                    for c in text)
 
 
-def tube_labels_zpl(steps, link):
+def tube_labels_zpl(steps, link, reactions=1):
     """The same labels for a Zebra thermal printer (ZPL II, 2 x 1 inch stock at 203 dpi, the common lab label size;
     one ^XA..^XZ format per tube). Returns (zpl, number of labels)."""
     from urllib.parse import quote
 
-    tubes = label_tubes(steps)
+    tubes = label_tubes(steps, reactions)
     out = []
     for t in tubes:
         fill = _fill_lines(t)
@@ -317,4 +319,6 @@ if __name__ == "__main__":
     # one format per tube, and a reagent named like ZPL commands stays text (hex-escaped), never a command
     assert n == 5 and zpl.count("^XA") == 5 and zpl.count("^XZ") == 5 and "~" not in zpl, zpl
     assert "fill with 52 _C2_B5L" in zpl and "_5EXZ_5EXA_7EJR" in zpl, zpl
+    svg, _ = tube_labels(demo, "https://example.org/app?run=demo", reactions=8)
+    assert "fill with 206 µL" in svg and "(8 × 20 µL drawn" in svg, svg  # 8 x 20 x 1.1 + 30
     print("export self-check OK:", json.dumps(log))

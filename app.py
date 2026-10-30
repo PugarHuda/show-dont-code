@@ -196,6 +196,7 @@ def result(name: str):
     r["tubes"] = _tubes(d)
     r["can_track"] = (d / "sam_file.json").exists()
     r["captions"] = len(_speech(d))
+    r["max_reactions"] = protocol.max_reactions(r["steps"]) if r.get("protocol") else 1
     return r
 
 
@@ -254,27 +255,36 @@ def _app_link(name, request=None):
     return f"{site}/app?run={name}"
 
 
+def _reactions(steps, reactions):
+    top = protocol.max_reactions(steps)
+    if not 1 <= reactions <= top:
+        raise HTTPException(422, f"reactions must be 1 to {top} for this protocol")
+    return reactions
+
+
 @app.get("/api/runs/{name}/labels.svg")
-def labels_file(name: str, request: Request):
+def labels_file(name: str, request: Request, reactions: int = 1):
     """Tube labels to print on an Avery L7160 sheet. Each QR code opens the app at this run and tube, and the app's
     camera check ticks the tube off and shows its deck slot, so the rack is loaded the way protocol.py expects."""
     from fastapi.responses import Response
 
     from sdc import export
 
-    svg, _ = export.tube_labels(_confirmed_steps(name), _app_link(name, request))
+    steps = _confirmed_steps(name)
+    svg, _ = export.tube_labels(steps, _app_link(name, request), _reactions(steps, reactions))
     return Response(svg, media_type="image/svg+xml", headers={  # served from the API origin: no script may run in it
         "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
         "Content-Disposition": f'inline; filename="{name}-tube-labels.svg"'})
 
 
 @app.get("/api/runs/{name}/labels.zpl")
-def labels_zpl(name: str, request: Request):
+def labels_zpl(name: str, request: Request, reactions: int = 1):
     """The same tube labels for a Zebra thermal printer (ZPL II, 2 x 1 inch labels, 203 dpi): send the file to the
     printer as is (lp -o raw, or Zebra Setup Utilities' "send file")."""
     from sdc import export
 
-    zpl, _ = export.tube_labels_zpl(_confirmed_steps(name), _app_link(name, request))
+    steps = _confirmed_steps(name)
+    zpl, _ = export.tube_labels_zpl(steps, _app_link(name, request), _reactions(steps, reactions))
     return PlainTextResponse(zpl, headers={"Content-Disposition": f'attachment; filename="{name}-tube-labels.zpl"'})
 
 
@@ -657,17 +667,20 @@ if MCPServer:
         return _http(lambda n: _designer(_run_dir(n), n), name)
 
     @mcp.tool()
-    def get_tube_labels(name: str) -> dict:
+    def get_tube_labels(name: str, reactions: int = 1) -> dict:
         """The tubes to load on the tube rack before the run: each tube's deck slot and well, how many µL to fill a source
-        tube with (what the robot draws + 10 % + dead volume), and the link its label's QR code opens. Links to the
-        printable labels: an Avery L7160 sheet (SVG) and a Zebra thermal printer file (ZPL, 2 x 1 in)."""
+        tube with (what the robot draws + 10 % + dead volume) for `reactions` copies of the filmed reaction (protocol.py's
+        Reactions parameter, up to max_reactions), and the link its label's QR code opens. Links to the printable
+        labels: an Avery L7160 sheet (SVG) and a Zebra thermal printer file (ZPL, 2 x 1 in)."""
         from sdc import export
 
         steps = _http(_confirmed_steps, name)
         link = _app_link(name)
-        files = f"{os.getenv('PUBLIC_URL', '')}/api/runs/{name}"
-        return {"run": name, "tubes": [{**t, "qr": f"{link}&tube={quote(t['tube'])}"} for t in export.label_tubes(steps)],
-                "labels_svg": f"{files}/labels.svg", "labels_zpl": f"{files}/labels.zpl"}
+        n = _http(_reactions, steps, reactions)
+        files, q = f"{os.getenv('PUBLIC_URL', '')}/api/runs/{name}", f"?reactions={n}" if n > 1 else ""
+        return {"run": name, "reactions": n, "max_reactions": protocol.max_reactions(steps),
+                "tubes": [{**t, "qr": f"{link}&tube={quote(t['tube'])}"} for t in export.label_tubes(steps, n)],
+                "labels_svg": f"{files}/labels.svg{q}", "labels_zpl": f"{files}/labels.zpl{q}"}
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:
