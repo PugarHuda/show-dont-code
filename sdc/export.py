@@ -184,6 +184,28 @@ def pylabrobot_script(steps, robot="starlet"):
 SHEET_W, SHEET_H, LABEL_W, LABEL_H, LEFT, TOP, PITCH_X, COLS, ROWS = 210, 297, 63.5, 38.1, 7.2, 15.15, 66.04, 3, 7
 
 
+def label_tubes(steps):
+    """The tubes on the tube racks, in label order (sources first): name, deck slot, well, and what goes in it."""
+    from .protocol import extra_racks, load_ul
+
+    sources, dests, _ = _plan(steps)
+    slot_of = {"reagents": "C2", **dict(extra_racks(sources, dests))}
+    need = _needs(steps)
+    out = []
+    for name, (rack, well) in {**sources, **dests}.items():
+        if not rack.startswith("reagents"):
+            continue
+        drawn = need.get(name, (None, 0.0, 0))[1]
+        out.append({"tube": name, "slot": slot_of[rack], "well": well, "source": name in sources,
+                    "fill_ul": load_ul(drawn) if name in sources else 0, "drawn_ul": drawn})
+    return out
+
+
+def _fill_lines(t):
+    return (f"fill with {t['fill_ul']:g} µL", f"({t['drawn_ul']:g} µL drawn + 10 % + dead volume)") if t["source"] \
+        else ("starts empty", "the robot fills it")
+
+
 def tube_labels(steps, link):
     """Printable SVG labels, one per tube on the tube racks: a QR code that opens `link` + &tube=<name> (the app then
     shows where that tube goes on the deck), the tube's deck slot and well, and how much to fill a source tube with.
@@ -193,37 +215,60 @@ def tube_labels(steps, link):
 
     import segno
 
-    from .protocol import extra_racks, load_ul
-
-    sources, dests, _ = _plan(steps)
-    slot_of = {"reagents": "C2", **dict(extra_racks(sources, dests))}
-    need = _needs(steps)
-    tubes = [(n, rw, n in sources) for n, rw in {**sources, **dests}.items() if rw[0].startswith("reagents")]
+    tubes = label_tubes(steps)
     pages = max(1, -(-len(tubes) // (COLS * ROWS)))  # ponytail: >21 tubes stack sheets in one tall SVG
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{SHEET_W}mm" height="{SHEET_H * pages}mm" '
            f'viewBox="0 0 {SHEET_W} {SHEET_H * pages}" font-family="Helvetica, Arial, sans-serif">']
-    for i, (name, (rack, well), is_source) in enumerate(tubes):
+    for i, t in enumerate(tubes):
         page, k = divmod(i, COLS * ROWS)
         x, y = LEFT + (k % COLS) * PITCH_X, page * SHEET_H + TOP + (k // COLS) * LABEL_H
-        qr = segno.make(f"{link}&tube={quote(name)}", error="m")
+        qr = segno.make(f"{link}&tube={quote(t['tube'])}", error="m")
         size = 26.0  # ~0.7 mm modules for a ~90 character link: a phone camera reads them from a hand's length
         mod = size / qr.symbol_size(border=0)[0]
         qy = y + (LABEL_H - size) / 2
         path = "".join(f"M{x + 3 + c * mod:.3f} {qy + r * mod:.3f}h{mod:.3f}v{mod:.3f}h{-mod:.3f}z"
                        for r, row in enumerate(qr.matrix) for c, dark in enumerate(row) if dark)
-        drawn = need.get(name, (None, 0.0, 0))[1]
-        fill = (f"fill with {load_ul(drawn):g} µL", f"({drawn:g} µL drawn + 10 % + dead volume)") if is_source \
-            else ("starts empty", "the robot fills it")
+        fill = _fill_lines(t)
         tx, room = x + size + 5, LABEL_W - size - 7
-        lines = [(_clean(name, 40), 3.6, "bold"), (f"slot {slot_of[rack]} · well {well}", 3.2, "normal"),
+        lines = [(_clean(t["tube"], 40), 3.6, "bold"), (f"slot {t['slot']} · well {t['well']}", 3.2, "normal"),
                  (fill[0], 3.0, "normal"), (fill[1], 2.0, "normal")]
         out.append(f'<rect x="{x}" y="{y}" width="{LABEL_W}" height="{LABEL_H}" rx="2" fill="none" stroke="#ccc" stroke-width=".2"/>'
                    f'<path d="{path}" fill="#000"/>')
-        for j, (t, fs, fw) in enumerate(lines):  # squeeze a long name into the label instead of running off it
-            fit = f' textLength="{room}" lengthAdjust="spacingAndGlyphs"' if len(t) * fs * .56 > room else ""
-            out.append(f'<text x="{tx:.2f}" y="{y + 10 + j * 6:.2f}" font-size="{fs}" font-weight="{fw}"{fit}>{escape(t)}</text>')
+        for j, (txt, fs, fw) in enumerate(lines):  # squeeze a long name into the label instead of running off it
+            fit = f' textLength="{room}" lengthAdjust="spacingAndGlyphs"' if len(txt) * fs * .56 > room else ""
+            out.append(f'<text x="{tx:.2f}" y="{y + 10 + j * 6:.2f}" font-size="{fs}" font-weight="{fw}"{fit}>{escape(txt)}</text>')
     out.append("</svg>")
     return "".join(out), len(tubes)
+
+
+def _zpl_field(text):
+    """^FH hex escapes for ^ and ~ (command prefixes: model text can't inject ZPL commands), _ (the escape itself),
+    control and non-ASCII characters (µ survives as UTF-8, ^CI28)."""
+    return "".join(c if " " <= c <= "}" and c not in "^_\\" else "".join(f"_{b:02X}" for b in c.encode("utf-8"))
+                   for c in text)
+
+
+def tube_labels_zpl(steps, link):
+    """The same labels for a Zebra thermal printer (ZPL II, 2 x 1 inch stock at 203 dpi, the common lab label size;
+    one ^XA..^XZ format per tube). Returns (zpl, number of labels)."""
+    from urllib.parse import quote
+
+    tubes = label_tubes(steps)
+    out = []
+    for t in tubes:
+        fill = _fill_lines(t)
+        name = _clean(t["tube"], 40)
+        # font 0 is ~0.55 h wide: one line at 28 dots if the name fits in 204, else two lines at 20 (then cut)
+        h, n = (28, 1) if len(name) * 28 * .55 <= 204 else (20, 2)
+        name = name[:int(204 / (h * .55)) * n]
+        rows = [(name, h, n, 12), (f"slot {t['slot']} - well {t['well']}", 22, 1, 62), (fill[0], 22, 1, 94),
+                (fill[1], 14, 2, 124)]
+        out.append("^XA^CI28^PW406^LL203^LH0,0"
+                   # QR model 2, magnification 4 (0.5 mm modules), error level M; ^BQ adds its own top offset
+                   f"^FO8,0^BQN,2,4^FH^FDMA,{_zpl_field(link + '&tube=' + quote(t['tube']))}^FS"
+                   + "".join(f"^FO196,{y}^A0N,{fh},{fh}^FB204,{n},0,L^FH^FD{_zpl_field(txt)}^FS" for txt, fh, n, y in rows)
+                   + "^XZ")
+    return "\n".join(out) + "\n", len(tubes)
 
 
 def run_pylabrobot(source, timeout=120):
@@ -268,4 +313,8 @@ if __name__ == "__main__":
     assert n == 2 and svg.count("<path") == 2 and "fill with 52 µL" in svg and "slot C2 · well B1" in svg, n
     svg, n = tube_labels(demo[:2] + [{**demo[0], "reagent": "<script>x</script>", "destination": "tube 2"}], "https://e.org/app?run=d")
     assert n == 5 and svg.count("starts empty") == 2 and "<script>" not in svg and "&lt;script&gt;" in svg, n
+    zpl, n = tube_labels_zpl(demo[:2] + [{**demo[0], "reagent": "^XZ^XA~JR", "destination": "tube 2"}], "https://e.org/app?run=d")
+    # one format per tube, and a reagent named like ZPL commands stays text (hex-escaped), never a command
+    assert n == 5 and zpl.count("^XA") == 5 and zpl.count("^XZ") == 5 and "~" not in zpl, zpl
+    assert "fill with 52 _C2_B5L" in zpl and "_5EXZ_5EXA_7EJR" in zpl, zpl
     print("export self-check OK:", json.dumps(log))

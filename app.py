@@ -11,6 +11,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
@@ -138,9 +139,10 @@ def _page(path, head=""):
     # Pyodide (CPython in WebAssembly, pinned release) re-runs the PyLabRobot simulations in the visitor's browser
     pyo = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/"
     jsqr = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"  # reads tube labels from the camera (pinned + SRI)
-    csp = (f"default-src 'self'; script-src 'nonce-{nonce}' 'wasm-unsafe-eval' {pyo} {jsqr}; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    zplr = "https://cdn.jsdelivr.net/npm/zpl-renderer-js@4.0.0/dist/"  # draws the Zebra labels in the browser (zebrash)
+    csp = (f"default-src 'self'; script-src 'nonce-{nonce}' 'wasm-unsafe-eval' {pyo} {jsqr} {zplr}index.external.esm.js; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
            f"font-src https://fonts.gstatic.com; img-src 'self' data: blob: {api}; media-src 'self' blob: {api}; "
-           f"connect-src 'self' {api} {pyo} https://pypi.org https://files.pythonhosted.org; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+           f"connect-src 'self' {api} {pyo} {zplr}zebrash.wasm https://pypi.org https://files.pythonhosted.org; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
     return HTMLResponse(html, headers={"Content-Security-Policy": " ".join(csp.split())})
 
 
@@ -246,6 +248,12 @@ def _confirmed_steps(name):
     return r["steps"]
 
 
+def _app_link(name, request=None):
+    """Where a tube label's QR code sends the phone: the app at this run (on Modal: the Vercel front end)."""
+    site = os.getenv("PUBLIC_URL") or (str(request.base_url).rstrip("/") if request else "")
+    return f"{site}/app?run={name}"
+
+
 @app.get("/api/runs/{name}/labels.svg")
 def labels_file(name: str, request: Request):
     """Tube labels to print on an Avery L7160 sheet. Each QR code opens the app at this run and tube, and the app's
@@ -254,11 +262,20 @@ def labels_file(name: str, request: Request):
 
     from sdc import export
 
-    site = os.getenv("PUBLIC_URL") or str(request.base_url).rstrip("/")  # Modal: the Vercel front end
-    svg, _ = export.tube_labels(_confirmed_steps(name), f"{site}/app?run={name}")
+    svg, _ = export.tube_labels(_confirmed_steps(name), _app_link(name, request))
     return Response(svg, media_type="image/svg+xml", headers={  # served from the API origin: no script may run in it
         "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
         "Content-Disposition": f'inline; filename="{name}-tube-labels.svg"'})
+
+
+@app.get("/api/runs/{name}/labels.zpl")
+def labels_zpl(name: str, request: Request):
+    """The same tube labels for a Zebra thermal printer (ZPL II, 2 x 1 inch labels, 203 dpi): send the file to the
+    printer as is (lp -o raw, or Zebra Setup Utilities' "send file")."""
+    from sdc import export
+
+    zpl, _ = export.tube_labels_zpl(_confirmed_steps(name), _app_link(name, request))
+    return PlainTextResponse(zpl, headers={"Content-Disposition": f'attachment; filename="{name}-tube-labels.zpl"'})
 
 
 @app.get("/api/runs/{name}/methods.md")
@@ -381,7 +398,7 @@ def receipt_ots(name: str):
 
 
 @app.get("/api/runs/{name}/ro-crate.zip")
-def ro_crate(name: str):
+def ro_crate(name: str, request: Request):
     """The whole run as an RO-Crate (Process Run Crate): files, hashes, and which tool made which file from what."""
     from fastapi.responses import Response
 
@@ -395,7 +412,9 @@ def ro_crate(name: str):
            "autoprotocol.json": json.dumps(export.autoprotocol(steps), indent=1).encode("utf-8"),
            "pylabrobot.py": export.pylabrobot_script(steps).encode("utf-8"),
            "tecan-evo.py": export.pylabrobot_script(steps, "evo150").encode("utf-8"),
-           "receipt.json": json.dumps(rec, indent=1).encode("utf-8")}
+           "receipt.json": json.dumps(rec, indent=1).encode("utf-8"),
+           "labels.svg": export.tube_labels(steps, _app_link(name, request))[0].encode("utf-8"),
+           "labels.zpl": export.tube_labels_zpl(steps, _app_link(name, request))[0].encode("utf-8")}
     if "error" not in rec["timestamp"]:
         gen["receipt.ots"] = (d / "stamps" / f"{rec['timestamp']['stamped_sha256']}.ots").read_bytes()
     if (d / "analysis.json").exists():
@@ -599,7 +618,7 @@ if MCPServer:
     mcp = MCPServer("show-dont-code", instructions=(
         "Robot protocols recovered from first-person lab videos. list_runs, then get_run for the steps found in the video "
         "and the checks they passed, get_protocol for the Opentrons Flex Python file, get_protocol_designer for the same "
-        "protocol as editable no-code steps, get_receipt for the hashes."))
+        "protocol as editable no-code steps, get_tube_labels for loading the tube rack, get_receipt for the hashes."))
 
     def _http(fn, *args):  # an agent should read "unknown run", not a bare "Error executing tool"
         try:
@@ -636,6 +655,19 @@ if MCPServer:
         """The protocol as an Opentrons Protocol Designer file: import it at designer.opentrons.com to edit each step
         (transfers, mixes, the thermocycler program) without code. The Opentrons App can also run it as is."""
         return _http(lambda n: _designer(_run_dir(n), n), name)
+
+    @mcp.tool()
+    def get_tube_labels(name: str) -> dict:
+        """The tubes to load on the tube rack before the run: each tube's deck slot and well, how many µL to fill a source
+        tube with (what the robot draws + 10 % + dead volume), and the link its label's QR code opens. Links to the
+        printable labels: an Avery L7160 sheet (SVG) and a Zebra thermal printer file (ZPL, 2 x 1 in)."""
+        from sdc import export
+
+        steps = _http(_confirmed_steps, name)
+        link = _app_link(name)
+        files = f"{os.getenv('PUBLIC_URL', '')}/api/runs/{name}"
+        return {"run": name, "tubes": [{**t, "qr": f"{link}&tube={quote(t['tube'])}"} for t in export.label_tubes(steps)],
+                "labels_svg": f"{files}/labels.svg", "labels_zpl": f"{files}/labels.zpl"}
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:

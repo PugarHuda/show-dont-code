@@ -40,7 +40,8 @@ async def mcp_session(url):
         run = json.loads((await c.call_tool("get_run", {"name": "pcr_1-gt"})).content[0].text)
         bad = await c.call_tool("get_run", {"name": "no-such-run"})
         pd = json.loads((await c.call_tool("get_protocol_designer", {"name": "pcr_1-gt"})).content[0].text)
-        return tools, proto, run, (bad.is_error, bad.content[0].text), pd
+        lab = json.loads((await c.call_tool("get_tube_labels", {"name": "pcr_1-gt"})).content[0].text)
+        return tools, proto, run, (bad.is_error, bad.content[0].text), pd, lab
 
 BASE = os.getenv("BASE", "http://127.0.0.1:8000").rstrip("/")
 RESULTS = []
@@ -255,6 +256,9 @@ def main():
         check("download: tecan-evo.py runs in PyLabRobot here, EVO deck and LiHa tips, as many pipetting actions as the STARlet",
               ok and ok2 and b"EVO150Deck()" in evo and b"_LiHa" in evo and elog["actions"] == plog["actions"] > 0, (elog, plog.get("actions")))
         check("RO-Crate: carries the Tecan EVO translation", crate and "tecan-evo.py" in crate.namelist())
+        check("RO-Crate: carries the tube labels (Avery SVG and Zebra ZPL), made by the code generator",
+              crate and {"labels.svg", "labels.zpl"} <= set(crate.namelist())
+              and {"labels.svg", "labels.zpl"} <= {r["@id"] for r in ents.get("#generate", {}).get("result", [])})
         page.goto(BASE + "/app?run=pcr_1-gt")
         page.wait_for_function("() => /Tecan Freedom EVO 150/.test(document.getElementById('plrline').textContent)", timeout=60000)
         check("app: says the protocol also ran on a Hamilton STARlet and a Tecan EVO",
@@ -499,7 +503,24 @@ def main():
         sp.evaluate("tube => onLabel(`https://elsewhere.example/app?run=pcr_3&tube=${tube}`)", "not a tube here")
         check("labels: a label from another run's rack is refused by name", "isn't a tube in this run's rack" in sp.inner_text("#scanmsg"),
               sp.inner_text("#scanmsg"))
-        check("labels: no CSP violation (pinned jsQR with integrity)", not sp.evaluate("() => window.__csp || []"), sp.evaluate("() => window.__csp || []"))
+        req = urllib.request.urlopen(f"{api}/api/runs/pcr_1-gt/labels.zpl", timeout=120)
+        zpl = req.read().decode()
+        check("labels: a Zebra ZPL file, one ^XA..^XZ label per tube in the rack",
+              zpl.count("^XA") == zpl.count("^XZ") == len(rack) and "attachment" in req.headers.get("Content-Disposition", ""), zpl[:120])
+        sp.goto(BASE + "/app?run=pcr_1-gt")
+        sp.wait_for_selector("#zplbtn", state="visible", timeout=60000)
+        sp.click("#zplbtn")  # zebrash in WebAssembly draws the file the way the printer will
+        sp.wait_for_selector("#zplview img", timeout=120000)
+        zqr = sp.evaluate("""async () => { const jsQR = await jsqr(), out = [];
+          for (const img of document.querySelectorAll('#zplview img')) { await img.decode();
+            const c = Object.assign(document.createElement('canvas'), { width: img.naturalWidth, height: img.naturalHeight });
+            const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+            out.push([c.width, c.height, jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height)?.data]); }
+          return out; }""")
+        check("labels: the Zebra labels render in the browser at 2 x 1 in, 203 dpi, and every QR code reads back as its tube's link",
+              all(abs(w - 406) <= 2 and abs(h - 203) <= 2 for w, h, _ in zqr)
+              and sorted(q for _, _, q in zqr) == sorted(f"{BASE}/app?run=pcr_1-gt&tube={urllib.request.quote(t)}" for t in rack), zqr)
+        check("labels: no CSP violation (pinned jsQR with integrity, zebrash wasm checked by hash)", not sp.evaluate("() => window.__csp || []"), sp.evaluate("() => window.__csp || []"))
         sb.close()
 
         # ---- optional: spoken answers through a fake microphone --------------------------------------
@@ -542,8 +563,14 @@ def main():
         page.goto(BASE + "/app?run=pcr_2")
         page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
         check("captions: no empty track when nobody spoke", page.evaluate("() => !document.querySelector('#video track')"))
-        tools, mproto, mrun, (err, msg), mpd = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
-        check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer", "get_receipt"], tools)
+        tools, mproto, mrun, (err, msg), mpd, mlab = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
+        check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer",
+                                                     "get_tube_labels", "get_receipt"], tools)
+        check("mcp: get_tube_labels gives each rack tube's well, fill volume and label link",
+              sorted(t["tube"] for t in mlab["tubes"]) == sorted(rack)
+              and all(t["well"] == layout[t["tube"]].split(":")[1] and (t["fill_ul"] > t["drawn_ul"] > 0 or not t["source"])
+                      and t["qr"].endswith(f"/app?run=pcr_1-gt&tube={urllib.request.quote(t['tube'])}") for t in mlab["tubes"])
+              and mlab["labels_zpl"].endswith("/labels.zpl"), str(mlab)[:200])
         check("mcp: get_protocol_designer is the downloaded Protocol Designer file", mpd == pdj, str(mpd)[:120])
         check("mcp: get_protocol is byte for byte the downloaded protocol.py", mproto.encode() == proto)
         check("mcp: get_run carries the steps and the thermocycler time",

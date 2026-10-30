@@ -76,6 +76,8 @@
   .well.ok { fill: var(--accent); stroke: var(--accent); }
   .well.here { stroke: #ffd60a; stroke-width: 3; }
   .scan { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .zplview { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .zplview img { width: 203px; height: auto; background: #fff; border: 1px solid var(--line, #ccc); border-radius: 4px; }
   #scanview { width: 100%; max-height: 260px; border-radius: 6px; background: #000; }
   .lw-label { fill: var(--ink); font: 10px system-ui; }
   form.q { display: grid; gap: 8px; }
@@ -208,6 +210,9 @@
       <div class="scan" id="scanbox" hidden>
         <button id="scanbtn" type="button" class="ghost">Check the tube rack with your camera</button>
         <a id="f-labels" target="_blank" rel="noopener">Print the tube labels (QR, Avery L7160)</a>
+        <a id="f-zpl" download>Zebra printer file (ZPL, 2 × 1 in labels)</a>
+        <button id="zplbtn" type="button" class="ghost">Preview the Zebra labels</button>
+        <div id="zplview" class="zplview" hidden aria-live="polite"></div>
         <video id="scanview" muted playsinline hidden aria-label="Camera, reading tube labels"></video>
         <p id="scanmsg" class="hint" aria-live="polite">Print the labels, stick one on each tube, then scan each tube as you put it in the rack:
           the deck shows where it goes and ticks it off.</p>
@@ -310,7 +315,7 @@ function tubeFromLink(want) {
 const openRun = (n) => load(n).catch((e) => { $("status").className = "pill bad"; $("status").textContent = e.message; });
 
 async function load(n) {
-  if (n !== name) { placed.clear(); hereTube = null; scanStop(); }
+  if (n !== name) { placed.clear(); hereTube = null; scanStop(); $("zplview").hidden = true; $("zplview").replaceChildren(); }
   name = n;
   R = await api(`/api/runs/${encodeURIComponent(n)}`);
   $("video").src = `${API}/api/runs/${encodeURIComponent(n)}/video`;
@@ -392,6 +397,7 @@ function render() {
   $("replaybox").hidden = !R.sim_ok;
   $("scanbox").hidden = !R.protocol || !rackTubes().length;  // labels need the confirmed steps
   $("f-labels").href = `${API}/api/runs/${encodeURIComponent(name)}/labels.svg`;
+  $("f-zpl").href = `${API}/api/runs/${encodeURIComponent(name)}/labels.zpl`;
   // panels appear together once a run is loaded; empty ones shown earlier get pushed down the screen (layout shift)
   for (const id of ["stepsbox", "deckbox", "codebox", "simbox"]) $(id).hidden = false;
   const an = R.analysis;
@@ -669,6 +675,33 @@ async function scanStart() {
   } finally { btn.disabled = false; }
 }
 $("scanbtn").onclick = scanStart;
+
+// the Zebra file drawn the way the printer will print it: zebrash (a Go ZPL renderer) in WebAssembly, in this
+// browser, so the labels never go to a third-party render service. Module pinned; the wasm checked by its hash
+const ZPLR = "https://cdn.jsdelivr.net/npm/zpl-renderer-js@4.0.0/dist/";
+let zplReady = null;
+function zebrash() {
+  zplReady ??= Promise.all([import(ZPLR + "index.external.esm.js"),
+    fetch(ZPLR + "zebrash.wasm", { integrity: "sha384-VbfMVIf8JMedtdES07Hpx7heOXzsY0nwsndDZ/mPibasGy63tasPKTA3eylqy7YZ" })
+      .then((r) => { if (!r.ok) throw new Error(`renderer download failed (${r.status})`); return r.arrayBuffer(); })])
+    .then(async ([m, wasm]) => { await m.init({ wasmBytes: new Uint8Array(wasm) }); return m; })
+    .catch((e) => { zplReady = null; throw e; });
+  return zplReady;
+}
+$("zplbtn").onclick = async () => {
+  const btn = $("zplbtn"), box = $("zplview");
+  btn.disabled = true; btn.textContent = "Rendering the labels…";
+  try {
+    const [m, zpl] = await Promise.all([zebrash(), fetch($("f-zpl").href).then((r) => {
+      if (!r.ok) throw new Error(`labels.zpl: ${r.status}`); return r.text(); })]);
+    const pngs = await m.zplToBase64MultipleAsync(zpl, 50.8, 25.4, 8);  // 2 x 1 inch at 203 dpi, as in the file
+    box.replaceChildren(...pngs.map((b, i) => Object.assign(new Image(), { src: `data:image/png;base64,${b}`,
+      alt: `Zebra label ${i + 1} of ${pngs.length}, as the printer will print it` })));
+  } catch (e) {
+    box.textContent = `Couldn't draw the labels here (${e.message}); the ZPL file still prints.`;
+  }
+  box.hidden = false; btn.disabled = false; btn.textContent = "Preview the Zebra labels";
+};
 
 // --- robot replay: animate the simulator's own command log on the deck ---------------------------
 let replaying = null;

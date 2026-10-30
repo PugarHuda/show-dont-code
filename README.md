@@ -77,6 +77,15 @@ Then:
   usual way a correct protocol still ruins a run. The e2e suite photographs a label from the real sheet, feeds it to
   Chromium's fake camera, and requires the scan to light the right well; it also opens a label's link directly and
   checks that a label from another run's rack is refused.
+- **Or print them on a Zebra.** Most labs print tube labels on a thermal printer, not an A4 sheet. `labels.zpl` is the
+  same set in ZPL II for 2 x 1 inch labels at 203 dpi: send it to the printer as is (`lp -o raw`, or Zebra Setup
+  Utilities). Model text in it is hex-escaped (`^FH`), so a reagent named `^XZ~JR` prints as text instead of resetting
+  the printer. "Preview the Zebra labels" draws the file the way the printer will, in the browser:
+  [zebrash](https://github.com/ingridhq/zebrash), a Go ZPL renderer compiled to WebAssembly
+  ([zpl-renderer-js](https://github.com/Fabrizz/zpl-renderer-js) 4.0.0, pinned; the wasm fetched with subresource
+  integrity), so labels never go to an online render service. The e2e suite renders every label that way and reads each
+  QR code back with jsQR. Both label files are in the RO-Crate, and MCP `get_tube_labels` gives an agent each tube's
+  slot, well, fill volume and label link.
 - **Opentrons Protocol Designer, no code.** `protocol-designer.json` opens in Opentrons' own visual editor
   ([designer.opentrons.com](https://designer.opentrons.com/), Import): every transfer, mix and thermocycler step
   arrives as an editable form named after its moment in the video ("Add Primer1", "Step 2, video 64-99 s"), with the
@@ -106,7 +115,7 @@ Then:
   Opentrons' own `opentrons_simulate -e` reports 0 min for Flex protocols, which is why it is computed here.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
-  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. Read-only on purpose: no tool runs code an agent sends (a
+  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. Read-only on purpose: no tool runs code an agent sends (a
   protocol is Python) or spends model credits. Add it to Claude Code with
   `claude mcp add --transport http show-dont-code <url>/mcp`.
 - **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run
@@ -142,7 +151,7 @@ can film the protocol in the upload dialog: the back camera is recorded in the b
 the browser records it, else WebM) and sent as the upload; a codec MP4 can't hold as is (VP8) is re-encoded to
 H.264 on the server. The e2e records with Chromium's fake camera, runs the server's ffmpeg step on the clip, and
 sends it to the real endpoint with a wrong code. Pages are served under a strict
-Content-Security-Policy (scripts run only with a per-response nonce, plus the pinned Pyodide release and WebAssembly for the in-browser re-run, and the pinned QR reader; no inline handlers, no `eval`, no framing),
+Content-Security-Policy (scripts run only with a per-response nonce, plus the pinned Pyodide release and WebAssembly for the in-browser re-run, the pinned QR reader and the pinned ZPL renderer; no inline handlers, no `eval`, no framing),
 with `nosniff`, a referrer policy, and a permissions policy that allows only the page's own microphone (voice answers)
 and camera (recording, label scanning). The Vercel front end holds only a read-only demo bundle, so its `/api/*` and
 `/mcp` redirect (307) to the Modal backend: one source of truth for receipts, timestamp proofs and edits.

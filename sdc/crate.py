@@ -15,7 +15,7 @@ BIOVL2 = "https://zenodo.org/records/21495188"
 AUTHOR = "https://github.com/PugarHuda"
 REPO, OPENTRONS, META = "https://github.com/PugarHuda/show-dont-code", "https://github.com/Opentrons/opentrons", "https://api.meta.ai/v1"
 FORMATS = {".py": "text/x-python", ".json": "application/json", ".md": "text/markdown",
-           ".ots": "application/vnd.opentimestamps.ots"}
+           ".ots": "application/vnd.opentimestamps.ots", ".svg": "image/svg+xml", ".zpl": "text/plain"}
 OTS = "https://opentimestamps.org"
 MODEL_OUTPUTS = {"steps_raw.json": "Steps found in the video (Muse Spark, stage 1)",
                  "steps_stage2.json": "Transfers grouped by source tube and named (Muse Spark, stage 2)",
@@ -27,7 +27,9 @@ NAMES = {"review.json": "Reviewer agent findings and its simulator tool calls", 
          "receipt.json": "Reproducibility receipt", "pylabrobot.py": "Hamilton STARlet translation (PyLabRobot)",
          "tecan-evo.py": "Tecan Freedom EVO 150 translation (PyLabRobot)", "analysis.json": "Opentrons protocol analysis",
          "protocol-designer.json": "The protocol as editable steps for Opentrons Protocol Designer (no code)",
-         "receipt.ots": "OpenTimestamps proof anchoring the receipt in Bitcoin"}
+         "receipt.ots": "OpenTimestamps proof anchoring the receipt in Bitcoin",
+         "labels.svg": "Tube labels with QR codes for an Avery L7160 sheet: deck slot, well and fill volume per tube",
+         "labels.zpl": "The same tube labels for a Zebra thermal printer (ZPL II, 2 x 1 inch, 203 dpi)"}
 
 
 def _when(path):
@@ -96,7 +98,8 @@ def build(run_dir, name, generated, models):
                     "description": "Model text only lands in comments and string literals; numbers are validated",
                     "instrument": {"@id": REPO},
                     "object": ([{"@id": "#source-video"}] if from_gt else have(*MODEL_OUTPUTS)) + have("answers.json"),
-                    "result": have("protocol.py", "methods.md", "autoprotocol.json", "pylabrobot.py", "tecan-evo.py"),
+                    "result": have("protocol.py", "methods.md", "autoprotocol.json", "pylabrobot.py", "tecan-evo.py",
+                                   "labels.svg", "labels.zpl"),
                     "endTime": _when(d / "result.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
     if "analysis.json" in files:
         actions.append({"@id": "#analyze", "@type": "CreateAction", "name": "opentrons analyze (what the Opentrons App runs on import)",
