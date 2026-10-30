@@ -9,6 +9,7 @@ Self-check (talks to the real calendars):  python -m sdc.stamp
 """
 import json
 import os
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -100,15 +101,23 @@ def status(ots: bytes) -> dict:
     return {"digest": f.file_digest.hex(), "calendars": sorted(set(pending)), "bitcoin": blocks}
 
 
+def _write(path, data: bytes):
+    """Whole file or nothing: a receipt read while the proof is being written used to see a half-written file
+    (BadMagicError). Write beside it, then rename over it (atomic on one filesystem)."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
 def ensure(path, digest: bytes) -> dict:
     """The proof for `digest` at `path`: stamped on first use, upgraded when due; returns status() plus "proof"."""
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(stamp(digest))
+        _write(path, stamp(digest))
     elif time.time() - _tried.get(str(path), 0) > 300 and not status(path.read_bytes())["bitcoin"]:
         _tried[str(path)] = time.time()
         if time.time() - path.stat().st_mtime > 1800:  # a calendar commits to Bitcoin about once an hour
-            path.write_bytes(upgrade(path.read_bytes()))
+            _write(path, upgrade(path.read_bytes()))
     s = status(path.read_bytes())
     assert s["digest"] == digest.hex(), "stored proof is for another digest"
     return s
