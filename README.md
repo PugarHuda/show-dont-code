@@ -82,7 +82,7 @@ Then:
   Utilities). Model text in it is hex-escaped (`^FH`), so a reagent named `^XZ~JR` prints as text instead of resetting
   the printer. "Preview the Zebra labels" draws the file the way the printer will, in the browser:
   [zebrash](https://github.com/ingridhq/zebrash), a Go ZPL renderer compiled to WebAssembly
-  ([zpl-renderer-js](https://github.com/Fabrizz/zpl-renderer-js) 4.0.0, pinned; the wasm fetched with subresource
+  ([zpl-renderer-js](https://github.com/Fabrizz/zpl-renderer-js) 4.0.0, pinned; module and wasm both loaded with subresource
   integrity), so labels never go to an online render service. The e2e suite renders every label that way and reads each
   QR code back with jsQR. Both label files are in the RO-Crate, and MCP `get_tube_labels` gives an agent each tube's
   slot, well, fill volume and label link.

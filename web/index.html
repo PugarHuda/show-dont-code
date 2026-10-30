@@ -677,11 +677,22 @@ async function scanStart() {
 $("scanbtn").onclick = scanStart;
 
 // the Zebra file drawn the way the printer will print it: zebrash (a Go ZPL renderer) in WebAssembly, in this
-// browser, so the labels never go to a third-party render service. Module pinned; the wasm checked by its hash
+// browser, so the labels never go to a third-party render service. Module and wasm both checked by their hashes
 const ZPLR = "https://cdn.jsdelivr.net/npm/zpl-renderer-js@4.0.0/dist/";
 let zplReady = null;
+function zplModule() {  // import() can't carry integrity: a module <script> with SRI fills the module map first
+  const src = ZPLR + "index.external.esm.js";
+  return new Promise((ok, bad) => {
+    const s = document.createElement("script");
+    Object.assign(s, { type: "module", src, crossOrigin: "anonymous",
+      integrity: "sha384-X9LbuwzCWEAGnOQ77ow1r21v3PVf86sVMLYPdyZOX6qPTzmyQDL04z+awwFAiV9m" });
+    s.onload = () => ok(import(src));  // same URL: served from the module map, not fetched again
+    s.onerror = () => bad(new Error("couldn't load the ZPL renderer from cdn.jsdelivr.net"));
+    document.head.append(s);
+  });
+}
 function zebrash() {
-  zplReady ??= Promise.all([import(ZPLR + "index.external.esm.js"),
+  zplReady ??= Promise.all([zplModule(),
     fetch(ZPLR + "zebrash.wasm", { integrity: "sha384-VbfMVIf8JMedtdES07Hpx7heOXzsY0nwsndDZ/mPibasGy63tasPKTA3eylqy7YZ" })
       .then((r) => { if (!r.ok) throw new Error(`renderer download failed (${r.status})`); return r.arrayBuffer(); })])
     .then(async ([m, wasm]) => { await m.init({ wasmBytes: new Uint8Array(wasm) }); return m; })
