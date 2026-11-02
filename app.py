@@ -366,6 +366,17 @@ def reactions_analysis(name: str, n: int):
 
 
 _flex_slot = threading.Semaphore(1)  # each robot-server run is a ~50 s Modal container
+FLEX_RUNS_PER_DAY = int(os.getenv("FLEX_RUNS_PER_DAY", "40"))  # ponytail: global daily cap; per-visitor if abused
+
+
+def _spend_flex_run():
+    with _calls_lock:
+        f, today = pipeline.OUT / ".flex_runs.json", time.strftime("%Y-%m-%d", time.gmtime())
+        c = json.loads(f.read_text()) if f.exists() else {}
+        used = c.get("used", 0) if c.get("day") == today else 0
+        if used >= FLEX_RUNS_PER_DAY:
+            raise HTTPException(429, "today's robot-server runs for this demo are used up; cached runs still open")
+        f.write_text(json.dumps({"day": today, "used": used + 1}))
 
 
 @app.get("/api/runs/{name}/flex-run/{n}")
@@ -386,13 +397,20 @@ def flex_robot_run(name: str, n: int):
     with _rx_locks[str(cache)]:
         if cache.exists():
             return json.loads(cache.read_text(encoding="utf-8"))
+        if not _flex_slot.acquire(blocking=False):  # answer at once rather than queue threads on the one container
+            raise HTTPException(429, "the robot-server is busy with another run; try again in a minute")
         try:
+            _spend_flex_run()  # only uncached runs count
             import modal
 
-            with _flex_slot:
-                out = modal.Function.from_name("show-dont-code", "flex_run").remote(src, {"reactions": n} if n > 1 else {})
+            out = modal.Function.from_name("show-dont-code", "flex_run").remote(src, {"reactions": n} if n > 1 else {})
+        except HTTPException:
+            raise
         except Exception as e:  # Modal unreachable or the container failed: say so, don't cache
-            raise HTTPException(503, f"the robot-server run didn't finish: {type(e).__name__}: {str(e)[:200]}")
+            log.exception("robot-server run failed for %s", name)
+            raise HTTPException(503, "the robot-server run didn't finish; please try again later")
+        finally:
+            _flex_slot.release()
         out["reactions"] = n
         cache.parent.mkdir(exist_ok=True)
         cache.write_text(json.dumps(out), encoding="utf-8")
