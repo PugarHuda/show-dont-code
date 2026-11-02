@@ -5,6 +5,15 @@ Film yourself doing a lab protocol once by hand, and get an Opentrons robot prot
 Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), Push the Frontier theme. All code in
 this repository was written during the hackathon. The git history starts on Oct 27, 2026.
 
+- **Live app:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (eight samples,
+  no login: seven filmed BioVL2 videos and one published protocols.io protocol)
+- **Demo video (2:57):** https://youtu.be/zZE0nk85MxE, recorded live from production with Playwright, narrated and
+  assembled in Remotion (`video/`); a 53 s square cut for X is the `Ad` composition (`npm run render:ad --prefix video`)
+- **Dataset:** the pcr_1-gt run as an RO-Crate on Zenodo, [doi:10.5281/zenodo.23876762](https://doi.org/10.5281/zenodo.23876762);
+  its protocol on protocols.io: https://www.protocols.io/view/pcr-setup-recovered-from-a-first-person-video-pcr-krdncv25f
+  (submitted for publication Nov 2, in protocols.io's review)
+- **MCP server:** https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp
+
 ## How it works
 
 Five Meta models, each doing the part it is best at:
@@ -172,7 +181,7 @@ Then:
   its steps table, checks, licence, tags and all 16 files, the bench card drawings shown as images.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
-  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_related_protocols`, `get_bench_card` (the illustrated steps with the checker's verdict), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a
+  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_related_protocols`, `crosscheck_volumes` (this run's volumes next to published ones, with quotes), `get_bench_card` (the illustrated steps with the checker's verdict), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a
   protocol is Python) or spends model credits; robot-server runs are only of protocols this server generated, cached, and capped per day. Add it to Claude Code with
   `claude mcp add --transport http show-dont-code <url>/mcp`.
 - **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run

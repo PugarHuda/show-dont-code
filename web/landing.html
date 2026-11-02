@@ -290,6 +290,8 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
           <li><b>Runs on Opentrons' own robot software</b><span>The pcr_1-gt protocol passes Opentrons' simulator and <code>opentrons analyze</code> (134 commands), and runs to the end on Opentrons' robot-server, the software inside a Flex, in Flex simulation: 240 robot commands with two reactions, one fresh tip per transfer.</span></li>
           <li><b>Every line points back to the video</b><span>Each step carries the seconds it happened in your footage, so you can replay the moment before you trust it.</span></li>
           <li><b>Hand-offs where a robot can't help</b><span>Spinning down or inverting a tube becomes a pause that hands the run back to you.</span></li>
+          <li><b>Checked against published protocols</b><span>Muse Spark reads protocols.io protocols that use the same kit and quotes the volumes they use; pcr_1-gt's premix is the same share of the reaction as a published PrimeSTAR protocol's 25 µL in 50 µL.</span></li>
+          <li><b>Into your lab notebook</b><span>One <code>.eln</code> file brings the whole run into eLabFTW, RSpace or Kadi4Mat as an experiment: steps, checks, bench card and every file.</span></li>
           <li><b>Citable</b><span>The whole run, every model output and its hashes, is on Zenodo as <a href="https://doi.org/10.5281/zenodo.23876762">doi:10.5281/zenodo.23876762</a>.</span></li>
         </ul>
       </div>
