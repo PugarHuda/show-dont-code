@@ -41,6 +41,7 @@ image = (
 secret = modal.Secret.from_name("show-dont-code")
 baseten = modal.Secret.from_name("show-dont-code-baseten")  # hackathon Baseten key (muse-spark-open-1026 only)
 backup = modal.Secret.from_name("show-dont-code-fireworks")  # Fireworks key for the reviewer's backup host
+protocolsio = modal.Secret.from_name("show-dont-code-protocolsio")  # protocols.io client token: public search
 
 
 # Opentrons' own robot-server (the software on a Flex, v10.1.0) in Flex simulation mode. Its own image: it pins
@@ -137,7 +138,7 @@ def process(run_id: str):
     vol.commit()
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup], timeout=900, scaledown_window=1200, max_containers=1,
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup, protocolsio], timeout=900, scaledown_window=1200, max_containers=1,
               min_containers=1)  # always warm for judges: no cold start on the first visit
 @modal.concurrent(max_inputs=20)
 @modal.asgi_app()
@@ -176,8 +177,10 @@ def web():
             response = await call_next(request)
         finally:
             inflight[0] -= 1
-        # answers, tube names, timestamp proofs, robot-server runs: persist them and make them visible to other containers
-        if request.method == "POST" or request.url.path.endswith(("/receipt.json", "/receipt.ots", "/ro-crate.zip"))                 or "/flex-run/" in request.url.path:
+        # answers, tube names, timestamp proofs, robot-server runs, protocols.io matches: persist them and make them visible to other containers
+        path = request.url.path
+        if (request.method == "POST" or path.endswith(("/receipt.json", "/receipt.ots", "/ro-crate.zip", "/related"))
+                or "/flex-run/" in path):
             await asyncio.to_thread(vol.commit)
         return response
 

@@ -417,6 +417,29 @@ def flex_robot_run(name: str, n: int):
     return out
 
 
+@app.get("/api/runs/{name}/related")
+def related_protocols(name: str):
+    """Published protocols on protocols.io that use this run's reagents (brand and kit names), with their DOIs.
+    Cached per run and search terms; a protocols.io outage is a 503, not an empty list."""
+    from sdc import related
+
+    d = _run_dir(name)
+    steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
+    words, kind = related.terms(steps)
+    cache = d / "related.json"
+    if cache.exists():
+        c = json.loads(cache.read_text(encoding="utf-8"))
+        if c.get("reagent_words") == words and c.get("kind") == kind:
+            return c
+    try:
+        out = related.related(steps)
+    except Exception:  # noqa: BLE001 - token missing, protocols.io down or changed
+        log.exception("protocols.io search failed for %s", name)
+        raise HTTPException(503, "protocols.io search is unavailable right now")
+    cache.write_text(json.dumps(out), encoding="utf-8")
+    return out
+
+
 def _designer(d, name):
     from sdc import designer
 
@@ -810,6 +833,12 @@ if MCPServer:
         Returns the robot's report (status 'succeeded', command count). About a minute the first time, then cached.
         Runs only the protocol this server generated, never code an agent sends."""
         return _http(flex_robot_run, name, reactions)
+
+    @mcp.tool()
+    def get_related_protocols(name: str) -> dict:
+        """Public protocols on protocols.io that use this run's reagents (brand and kit names) and protocol type, with
+        DOIs and which reagent words each mentions: how other labs wrote up the same kit."""
+        return _http(related_protocols, name)
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:

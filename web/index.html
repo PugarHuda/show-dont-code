@@ -238,6 +238,11 @@
       <p class="hint" id="reviewstale" hidden>These findings are from the reviewer's pass before your edits; on this demo it doesn't re-run after each edit, so some may already be answered.</p>
       <ul class="issues" id="issues"></ul>
     </section>
+    <section id="relbox" hidden>
+      <h2>Published protocols with the same reagents · protocols.io</h2>
+      <p class="hint" id="relline" aria-live="polite"></p>
+      <ul class="issues" id="rel"></ul>
+    </section>
     <section id="evalbox" hidden>
       <h2>Accuracy vs. ground truth</h2>
       <div class="metrics" id="metrics"></div>
@@ -336,6 +341,23 @@ async function load(n) {
   $("video").querySelectorAll("track").forEach((t) => t.remove());
   if (R.captions) $("video").insertAdjacentHTML("beforeend", `<track kind="captions" default label="Speech (Muse Voice Transcribe)" src="${API}/api/runs/${encodeURIComponent(n)}/captions.vtt">`);
   render();
+  related(n);
+}
+
+// how other labs wrote up the same kit (protocols.io public search), to check the filmed volumes against
+async function related(n) {
+  $("relbox").hidden = false; $("rel").innerHTML = ""; $("relline").textContent = "Searching protocols.io…";
+  try {
+    const x = await api(`/api/runs/${encodeURIComponent(n)}/related`);
+    if (n !== name) return;  // another run was opened meanwhile
+    const by = x.reagent_words.length ? `the reagent name${x.reagent_words.length > 1 ? "s" : ""} ${x.reagent_words.map((w) => `“${w}”`).join(", ")} and ` : "";
+    $("relline").textContent = x.protocols.length
+      ? `Public protocols on protocols.io found by ${by}the protocol type (${x.kind}). Compare their volumes and steps with what was filmed.`
+      : `No public protocol on protocols.io matches ${by}${x.kind}.`;
+    $("rel").innerHTML = x.protocols.map((p) => `<li class="info"><b><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></b><span>${p.matched.length ? `mentions ${esc(p.matched.join(", "))} · ` : ""}${p.doi ? `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener">doi:${esc(p.doi)}</a>` : ""}</span></li>`).join("");
+  } catch (e) {
+    if (n === name) $("relline").textContent = `protocols.io search didn't answer: ${e.message}`;
+  }
 }
 
 const COPY = "your edited copy (private link)";
