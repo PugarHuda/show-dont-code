@@ -207,6 +207,9 @@ def build(run_dir, steps, answers=None, review=True):
             "review_host_failures")
     if not review:
         result.update({k: prev[k] for k in keep if k in prev})
+        # the findings were about the steps before this edit; the UI says so instead of presenting them as current
+        result["review_before_edits"] = bool(prev.get("review")) and (prev.get("review_before_edits") or answers != (
+            json.loads((run_dir / "answers.json").read_text()) if (run_dir / "answers.json").exists() else {}) or steps != prev.get("steps"))
     else:
         try:
             from . import agent

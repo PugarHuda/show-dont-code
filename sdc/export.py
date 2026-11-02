@@ -13,7 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .protocol import DEAD_UL, LIQUID_CLASSES, _plan, liquid_class, thermal
+from .protocol import DEAD_UL, LIQUID_CLASSES, _plan, liquid_class, thermal, well_volume
 
 WELLS_96 = [f"{r}{c}" for c in range(1, 13) for r in "ABCDEFGH"]
 
@@ -103,7 +103,7 @@ def autoprotocol(steps):
             p = thermal(s)  # the same program protocol.py runs, so every export agrees
             steps_of = lambda xs: [{"temperature": f"{x['c']:g}:celsius", "duration": f"{x['s']}:second"} for x in xs]  # noqa: E731
             groups = ([{"cycles": 1, "steps": steps_of(p["initial"])}] if p["initial"] else []) +                 [{"cycles": int(s["cycles"]), "steps": steps_of(p["cycle"])}] +                 ([{"cycles": 1, "steps": steps_of(p["final"])}] if p["final"] else [])
-            instructions.append({"op": "thermocycle", "object": "reactions", "volume": "50:microliter", "groups": groups})
+            instructions.append({"op": "thermocycle", "object": "reactions", "volume": f"{well_volume(steps)}:microliter", "groups": groups})
     return {"refs": refs, "instructions": instructions}
 
 

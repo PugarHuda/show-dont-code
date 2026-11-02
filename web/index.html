@@ -235,6 +235,7 @@
     </section>
     <section id="reviewbox" hidden>
       <h2>Reviewer agent · Muse Spark Open <small id="reviewhost"></small></h2>
+      <p class="hint" id="reviewstale" hidden>These findings are from the reviewer's pass before your edits; on this demo it doesn't re-run after each edit, so some may already be answered.</p>
       <ul class="issues" id="issues"></ul>
     </section>
     <section id="evalbox" hidden>
@@ -532,6 +533,7 @@ function render() {
 
   const issues = R.review || [];
   $("reviewbox").hidden = !issues.length && !R.review_error;
+  $("reviewstale").hidden = !R.review_before_edits;
   // which host ran the open-weights reviewer; the Fireworks backup sees frames only, never the whole video
   $("reviewhost").textContent = !R.review_model ? "" : R.review_model.startsWith("fireworks")
     ? "on Fireworks (backup host, frames only)" : "on Baseten";

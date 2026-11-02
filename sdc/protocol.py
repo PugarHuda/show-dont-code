@@ -179,6 +179,16 @@ def max_reactions(steps):
     return max(n, 1)
 
 
+def well_volume(steps):
+    """The fullest reaction well (uL), so the thermocycler models the right thermal mass; its block takes 1-100 uL."""
+    well = {}
+    for s in steps:
+        if s["action"] == "transfer" and s.get("volume_ul"):
+            k = s.get("destination") or "sample tube"
+            well[k] = well.get(k, 0) + float(s["volume_ul"])
+    return max(1, min(100, round(max(well.values(), default=50))))
+
+
 def generate(steps, title="Show, Don't Code protocol"):
     """Return (python_source, layout). layout maps each reagent/tube name to a deck location."""
     questions = missing_inputs(steps)
@@ -282,6 +292,7 @@ def generate(steps, title="Show, Don't Code protocol"):
               f"    lc{n} = ctx.get_liquid_class(ctx.params.lc{n})"]
 
     dest_index = {name: i for i, name in enumerate(dests)}
+    block_ul = well_volume(steps)
 
     def loc(place):
         rack, well = place
@@ -325,7 +336,7 @@ def generate(steps, title="Show, Don't Code protocol"):
             def stage(name, reps):
                 return (f"    tc.execute_profile(steps=[" + ", ".join(
                     f"{{'temperature': ctx.params.{pre}{name}{k + 1}_c, 'hold_time_seconds': ctx.params.{pre}{name}{k + 1}_s}}"
-                    for k in range(len(prof[name]))) + f"], repetitions={reps}, block_max_volume=50)")
+                    for k in range(len(prof[name]))) + f"], repetitions={reps}, block_max_volume={block_ul})")
             L += ["    tc.close_lid()", "    tc.set_lid_temperature(105)"]
             L += [stage("initial", 1)] if prof["initial"] else []
             L += [stage("cycle", f"ctx.params.{pre}cycles")]
