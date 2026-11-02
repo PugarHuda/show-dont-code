@@ -22,7 +22,11 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 
 **Public GitHub repository:** https://github.com/PugarHuda/show-dont-code
 **Dataset DOI (pcr_1-gt RO-Crate on Zenodo):** https://doi.org/10.5281/zenodo.23876762
-**3-minute demo video:** https://youtu.be/eyRsNfQU-tU (2:47, unlisted)
+**3-minute demo video:** https://youtu.be/cEq1VZUkbHI (2:51, unlisted)
+**Bonus prizes this is eligible for:** Best Build on Meta Open Weight Models (the reviewer agent runs on Muse Spark Open,
+served by Baseten as `meta-models/muse-spark-open-1026`, failing over to Fireworks) and Best Agentic Use-Case (the agent
+watches the video, calls the Opentrons simulator and `look_at_moment` as tools until the volumes add up, and proposes fixes
+the scientist applies with one click).
 **Live demo:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (seven sample runs).
 Uploading your own video needs the access code; put it in the description field of the form, never in this
 repo (the code lives in `out/upload_code.txt`, which is gitignored).
@@ -72,9 +76,9 @@ thermocycler time from Opentrons' analysis at the module's rated ramp rates; an 
 > Each key is bound to one model id: the hackathon key serves only `meta-models/muse-spark-open-1026` (403 on the
 > bare id), the earlier key only `meta-models/muse-spark-open` (404 on `-1026`), so the app keeps both as failover hosts.
 
-## Demo video (2:47)
+## Demo video (2:51)
 
-https://youtu.be/eyRsNfQU-tU. Every scene is recorded live from production with Playwright (`video/record.py`),
+https://youtu.be/cEq1VZUkbHI. Every scene is recorded live from production with Playwright (`video/record.py`),
 narrated by a neural AI voice with word-timed subtitles (`video/make_voice.py`, edge-tts) and assembled in Remotion
 (`video/src`); waits are sped up and marked on screen. The narration and the result callouts are in `video/script.json`;
 rebuild with `python video/make_voice.py && python video/record.py && npm run render --prefix video`.
