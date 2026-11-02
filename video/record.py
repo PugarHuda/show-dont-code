@@ -19,7 +19,7 @@ HERE = Path(__file__).parent
 SITE = "https://show-dont-code.vercel.app"
 API = "https://pugarhuda--show-dont-code-web.us-east.modal.run"
 W, H = 1920, 1080  # output size
-VW, VH, DSF = 1536, 864, 1.25  # the page is laid out at 1536 px and drawn at 1.25x: 25% bigger text, still sharp
+VW, VH = 1536, 864  # pages laid out at 1536 px and scaled up to 1080p in ffmpeg: text 25% bigger in the video
 
 # a cursor you can see, and a spotlight around the thing the voice is talking about
 OVERLAY = """
@@ -75,13 +75,16 @@ class Scene:
 
 def landing(s):
     s.go(SITE + "/", "() => document.getElementById('deck')")
-    time.sleep(1.5)
+    time.sleep(1.2)
     s.page.evaluate("() => __spot('#deck')")
-    time.sleep(2.0)
+    # step through with the deck in view: the lit tube moves along the rack as the steps change
     for _ in range(4):
-        s.point("#next", click=True)
-        s.page.evaluate("() => __spot('#deck')")
-        time.sleep(1.7)
+        time.sleep(1.4)
+        s.page.evaluate("() => { document.getElementById('next').click(); __spot('#deck'); }")
+    time.sleep(1.0)
+    s.show(".carousel")
+    s.point("#next", click=True)
+    time.sleep(2.5)
 
 
 def sync(s):
@@ -204,11 +207,9 @@ def ecosystem(s):
 
 def results(s):
     s.go(SITE + "/", "() => document.getElementById('results')")
-    s.page.evaluate("() => document.getElementById('results').scrollIntoView({behavior: 'smooth'})")
-    time.sleep(1.5)
-    s.page.evaluate("() => __spot('.scores')")
+    s.show(".scores")
     time.sleep(3.5)
-    s.page.evaluate("() => __spot('table.runs')")
+    s.show("table.runs")
     time.sleep(4)
 
 
@@ -245,10 +246,12 @@ def record(name, min_s):
     out = HERE / "public" / "clips"
     raw = out / f"_raw_{name}"
     shutil.rmtree(raw, ignore_errors=True)
+    if name == "ecosystem":
+        mcp_page()  # before the browser opens: Playwright's sync API owns an event loop, asyncio.run can't nest in it
     with sync_playwright() as p:
         b = p.chromium.launch(channel="chrome")
-        ctx = b.new_context(viewport={"width": VW, "height": VH}, record_video_dir=str(raw), record_video_size={"width": W, "height": H},
-                            bypass_csp=True, device_scale_factor=DSF)
+        ctx = b.new_context(viewport={"width": VW, "height": VH}, record_video_dir=str(raw), record_video_size={"width": VW, "height": VH},
+                            bypass_csp=True)
         ctx.add_init_script(OVERLAY)
         t_rec = time.time()
         page = ctx.new_page()
@@ -268,8 +271,6 @@ def record(name, min_s):
                 time.sleep(0.6)
                 mark()
         s.go = go
-        if name == "ecosystem":
-            mcp_page()
         SCENES[name](s)
         if t0 is None:
             mark()
@@ -281,7 +282,7 @@ def record(name, min_s):
         b.close()
         src = video.path()
     lead = t0 - t_rec
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{lead:.2f}", "-i", str(src), "-an", "-c:v", "libx264", "-crf", "18",
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{lead:.2f}", "-i", str(src), "-an", "-vf", f"scale={W}:{H}:flags=lanczos", "-c:v", "libx264", "-crf", "18",
                     "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart", str(out / f"{name}.mp4")], check=True)
     shutil.rmtree(raw, ignore_errors=True)
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out / f"{name}.mp4")],
