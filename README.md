@@ -134,6 +134,11 @@ Then:
   Modal, and sends the protocol through the same script with the chosen number of reactions. The robot analyses it,
   takes the thermocycler into its deck configuration, plays it to the end with hand-off pauses resumed, and reports
   its run status and command count (pcr_1-gt, two reactions: 240 commands, "succeeded").
+- **Citable and forkable**: `scripts/zenodo_deposit.py <run>` deposits the run's RO-Crate on Zenodo with metadata
+  from its receipt (CC BY 4.0, derived from BioVL2's DOI) and reserves a DOI; `scripts/protocolsio_publish.py <run>`
+  puts it on protocols.io as one step per step found in the video (volume, reagent, video seconds, robot or by hand),
+  linked to protocol.py. pcr_1-gt is a Zenodo draft (DOI 10.5281/zenodo.23876762 reserved) and a private protocols.io
+  protocol; `--publish` makes either public.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
   analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a
