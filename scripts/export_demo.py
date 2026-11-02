@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FUNCTION_FILES = ["result.json", "source.json", "answers.json", "tubes.json", "tracks_tip.json", "sheet.json", "gt.csv",
                   "sam_file.json", "profile.json", "analysis.json",
                   # model outputs: the receipt and RO-Crate cite them, and steps_raw.json is what proves a model ran
-                  "steps_raw.json", "steps_stage2.json", "speech.json"]  # videos stay out: the bundle must fit Vercel's 250 MB standard size
+                  "steps_raw.json", "steps_stage2.json", "speech.json", "card.json"]  # videos stay out: the bundle must fit Vercel's 250 MB standard size
 
 for run in sys.argv[1:]:
     src = ROOT / "out" / run
@@ -24,6 +24,8 @@ for run in sys.argv[1:]:
     for f in FUNCTION_FILES:
         if (src / f).exists():
             shutil.copy2(src / f, dst / f)
+    if (src / "card").exists():  # the illustrated bench card (Muse Image), ~0.2 MB a step
+        shutil.copytree(src / "card", dst / "card", dirs_exist_ok=True)
     if (src / "sam_frames").exists():
         shutil.copytree(src / "sam_frames", dst / "sam_frames", dirs_exist_ok=True)
     if (src / "video.mp4").exists():  # runs read from a published protocol have no video

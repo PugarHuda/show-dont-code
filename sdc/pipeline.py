@@ -34,7 +34,8 @@ def progress(run_dir, stage, state):
 
 
 # an edit copy of a shared sample run (app.py) shares these with the sample instead of duplicating ~30 MB each
-SHARED = ("video.mp4", "review.mp4", "sam_frames", "stills*", "spark.mp4", "sam.mp4", "audio.wav", "input.mp4")
+SHARED = ("video.mp4", "review.mp4", "sam_frames", "stills*", "spark.mp4", "sam.mp4", "audio.wav", "input.mp4",
+          "card", "card.json")  # the bench card is drawn from the video, so a copy shares it too
 
 
 def asset(run_dir, f):

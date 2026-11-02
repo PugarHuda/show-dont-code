@@ -80,6 +80,19 @@
   .well.ok { fill: var(--accent); stroke: var(--accent); }
   .well.here { stroke: #ffd60a; stroke-width: 3; }
   .scan { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .card { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .card figure { margin: 0; }
+  .card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  .card figcaption { font-size: 13px; margin-top: 6px; line-height: 1.35; }
+  .card figcaption span { display: block; color: var(--muted); font-size: 12px; }
+  @media print {
+    body.printcard * { visibility: hidden; }
+    body.printcard #cardbox, body.printcard #cardbox * { visibility: visible; }
+    body.printcard #cardbox { position: absolute; inset: 0 auto auto 0; width: 100%; }
+    body.printcard #cardbox .files, body.printcard #cardline { display: none; }
+    body.printcard .card { grid-template-columns: 1fr 1fr; }
+    body.printcard .card li { break-inside: avoid; }
+  }
   .rx { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; width: 100%; margin: 0; }
   .rx input { width: 5em; }
   .zplview { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
@@ -264,6 +277,13 @@
       <p class="hint" id="relline" aria-live="polite"></p>
       <ul class="issues" id="rel"></ul>
     </section>
+    <section id="cardbox" hidden>
+      <h2>Bench card · Muse Image draws, Muse Spark checks</h2>
+      <p class="hint" id="cardline" aria-live="polite"></p>
+      <p class="files"><button type="button" id="carddraw" hidden>Draw the bench card</button>
+        <button type="button" class="ghost" id="cardprint" hidden>Print the bench card</button></p>
+      <ol class="card" id="card"></ol>
+    </section>
     <section id="evalbox" hidden>
       <h2>Accuracy vs. ground truth</h2>
       <div class="metrics" id="metrics"></div>
@@ -369,7 +389,57 @@ async function load(n) {
   if (R.captions) $("video").insertAdjacentHTML("beforeend", `<track kind="captions" default label="Speech (Muse Voice Transcribe)" src="${API}/api/runs/${encodeURIComponent(n)}/captions.vtt">`);
   render();
   related(n);
+  benchCard(n);
 }
+
+// the bench card: each filmed step redrawn by Muse Image from its own frame and checked against it by Muse Spark;
+// the words under each drawing come from the protocol, never from the image model
+async function benchCard(n) {
+  const box = $("cardbox"), base = `${API}/api/runs/${encodeURIComponent(n)}/bench-card`;
+  box.hidden = !!R.source; $("card").replaceChildren(); $("carddraw").hidden = true; $("cardprint").hidden = true;
+  if (R.source) return;  // read from a published protocol: there is no footage to draw from
+  $("cardline").textContent = "Loading the bench card…";
+  const r = await fetch(base);
+  if (n !== name) return;
+  if (r.status === 404) {
+    $("cardline").textContent = "Muse Image can redraw each step's video frame as a clean illustration for a printed bench card, and Muse Spark checks every drawing against its frame. About two minutes.";
+    $("carddraw").hidden = false;
+    return;
+  }
+  if (!r.ok) { $("cardline").textContent = `The bench card didn't load (${r.status}).`; return; }
+  showCard(await r.json(), base);
+}
+function showCard(c, base) {
+  const ok = c.steps.filter((s) => s.faithful).length, redrawn = c.steps.filter((s) => s.attempts > 1).length;
+  $("cardline").textContent = `Each step's frame from the video, redrawn by ${c.image_model} with no text drawn in. ${c.check_model} compared every drawing with its frame: ${ok} of ${c.steps.length} kept every object${redrawn ? `; ${redrawn} first drawing${redrawn > 1 ? "s were" : " was"} sent back and redrawn` : ""}. Click a drawing to see that moment in the video.`;
+  $("card").innerHTML = c.steps.filter((s) => R.steps[s.step]).map((s) => {
+    const st = R.steps[s.step], what = st.action === "transfer" && st.volume_ul
+      ? `${st.volume_ul} µL ${esc(st.reagent || "")}${st.destination ? ` into ${esc(st.destination)}` : ""}` : esc(st.description || st.action);
+    return `<li><figure><img loading="lazy" data-t="${s.t}" src="${base}/${s.step}.jpg" alt="Illustration of step ${s.step + 1}: ${esc(st.description || st.action)}">
+      <figcaption><b>${s.step + 1}. ${esc(st.description || st.action)}</b>${what !== esc(st.description || st.action) ? ` · ${what}` : ""}
+      <span>video ${fmt(s.t)} · ${s.faithful ? "✓ Muse Spark: same scene" : `⚠ Muse Spark: ${esc(s.differences.join("; "))}`}</span></figcaption></figure></li>`;
+  }).join("");
+  $("cardprint").hidden = false;
+}
+$("card").addEventListener("click", (e) => {
+  const t = e.target.closest("img")?.dataset.t;
+  if (t == null || R.source) return;
+  $("video").currentTime = +t; $("video").scrollIntoView({ block: "center" });
+});
+$("cardprint").addEventListener("click", () => {
+  document.body.classList.add("printcard"); print(); document.body.classList.remove("printcard");
+});
+$("carddraw").addEventListener("click", async () => {
+  const n = name, btn = $("carddraw"), base = `${API}/api/runs/${encodeURIComponent(n)}/bench-card`;
+  btn.disabled = true; $("cardline").textContent = "Muse Image is drawing each step and Muse Spark is checking every drawing… about two minutes.";
+  try {
+    const r = await fetch(base, { method: "POST" }), x = await r.json();
+    if (!r.ok) throw new Error(x.detail || r.status);
+    if (n === name) { btn.hidden = true; showCard(x, base); }
+  } catch (e) {
+    if (n === name) $("cardline").textContent = `The bench card couldn't be drawn: ${e.message}`;
+  } finally { btn.disabled = false; }
+});
 
 // how other labs wrote up the same kit (protocols.io public search), to check the filmed volumes against
 async function related(n) {

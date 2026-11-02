@@ -7,13 +7,14 @@ this repository was written during the hackathon. The git history starts on Oct 
 
 ## How it works
 
-Four Meta models, each doing the part it is best at:
+Five Meta models, each doing the part it is best at:
 
 | Model | Job |
 |---|---|
 | **Muse Spark 1.3** (Meta Model API) | Stage 1: watches the whole video and finds every step with timestamps (strict JSON). Reads the printed protocol sheet on the bench from full-resolution stills. Stage 2: looks closely at the aspiration moment of every transfer, groups transfers by physical source tube, and names each group. |
 | **SAM 3.1** (Meta Model API) | Tracks the pipette tip. **Click-to-track**: the scientist clicks a tube in the video, and a point prompt follows it through the whole recording. |
 | **Muse Voice Transcribe** (Meta Model API) | Turns anything said aloud ("fifty microlitres of primer") into timestamped evidence for Muse Spark, with reagent names as keyword bias. |
+| **Muse Image** (Meta Model API) | Draws the **bench card**: each filmed step's own video frame redrawn as a clean training-manual illustration (an edit of the real frame, told to keep every object and draw no text), which Muse Spark then compares with the frame and sends back if anything was added, removed or moved. |
 | **Muse Spark Open** (open weights, served by Baseten) | Reviewer agent. Watches the video, checks the steps against it and the bench sheet, and **runs the Opentrons simulator as a tool** to work out a volume plan that hits the sheet's per-reaction total. |
 
 Then:
@@ -30,6 +31,12 @@ Then:
    clicked reference, rejects the jumps, and reports which steps draw from or fill that tube. The scientist names
    it once and the name is applied everywhere.
 4. The **review UI** plays the human video next to the robot deck, step by step.
+5. **Muse Image draws, Muse Spark checks.** The bench card turns the footage into a printable illustrated guide for
+   training the next person at the bench: one drawing per step, made from that step's own frame (`sdc/illustrate.py`).
+   Muse Spark compares every drawing with its frame and has it redrawn if an object was added, removed or moved, or
+   text was drawn in (on `pcr_1-gt`, two of six first drawings were sent back). Every word and number under a drawing
+   comes from the protocol, never from the image model. `card.json` keeps each frame's and drawing's SHA-256 and the
+   checker's verdict; it is in the RO-Crate as its own action, and the MCP tool `get_bench_card` serves it.
 
 ## What you get out of a run
 
@@ -153,7 +160,7 @@ Then:
   [doi:10.5281/zenodo.23876762](https://doi.org/10.5281/zenodo.23876762).
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
-  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a
+  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_related_protocols`, `get_bench_card` (the illustrated steps with the checker's verdict), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a
   protocol is Python) or spends model credits; robot-server runs are only of protocols this server generated, cached, and capped per day. Add it to Claude Code with
   `claude mcp add --transport http show-dont-code <url>/mcp`.
 - **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run

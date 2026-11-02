@@ -16,7 +16,10 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 > tubes the scientist clicks, and Muse Spark rejects the tracker's jumps. Muse Voice Transcribe turns narration into
 > evidence. A reviewer agent on Muse Spark Open watches the same video, runs the simulator as a tool to work out a
 > volume plan that hits the bench sheet's total, and asks the scientist about anything it can't verify. Code
-> generation is deterministic, so model output never becomes executable code. No video? Paste a published protocols.io
+> generation is deterministic, so model output never becomes executable code. Muse Image turns the same footage into a
+> printable bench card for training: each step's own video frame redrawn as a manual illustration, which Muse Spark
+> checks against the frame and sends back if anything was added or moved; every word on the card comes from the
+> protocol. No video? Paste a published protocols.io
 > protocol: Muse Spark reads its text into the same steps, and it goes through the same codegen and checks, so the
 > protocols labs already publish become robot runs too. Every protocol is run end to end on Opentrons' own
 > robot-server (the software inside a Flex), and every command it ran matched its own analysis (240 of 240). On held-out videos from the public
@@ -29,7 +32,8 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 **Bonus prizes this is eligible for:** Best Build on Meta Open Weight Models (the reviewer agent runs on Muse Spark Open,
 served by Baseten as `meta-models/muse-spark-open-1026`, failing over to Fireworks) and Best Agentic Use-Case (the agent
 watches the video, calls the Opentrons simulator and `look_at_moment` as tools until the volumes add up, and proposes fixes
-the scientist applies with one click).
+the scientist applies with one click). Best Creative Build (Muse Image draws the bench card from the scientist's own
+footage; Muse Spark checks every drawing against its frame and has it redrawn when it isn't faithful).
 **Live demo:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (seven sample runs).
 Uploading your own video needs the access code; put it in the description field of the form, never in this
 repo (the code lives in `out/upload_code.txt`, which is gitignored).
@@ -57,6 +61,9 @@ thermocycler time from Opentrons' analysis at the module's rated ramp rates; an 
 >   propagation in both directions, parsed with meta-sam-parser.
 > - Muse Voice Transcribe: timestamped speech turns with reagent-name keyword biasing, fed to Muse Spark as evidence
 >   (Spark 1.3's own audio understanding is limited).
+> - Muse Image (Meta Model API, /v1/images/edits): the bench card. Each step's video frame is edited into a clean
+>   training-manual illustration (keep every object, draw no text); Muse Spark compares each drawing with its frame
+>   and the step is redrawn if anything was added, removed or moved.
 > - Muse Spark Open (open weights on Baseten): a reviewer agent that watches the video, calls the Opentrons simulator
 >   as a tool to find a volume plan whose per-tube totals match the sheet, and returns structured findings.
 
@@ -88,12 +95,6 @@ rebuild with `python video/make_voice.py && python video/record.py && npm run re
 
 ## X post (for Most Viral)
 
-> I filmed nothing. A Kyoto lab filmed themselves doing PCR by hand. My app watched it and wrote the robot code. 🧪🤖
->
-> Muse Spark finds every pipetting step, SAM 3.1 tracks the tubes, and an agent on Muse Spark Open runs the
-> Opentrons simulator itself until the volumes add up.
->
-> 79% of PCR steps on videos it never saw. Try it: show-dont-code.vercel.app
-> #MetaAIHackathon @AIatMeta
-
-(Attach a 30–45 s cut: hand pipetting on the left, robot deck lighting up on the right.)
+The 46 s square ad is `video/out/show-dont-code-ad.mp4` (Remotion composition `Ad`, narration in `video/ad.json`;
+rebuild with `python video/make_voice.py ad && npm run render:ad --prefix video`). The post text is long-form (X
+Premium) and names every model; paste the post's link into the submission's X field once it is live.

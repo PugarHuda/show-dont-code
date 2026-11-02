@@ -419,6 +419,49 @@ def flex_robot_run(name: str, n: int):
     return out
 
 
+_card_locks = defaultdict(threading.Lock)
+
+
+@app.get("/api/runs/{name}/bench-card")
+def bench_card(name: str):
+    """The illustrated bench card: each filmed step drawn by Muse Image from its own video frame, with Muse Spark's
+    verdict on whether the drawing kept the scene (card.json). 404 until someone draws it."""
+    f = pipeline.asset(_run_dir(name), "card.json")
+    if not f.exists():
+        raise HTTPException(404, "no bench card yet")
+    return json.loads(f.read_text(encoding="utf-8"))
+
+
+@app.get("/api/runs/{name}/bench-card/{i}.jpg")
+def bench_card_image(name: str, i: int):
+    f = pipeline.asset(_run_dir(name), "card") / f"step_{i}.jpg"
+    if not f.exists():
+        raise HTTPException(404, "no drawing for this step")
+    return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.post("/api/runs/{name}/bench-card")
+def draw_bench_card(name: str):
+    """Draw the bench card for a run that has a video (an upload; the samples come with theirs). About two minutes:
+    one Muse Image edit and one Muse Spark check per step, in parallel. Counts as one live model call."""
+    from sdc import illustrate
+
+    d = _run_dir(name)
+    if not pipeline.asset(d, "video.mp4").exists():
+        raise HTTPException(409, "this run has no video to draw from")
+    with _card_locks[d.name]:
+        if pipeline.asset(d, "card.json").exists():
+            return bench_card(name)
+        spend_live_call()
+        try:
+            return illustrate.bench_card(d, pipeline.asset(d, "video.mp4"))
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+        except Exception:  # model refused or unreachable: say so, keep nothing half-made
+            log.exception("bench card failed for %s", name)
+            raise HTTPException(503, "Muse Image or Muse Spark didn't answer; please try again later")
+
+
 @app.get("/api/runs/{name}/related")
 def related_protocols(name: str):
     """Published protocols on protocols.io that use this run's reagents (brand and kit names), with their DOIs.
@@ -846,6 +889,17 @@ if MCPServer:
         """Public protocols on protocols.io that use this run's reagents (brand and kit names) and protocol type, with
         DOIs and which reagent words each mentions: how other labs wrote up the same kit."""
         return _http(related_protocols, name)
+
+    @mcp.tool()
+    def get_bench_card(name: str) -> dict:
+        """The illustrated bench card for training: each filmed step drawn by Muse Image from its own video frame (an
+        edit of the real frame, no text drawn in), Muse Spark's check that the drawing kept every object, and the
+        step's reagent and volume from the protocol. Image links are under /api/runs/<name>/bench-card/<step>.jpg."""
+        card = _http(bench_card, name)
+        steps = _http(result, name)["steps"]
+        base = f"{os.getenv('PUBLIC_URL', '')}/api/runs/{name}/bench-card"
+        return {**card, "steps": [{**c, "image": f"{base}/{c['step']}.jpg", **{k: steps[c["step"]].get(k) for k in (
+            "description", "reagent", "volume_ul", "destination")}} for c in card["steps"] if c["step"] < len(steps)]}
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:

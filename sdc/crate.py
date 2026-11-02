@@ -24,7 +24,8 @@ MODEL_OUTPUTS = {"steps_raw.json": "Steps found in the video (Muse Spark, stage 
                  "speech.json": "Speech in the video, timestamped (Muse Voice Transcribe)",
                  "tracks_tip.json": "Pipette tip tracked frame by frame (SAM 3.1)",
                  "tubes.json": "Tubes the scientist clicked, tracked by SAM 3.1 and checked by Muse Spark"}
-NAMES = {"source.json": "The published protocol as read from protocols.io (title, DOI, text)",
+NAMES = {"card.json": "Bench card: each step drawn by Muse Image from its video frame, checked by Muse Spark",
+         "source.json": "The published protocol as read from protocols.io (title, DOI, text)",
          "review.json": "Reviewer agent findings and its simulator tool calls", "answers.json": "The scientist's answers",
          "receipt.json": "Reproducibility receipt", "pylabrobot.py": "Hamilton STARlet translation (PyLabRobot)",
          "tecan-evo.py": "Tecan Freedom EVO 150 translation (PyLabRobot)", "analysis.json": "Opentrons protocol analysis",
@@ -43,11 +44,14 @@ def build(run_dir, name, generated, models):
     Returns the crate as zip bytes."""
     d = Path(run_dir)
     files = dict(generated)
+    from .pipeline import asset
+
     for f in ("analysis.json", "answers.json", "source.json", *MODEL_OUTPUTS):
         if (d / f).exists():
             files[f] = (d / f).read_bytes()
+    if asset(d, "card.json").exists():  # an edit copy shares its sample's card
+        files["card.json"] = asset(d, "card.json").read_bytes()
     from_gt = "note" in models
-    from .pipeline import asset
 
     video = asset(d, "video.mp4")
     text = (d / "source.json").exists()  # started from a published protocol, not a video
@@ -115,6 +119,17 @@ def build(run_dir, name, generated, models):
                     "result": have("protocol.py", "methods.md", "autoprotocol.json", "pylabrobot.py", "tecan-evo.py",
                                    "labels.svg", "labels.zpl"),
                     "endTime": _when(d / "result.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
+    if "card.json" in files:  # drawn from the video for people, never read back by the code generator
+        card = json.loads(files["card.json"])
+        tools += [app(META + "#muse-image", "Muse Image", META, card["image_model"])]
+        if not any(t["@id"] == META + "#muse-spark" for t in tools):
+            tools.append(app(META + "#muse-spark", "Muse Spark", META, card["check_model"]))
+        actions.append({"@id": "#illustrate", "@type": "CreateAction", "name": "Draw the bench card with Muse Image",
+                        "description": "Each step's video frame redrawn as an illustration (no text drawn in), then "
+                                       "compared with its frame by Muse Spark",
+                        "instrument": [{"@id": META + "#muse-image"}, {"@id": META + "#muse-spark"}],
+                        "object": {"@id": "#source-video"}, "result": have("card.json"),
+                        "endTime": _when(asset(d, "card.json")), "actionStatus": "http://schema.org/CompletedActionStatus"})
     if "analysis.json" in files:
         actions.append({"@id": "#analyze", "@type": "CreateAction", "name": "opentrons analyze (what the Opentrons App runs on import)",
                         "description": "Protocol analysis of the generated file, same as on import into the Opentrons App",

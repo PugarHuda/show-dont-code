@@ -16,7 +16,18 @@ HERE = Path(__file__).parent
 VOICE, RATE = "en-US-AndrewMultilingualNeural", "+4%"
 
 
-async def speak(text, mp3):
+async def speak(text, mp3, tries=4):
+    """The free Edge voice service sometimes answers with no audio; try again a few times before giving up."""
+    for k in range(tries):
+        try:
+            return await _speak(text, mp3)
+        except edge_tts.exceptions.NoAudioReceived:
+            if k == tries - 1:
+                raise
+            await asyncio.sleep(2 + 3 * k)
+
+
+async def _speak(text, mp3):
     words = []
     with open(mp3, "wb") as f:
         async for ch in edge_tts.Communicate(text, VOICE, rate=RATE, boundary="WordBoundary").stream():

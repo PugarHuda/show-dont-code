@@ -1,13 +1,13 @@
 // 1080x1080 cut for X: a hook in the first seconds, one big claim per beat over a cropped, readable part of the live
 // recording, and a call to action. Narration and timings come from ad.json via `python make_voice.py ad`.
 import {
-  AbsoluteFill, Audio, OffthreadVideo, Sequence, interpolate, spring, staticFile, useCurrentFrame,
+  AbsoluteFill, Audio, Img, OffthreadVideo, Sequence, interpolate, spring, staticFile, useCurrentFrame,
 } from "remotion";
 import adJson from "../public/ad_scenes.json";
 import { Deck, FPS, RED, fontFamily } from "./Demo";
 
 type Line = { from: number; to: number; text: string };
-type Beat = { id: string; kind: "rec" | "stat" | "cta"; head: string; say: string; voice_s: number; lines: Line[];
+type Beat = { id: string; kind: "rec" | "card" | "stat" | "cta"; head: string; say: string; voice_s: number; lines: Line[];
   clip?: string; from?: number; crop?: [number, number, number, number]; credit?: boolean };
 const beats = adJson as Beat[];
 const PAD = 0.35;
@@ -57,6 +57,27 @@ const Rec = ({ beat }: { beat: Beat }) => {
   );
 };
 
+// the real frame, wiped left to right into Muse Image's drawing of it
+const Card = ({ beat }: { beat: Beat }) => {
+  const frame = useCurrentFrame();
+  const wipe = interpolate(frame, [0.6 * FPS, 2.4 * FPS], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const img = { position: "absolute" as const, inset: 0, width: "100%", height: "100%", objectFit: "cover" as const };
+  return (
+    <AbsoluteFill style={{ background: "#000" }}>
+      <Head text={beat.head} />
+      <div style={{ position: "absolute", left: 50, top: 290, width: 980, height: 551, borderRadius: 22, overflow: "hidden",
+        border: `3px solid ${RED}`, background: "#fff" }}>
+        <Img src={staticFile("card_frame.jpg")} style={img} />
+        <Img src={staticFile("card_draw.jpg")} style={{ ...img, clipPath: `inset(0 ${100 - wipe}% 0 0)` }} />
+        <div style={{ position: "absolute", top: 0, bottom: 0, left: `${wipe}%`, width: 4, background: RED, opacity: wipe > 0 && wipe < 100 ? 1 : 0 }} />
+      </div>
+      <div style={{ position: "absolute", left: 52, top: 852, color: "#8a8a8a", fontFamily, fontSize: 18 }}>
+        Step 2 · 1.5 µL Primer1 · drawn from the frame at 1:18, checked by Muse Spark · BioVL2, CC BY 4.0</div>
+      <Caption beat={beat} />
+    </AbsoluteFill>
+  );
+};
+
 const Stat = ({ beat }: { beat: Beat }) => {
   const frame = useCurrentFrame();
   const n = Math.round(interpolate(frame, [0, 0.9 * FPS], [0, 79], { extrapolateRight: "clamp" }));
@@ -85,7 +106,7 @@ const Cta = ({ beat }: { beat: Beat }) => {
         <div style={{ marginTop: 34, display: "inline-block", background: RED, color: "#fff", borderRadius: 999,
           padding: "18px 48px", fontWeight: 700, fontSize: 40 }}>show-dont-code.vercel.app</div>
         <div style={{ marginTop: 22, fontSize: 24, color: "#5b5b5b" }}>
-          Free and open source · Muse Spark · SAM 3.1 · Muse Spark Open</div>
+          Open source · Muse Spark · SAM 3.1 · Muse Image · Muse Spark Open</div>
       </div>
     </AbsoluteFill>
   );
@@ -101,7 +122,7 @@ export const Ad = () => {
         const n = beatFrames(b);
         const seq = (
           <Sequence key={b.id} from={from} durationInFrames={n} name={b.id}>
-            {b.kind === "rec" ? <Rec beat={b} /> : b.kind === "stat" ? <Stat beat={b} /> : <Cta beat={b} />}
+            {b.kind === "rec" ? <Rec beat={b} /> : b.kind === "card" ? <Card beat={b} /> : b.kind === "stat" ? <Stat beat={b} /> : <Cta beat={b} />}
             <Audio src={staticFile(`voice/ad_${b.id}.mp3`)} />
           </Sequence>
         );

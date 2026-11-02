@@ -44,7 +44,8 @@ async def mcp_session(url):
         lab = json.loads((await c.call_tool("get_tube_labels", {"name": "pcr_1-gt"})).content[0].text)
         lab8 = json.loads((await c.call_tool("get_tube_labels", {"name": "pcr_1-gt", "reactions": 8})).content[0].text)
         flex = json.loads((await c.call_tool("run_on_flex_robot_server", {"name": "pcr_1-gt", "reactions": 2})).content[0].text)
-        return tools, proto, run, (bad.is_error, bad.content[0].text), pd, (lab, lab8), flex
+        card = json.loads((await c.call_tool("get_bench_card", {"name": "pcr_1-gt"})).content[0].text)
+        return tools, proto, run, (bad.is_error, bad.content[0].text), pd, (lab, lab8), flex, card
 
 BASE = os.getenv("BASE", "http://127.0.0.1:8000").rstrip("/")
 RESULTS = []
@@ -624,10 +625,14 @@ def main():
         page.wait_for_function("() => /expired/.test(document.getElementById('status').textContent)", timeout=60000)
         check("app: an expired copy link says so instead of 'analysing your video'",
               not page.evaluate("() => document.getElementById('updlg').open"), page.inner_text("#status"))
-        tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8), mflex = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
+        tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8), mflex, mcard = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
         check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer",
                                                      "get_tube_labels", "run_on_flex_robot_server", "get_related_protocols",
-                                                     "get_receipt"], tools)
+                                                     "get_bench_card", "get_receipt"], tools)
+        check("mcp: get_bench_card gives each step's drawing, Muse Spark's verdict and the protocol's own volume",
+              mcard["image_model"] == "muse-image-1.0" and mcard["steps"] and all(
+                  c["image"].endswith(f"/bench-card/{c['step']}.jpg") and isinstance(c["faithful"], bool) for c in mcard["steps"])
+              and any(c.get("volume_ul") for c in mcard["steps"]), str(mcard)[:200])
         check("mcp: get_tube_labels gives each rack tube's well, fill volume and label link",
               sorted(t["tube"] for t in mlab["tubes"]) == sorted(rack)
               and all(t["well"] == layout[t["tube"]].split(":")[1] and (t["fill_ul"] > t["drawn_ul"] > 0 or not t["source"])
@@ -659,6 +664,25 @@ def main():
         for bad in ("https://evil.example/x", "file:///etc/passwd", ""):
             st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": bad}).encode(), {"Content-Type": "application/json"})
             check(f"protocols.io import: refuses {bad or 'an empty link'!r} before any work", st == 422, (st, body[:100]))
+        # ---- bench card: Muse Image redraws each step's frame, Muse Spark checks it -------------------------
+        card = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/bench-card")[1])
+        st, img = fetch(f"{api}/api/runs/pcr_1-gt/bench-card/{card['steps'][0]['step']}.jpg")
+        check("bench card: every filmed step has a drawing and Muse Spark's verdict on it",
+              card["image_model"] == "muse-image-1.0" and len(card["steps"]) >= 5 and st == 200 and img[:3] == b"ÿØÿ"
+              and all(len(s["image_sha256"]) == 64 for s in card["steps"]), (st, len(card.get("steps", []))))
+        check("bench card: a run read from a published protocol has no footage to draw",
+              fetch(f"{api}/api/runs/protocolsio_q5/bench-card", "POST")[0] == 409)
+        page.goto(BASE + "/app?run=pcr_1-gt")
+        page.wait_for_function("() => document.querySelectorAll('#card img').length > 0", timeout=60000)
+        page.locator("#card img").first.scroll_into_view_if_needed()
+        page.wait_for_function("() => [...document.querySelectorAll('#card img')].slice(0, 2).every((i) => i.complete && i.naturalWidth > 0)", timeout=60000)
+        cap = page.inner_text("#card li:first-child figcaption")
+        check("bench card: the app shows the drawings with the protocol's own volume and the checker's verdict",
+              page.evaluate("() => document.querySelectorAll('#card img').length") == len(card["steps"])
+              and "µL" in cap and "Muse Spark" in cap and page.is_visible("#cardprint"), cap)
+        page.locator("#card img").nth(2).click()
+        check("bench card: clicking a drawing jumps the video to that moment",
+              abs(page.evaluate("() => document.getElementById('video').currentTime") - card["steps"][2]["t"]) < 1.5)
         # ---- protocols.io: published protocols that use the same kit ----------------------------------------
         page.goto(BASE + "/app?run=pcr_3")
         page.wait_for_function("() => /protocols.io/.test(document.getElementById('relline').textContent) && "

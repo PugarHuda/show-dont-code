@@ -134,6 +134,13 @@
   table.runs td.n { font-variant-numeric: tabular-nums; }
   .note { color: var(--muted); max-width: 38em; margin: 26px 0 0; font-size: 16.5px; }
 
+  .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin: 0 0 20px; }
+  .pair figure, .strip figure { margin: 0; }
+  .pair img, .strip img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 22px; border: 1px solid var(--rule); background: #fff; }
+  .pair figcaption, .strip figcaption { color: var(--muted); font-size: 15px; margin-top: 10px; }
+  .pair figcaption b, .strip figcaption b { color: var(--black); }
+  .strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  @media (max-width: 720px) { .pair, .strip { grid-template-columns: 1fr; } }
   .limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 48px; max-width: 980px; }
   .limits div { border-top: 2px solid var(--black); padding: 20px 0 28px; }
   .limits b { display: block; font-weight: 900; font-size: 21px; margin-bottom: 6px; }
@@ -217,7 +224,7 @@
   <section id="how">
     <div class="wrap">
       <h2>What happens to your video</h2>
-      <p class="intro">Four Meta models, each doing the part it is best at. Nothing reaches the robot until the simulator has run it and you have seen it.</p>
+      <p class="intro">Meta models, each doing the part it is best at. Nothing reaches the robot until the simulator has run it and you have seen it.</p>
       <ol class="flow">
         <li>
           <span class="n">1</span>
@@ -282,6 +289,23 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
     </div>
   </section>
 
+  <section id="card">
+    <div class="wrap">
+      <h2>And a bench card the next person can follow</h2>
+      <p class="intro">Muse Image redraws each step's own video frame as a training-manual illustration. Muse Spark compares every drawing with its frame and sends it back if anything was added, moved or written in. The words under each drawing come from the protocol, never from the image model.</p>
+      <div class="pair">
+        <figure><img src="/media/card_frame.jpg" width="960" height="540" loading="lazy" alt="Video frame at 1:18 of pcr_1-gt: gloved hands pipetting primer at a crowded lab bench."><figcaption><b>The video, 1:18.</b> Head-mounted camera, mid-transfer.</figcaption></figure>
+        <figure><img src="/media/card_1.jpg" width="960" height="540" loading="lazy" alt="The same moment redrawn as a clean illustration: the same hands, pipette, racks and tubes, with no text."><figcaption><b>Step 2 · 1.5 µL Primer1 into the sample tube.</b> Drawn by Muse Image, checked by Muse Spark.</figcaption></figure>
+      </div>
+      <div class="strip">
+        <figure><img src="/media/card_3.jpg" width="960" height="540" loading="lazy" alt="Illustration of step 4: adding template DNA."><figcaption><b>Step 4</b> · 2 µL Template</figcaption></figure>
+        <figure><img src="/media/card_4.jpg" width="960" height="540" loading="lazy" alt="Illustration of step 5: adding PrimeSTAR Max Premix."><figcaption><b>Step 5</b> · 25 µL PrimeSTAR Max Premix</figcaption></figure>
+        <figure><img src="/media/card_5.jpg" width="960" height="540" loading="lazy" alt="Illustration of step 6: placing the tube in the thermal cycler."><figcaption><b>Step 6</b> · into the thermal cycler, 35 cycles</figcaption></figure>
+      </div>
+      <p class="note">The app prints the card for any run with a video. Lab video: BioVL2 (Kyoto University), CC BY 4.0.</p>
+    </div>
+  </section>
+
   <section id="results">
     <div class="wrap">
       <h2>Measured on videos it never saw</h2>
@@ -333,7 +357,7 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
 
 <footer>
   <div class="wrap">
-    <p>Built for the Meta Global AI Developer Hackathon 2026 on Muse Spark, SAM 3.1 and Muse Voice Transcribe (Meta Model API) and Muse Spark Open (served by Baseten).</p>
+    <p>Built for the Meta Global AI Developer Hackathon 2026 on Muse Spark, SAM 3.1, Muse Voice Transcribe and Muse Image (Meta Model API) and Muse Spark Open (served by Baseten).</p>
     <p>Lab videos and step annotations: <a href="https://zenodo.org/records/21495188">BioVL2 dataset</a> (Nishimura et al., Kyoto University),
       <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, re-encoded for display. Opentrons and Flex are trademarks of Opentrons Labworks.</p>
   </div>

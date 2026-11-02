@@ -88,6 +88,12 @@
   "say": "Then Opentrons' own robot software runs it. Two hundred forty of two hundred forty commands match."
  },
  {
+  "id": "card",
+  "kind": "card",
+  "head": "Muse Image draws\nthe bench card",
+  "say": "And Muse Image redraws your footage as an illustrated bench card, with Muse Spark checking every drawing."
+ },
+ {
   "id": "stat",
   "kind": "stat",
   "head": "79%",
