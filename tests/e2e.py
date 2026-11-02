@@ -628,7 +628,7 @@ def main():
         tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8), mflex, mcard = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
         check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer",
                                                      "get_tube_labels", "run_on_flex_robot_server", "get_related_protocols",
-                                                     "crosscheck_volumes", "get_bench_card", "get_receipt"], tools)
+                                                     "get_bench_card", "crosscheck_volumes", "get_receipt"], tools)
         check("mcp: get_bench_card gives each step's drawing, Muse Spark's verdict and the protocol's own volume",
               mcard["image_model"] == "muse-image-1.0" and mcard["steps"] and all(
                   c["image"].endswith(f"/bench-card/{c['step']}.jpg") and isinstance(c["faithful"], bool) for c in mcard["steps"])
