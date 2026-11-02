@@ -80,6 +80,10 @@ def main():
         page.goto(BASE + "/")
         page.wait_for_timeout(2500)
         check("landing: headline", "Pipette it once" in page.inner_text("h1"))
+        page.click("#next"); page.click("#next")
+        check("landing: the deck carousel lights the tube rack well of the step shown (Primer2 from C1)",
+              page.inner_text("#what") == "Primer2" and page.evaluate("() => document.querySelector('.deck .tube.on')?.dataset.tube") == "C1"
+              and "Step 3 of 6" in page.inner_text("#count"), page.inner_text("#shot"))
         csp_seen += page.evaluate("() => window.__csp || []")
         for path in ("/", "/app"):
             with urllib.request.urlopen(BASE + path, timeout=60) as r:
@@ -91,6 +95,9 @@ def main():
         with urllib.request.urlopen(BASE + "/app", timeout=60) as r:
             html = r.read().decode()
         check("security: no script runs without the nonce", html.count("<script") == html.count("<script nonce="), html.count("<script"))
+        # the video sits below the deck since the redesign; Chrome pauses muted autoplay while it is off screen
+        page.locator("#hero").scroll_into_view_if_needed()
+        page.wait_for_function("() => { const v = document.getElementById('hero'); return !v.paused && v.readyState >= 2; }", timeout=20000)
         check("landing: hero video plays", page.evaluate("() => { const v = document.getElementById('hero'); return !v.paused && v.readyState >= 2; }"))
         page.click("#toggle")
         check("landing: pause control works", page.evaluate("() => document.getElementById('hero').paused"))
