@@ -1,0 +1,301 @@
+"""Record each scene of the demo video from the live site with Playwright: real clicks, real results, one clip per
+scene (video/public/clips/<id>.mp4). A visible cursor and a red spotlight show where to look.
+
+  python video/record.py                 # every recorded scene in script.json
+  python video/record.py robot labels    # just these
+"""
+import asyncio
+import html
+import json
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+HERE = Path(__file__).parent
+SITE = "https://show-dont-code.vercel.app"
+API = "https://pugarhuda--show-dont-code-web.us-east.modal.run"
+W, H = 1920, 1080  # output size
+VW, VH, DSF = 1536, 864, 1.25  # the page is laid out at 1536 px and drawn at 1.25x: 25% bigger text, still sharp
+
+# a cursor you can see, and a spotlight around the thing the voice is talking about
+OVERLAY = """
+(() => {
+  const css = document.createElement('style');
+  css.textContent = `.__cur{position:fixed;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:rgba(212,35,27,.28);
+    border:3px solid #d4231b;z-index:2147483647;pointer-events:none;transition:transform .15s;left:-50px;top:-50px}
+    .__cur.down{transform:scale(.7)}
+    .__spot{position:fixed;border:5px solid #d4231b;border-radius:16px;z-index:2147483646;pointer-events:none;
+    box-shadow:0 0 0 9999px rgba(0,0,0,.22);transition:all .35s ease}`;
+  const add = () => { document.head.appendChild(css); const c = document.createElement('div'); c.className = '__cur'; document.body.appendChild(c);
+    addEventListener('mousemove', e => { c.style.left = e.clientX + 'px'; c.style.top = e.clientY + 'px'; }, true);
+    addEventListener('mousedown', () => c.classList.add('down'), true); addEventListener('mouseup', () => c.classList.remove('down'), true); };
+  document.readyState === 'loading' ? addEventListener('DOMContentLoaded', add) : add();
+  window.__spot = (sel) => {
+    document.querySelectorAll('.__spot').forEach(e => e.remove());
+    const el = typeof sel === 'string' ? document.querySelector(sel) : sel; if (!el) return false;
+    const r = el.getBoundingClientRect(), d = document.createElement('div'); d.className = '__spot';
+    Object.assign(d.style, {left: r.left - 10 + 'px', top: r.top - 10 + 'px', width: r.width + 20 + 'px', height: r.height + 20 + 'px'});
+    document.body.appendChild(d); return true;
+  };
+  window.__unspot = () => document.querySelectorAll('.__spot').forEach(e => e.remove());
+  addEventListener('scroll', () => window.__unspot && window.__unspot(), true);
+})();
+"""
+
+
+class Scene:
+    def __init__(self, page):
+        self.page = page
+
+    def go(self, url, ready):
+        self.page.goto(url, wait_until="domcontentloaded")
+        self.page.wait_for_function(ready, timeout=90000)
+
+    def show(self, sel, block="center"):
+        """Scroll the element into view, let it settle, then spotlight it."""
+        self.page.evaluate("([s, b]) => document.querySelector(s)?.scrollIntoView({block: b, behavior: 'smooth'})", [sel, block])
+        time.sleep(1.0)
+        self.page.evaluate("s => __spot(s)", sel)
+
+    def point(self, sel, click=False):
+        box = self.page.locator(sel).first.bounding_box()
+        self.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, steps=28)
+        time.sleep(0.3)
+        if click:
+            self.page.mouse.down(); time.sleep(0.12); self.page.mouse.up()
+            self.page.locator(sel).first.click()
+
+    def wait(self, js, timeout=240000):
+        self.page.wait_for_function(js, timeout=timeout)
+
+
+def landing(s):
+    s.go(SITE + "/", "() => document.getElementById('deck')")
+    time.sleep(1.5)
+    s.page.evaluate("() => __spot('#deck')")
+    time.sleep(2.0)
+    for _ in range(4):
+        s.point("#next", click=True)
+        s.page.evaluate("() => __spot('#deck')")
+        time.sleep(1.7)
+
+
+def sync(s):
+    s.go(SITE + "/app?run=pcr_3", "() => document.getElementById('video')?.readyState >= 1 && document.querySelectorAll('#steps li').length")
+    s.page.evaluate("() => new Promise(r => { const v = document.getElementById('video'); v.addEventListener('seeked', r, {once: true}); v.currentTime = 31; })")
+    time.sleep(1)
+    s.page.evaluate("() => document.getElementById('video').play()")
+    time.sleep(3)
+    s.page.evaluate("() => __spot('#steps')")
+    time.sleep(4)
+    s.page.evaluate("() => __spot('#deck')")
+    time.sleep(5)
+    s.page.evaluate("() => __spot('#now')")
+    time.sleep(5)
+    s.page.evaluate("() => document.getElementById('video').pause()")
+
+
+def tubes(s):
+    s.go(SITE + "/app?run=pcr_3", "() => document.querySelectorAll('#tubes > *').length")
+    t = s.page.evaluate("() => R.tubes[0].t")
+    s.page.evaluate(f"() => new Promise(r => {{ const v = document.getElementById('video'); v.addEventListener('seeked', r, {{once: true}}); v.currentTime = {t}; }})")
+    s.show("#pick", "start")
+    s.point("#pick")
+    time.sleep(1.5)
+    s.page.evaluate("() => { window.scrollTo({top: 0, behavior: 'smooth'}); }")
+    time.sleep(1)
+    s.page.evaluate("() => __spot('#video')")
+    s.page.evaluate("() => document.getElementById('video').play()")
+    time.sleep(5)
+    s.page.evaluate("() => document.getElementById('video').pause()")
+    s.show("#tubes", "start")
+    time.sleep(4)
+
+
+def reviewer(s):
+    s.go(SITE + "/app?run=pcr_3", "() => document.querySelectorAll('#issues li').length && document.querySelector('#qform .hint')")
+    passed = s.page.evaluate("() => [...document.querySelectorAll('#issues li.info')].findIndex(li => /simulator passed/.test(li.textContent))")
+    s.page.evaluate(f"() => document.querySelectorAll('#issues li.info')[{passed}].id = '__passed'")
+    s.show("#__passed")
+    time.sleep(5)
+    s.show("#qform")
+    time.sleep(6)
+
+
+def confirm(s):
+    s.go(SITE + "/app?run=pcr_3", "() => document.querySelector('#qform button[type=submit]')")
+    # the reviewer pre-filled every volume; the cycle count comes from the bench sheet's 35
+    s.page.evaluate("() => document.querySelectorAll('#qform input[type=number]').forEach(i => { if (!i.value && i.name.endsWith(':cycles')) i.value = 35; })")
+    s.show("#qform")
+    time.sleep(1.5)
+    s.point("#qform button[type=submit]", click=True)
+    s.wait("() => /passed/.test(document.getElementById('status').textContent)")
+    time.sleep(1)
+    s.page.evaluate("() => scrollTo({top: 0, behavior: 'smooth'})")
+    time.sleep(0.8)
+    s.page.evaluate("() => __spot('#status')")
+    time.sleep(3)
+    s.show("#analysisline")
+    time.sleep(3)
+    s.show("#setup")
+    time.sleep(3)
+
+
+def robot(s):
+    s.go(SITE + "/app?run=pcr_1-gt", "() => !document.getElementById('flexrun').closest('section').hidden")
+    s.page.fill("#rx", "2")
+    s.show("#flexrun")
+    s.point("#flexrun", click=True)
+    s.wait("() => /ran it to the end|did not finish|didn't complete/.test(document.getElementById('flexline').textContent)", 400000)
+    time.sleep(0.5)
+    s.show("#flexline")
+    time.sleep(7)
+
+
+def browser(s):
+    s.go(SITE + "/app?run=pcr_1-gt", "() => !document.getElementById('here-evo').hidden")
+    s.show("#plrline")
+    time.sleep(2)
+    s.point("#here-evo", click=True)
+    s.wait("() => /ran in this browser|Tecan Freedom EVO 150: (?!loading|running)/.test(document.getElementById('plrhere').textContent)", 300000)
+    s.show("#plrhere")
+    time.sleep(4)
+
+
+def labels(s):
+    s.go(SITE + "/app?run=pcr_1-gt", "() => !document.getElementById('rxbox').hidden")
+    s.show("#rxbox")
+    s.point("#rx")
+    s.page.fill("#rx", "8")
+    s.page.dispatch_event("#rx", "input")
+    s.wait("() => /passed|failed|Couldn't/.test(document.getElementById('rxline').textContent)")
+    s.page.evaluate("() => __spot('#rxline')")
+    time.sleep(3)
+    s.point("#zplbtn", click=True)
+    s.wait("() => document.querySelectorAll('#zplview img').length > 0", 120000)
+    time.sleep(1)
+    s.show("#zplview")
+    time.sleep(4)
+
+
+def receipt(s):
+    s.go(SITE + "/app?run=pcr_1-gt", "() => !document.getElementById('otsline').hidden || document.getElementById('f-receipt').href")
+    s.show("#otsline")
+    time.sleep(3)
+    s.page.goto(API + "/api/runs/pcr_1-gt/receipt.json")
+    time.sleep(3.5)
+    s.page.goto("https://zenodo.org/records/23876762", wait_until="domcontentloaded")
+    time.sleep(2)
+    s.page.evaluate("() => { const b = [...document.querySelectorAll('button')].find(x => /Accept all cookies|Accept only essential/.test(x.textContent)); b && b.click(); }")
+    time.sleep(4)
+
+
+def ecosystem(s):
+    s.go(SITE + "/app?run=pcr_3", "() => /Compare their volumes/.test(document.getElementById('relline').textContent)")
+    s.show("#relbox")
+    time.sleep(4.5)
+    s.page.goto((HERE / "public" / "mcp.html").resolve().as_uri())
+    time.sleep(6)
+
+
+def results(s):
+    s.go(SITE + "/", "() => document.getElementById('results')")
+    s.page.evaluate("() => document.getElementById('results').scrollIntoView({behavior: 'smooth'})")
+    time.sleep(1.5)
+    s.page.evaluate("() => __spot('.scores')")
+    time.sleep(3.5)
+    s.page.evaluate("() => __spot('table.runs')")
+    time.sleep(4)
+
+
+async def _mcp_calls():
+    from mcp import Client
+
+    async with Client(API + "/mcp") as c:
+        tools = [t.name for t in (await c.list_tools()).tools]
+        rel = json.loads((await c.call_tool("get_related_protocols", {"name": "pcr_3"})).content[0].text)
+        fl = json.loads((await c.call_tool("run_on_flex_robot_server", {"name": "pcr_1-gt", "reactions": 2})).content[0].text)
+    return tools, rel, fl
+
+
+def mcp_page():
+    """A terminal-style page of what an agent gets from the live MCP server (real calls, made now)."""
+    tools, rel, fl = asyncio.run(_mcp_calls())
+    show = lambda o: html.escape(json.dumps(o, indent=1, ensure_ascii=False))  # noqa: E731
+    lines = [f'<p class="c">$ claude mcp add --transport http show-dont-code {API}/mcp</p>',
+             f'<p class="k">list_tools()</p><pre>{show(tools)}</pre>',
+             '<p class="k">run_on_flex_robot_server(name="pcr_1-gt", reactions=2)</p>'
+             f'<pre>{show({k: fl.get(k) for k in ("robot_software", "status", "commands", "matches_analysis")})}</pre>',
+             '<p class="k">get_related_protocols(name="pcr_3")</p>'
+             f'<pre>{show([{"title": p["title"][:60], "doi": p["doi"]} for p in rel["protocols"][:3]])}</pre>']
+    (HERE / "public" / "mcp.html").write_text(
+        "<!doctype html><meta charset=utf-8><style>body{margin:0;background:#000;color:#f2f2f2;font:22px/1.45 ui-monospace,Consolas,monospace;"
+        "padding:60px 90px}p{margin:18px 0 6px}.c{color:#a6a6a6}.k{color:#ff8a80;font-weight:700}pre{margin:0;color:#f2f2f2}</style>"
+        + "".join(lines), encoding="utf-8")
+
+
+SCENES = {f.__name__: f for f in (landing, sync, tubes, reviewer, confirm, robot, browser, labels, receipt, ecosystem, results)}
+
+
+def record(name, min_s):
+    out = HERE / "public" / "clips"
+    raw = out / f"_raw_{name}"
+    shutil.rmtree(raw, ignore_errors=True)
+    with sync_playwright() as p:
+        b = p.chromium.launch(channel="chrome")
+        ctx = b.new_context(viewport={"width": VW, "height": VH}, record_video_dir=str(raw), record_video_size={"width": W, "height": H},
+                            bypass_csp=True, device_scale_factor=DSF)
+        ctx.add_init_script(OVERLAY)
+        t_rec = time.time()
+        page = ctx.new_page()
+        page.goto("about:blank")
+        s = Scene(page)
+        t0 = None
+
+        def mark():
+            nonlocal t0
+            t0 = time.time()
+
+        orig_go = s.go
+
+        def go(url, ready):  # the clip starts once the first page is ready, not while it loads
+            orig_go(url, ready)
+            if t0 is None:
+                time.sleep(0.6)
+                mark()
+        s.go = go
+        if name == "ecosystem":
+            mcp_page()
+        SCENES[name](s)
+        if t0 is None:
+            mark()
+        left = min_s - (time.time() - t0)
+        if left > 0:
+            time.sleep(left)  # hold the last frame long enough for the narration
+        video = page.video
+        ctx.close()
+        b.close()
+        src = video.path()
+    lead = t0 - t_rec
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{lead:.2f}", "-i", str(src), "-an", "-c:v", "libx264", "-crf", "18",
+                    "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart", str(out / f"{name}.mp4")], check=True)
+    shutil.rmtree(raw, ignore_errors=True)
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out / f"{name}.mp4")],
+                               capture_output=True, text=True).stdout)
+    print(f"{name:10} {dur:6.1f} s", flush=True)
+    return dur
+
+
+if __name__ == "__main__":
+    scenes = json.loads((HERE / "public" / "scenes.json").read_text(encoding="utf-8"))
+    (HERE / "public" / "clips").mkdir(parents=True, exist_ok=True)
+    want = sys.argv[1:] or [s["id"] for s in scenes if s["kind"] == "rec"]
+    clips = json.loads((HERE / "public" / "clips.json").read_text()) if (HERE / "public" / "clips.json").exists() else {}
+    for sc in scenes:
+        if sc["id"] in want:
+            clips[sc["id"]] = record(sc["id"], sc["voice_s"])
+            (HERE / "public" / "clips.json").write_text(json.dumps(clips, indent=1))
