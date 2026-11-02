@@ -670,7 +670,8 @@ def main():
         csp_seen += page.evaluate("() => window.__csp || []")
         check("security: the CSP blocked nothing the pages need", not csp_seen, csp_seen[:3])
         check("no failed requests during normal use", not [x for x in bad if "/answers" not in x and "/voice" not in x
-                                                           and "/upload" not in x and "protocol.py" not in x], bad[:5])
+                                                           and "/upload" not in x and "protocol.py" not in x
+                                                           and "c-AAAAAAAAAAAAAAAA" not in x], bad[:5])  # the expired-link check's own 404
         b.close()
     failed = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} passed")
