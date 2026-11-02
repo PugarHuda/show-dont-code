@@ -666,7 +666,6 @@ def main():
             check(f"protocols.io import: refuses {bad or 'an empty link'!r} before any work", st == 422, (st, body[:100]))
         # ---- .eln: the run as one experiment for an electronic lab notebook (ELN Consortium format) ---------
         st, eln = fetch(f"{api}/api/runs/pcr_1-gt/run.eln")
-        import io, zipfile
         z = zipfile.ZipFile(io.BytesIO(eln)) if st == 200 else None
         names = z.namelist() if z else []
         meta = json.loads(z.read("show-dont-code-pcr_1-gt/ro-crate-metadata.json")) if z else {"@graph": []}
