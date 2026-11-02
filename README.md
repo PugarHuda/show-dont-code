@@ -134,6 +134,10 @@ Then:
   Modal, and sends the protocol through the same script with the chosen number of reactions. The robot analyses it,
   takes the thermocycler into its deck configuration, plays it to the end with hand-off pauses resumed, and reports
   its run status and command count (pcr_1-gt, two reactions: 240 commands, "succeeded").
+- **Published protocols with the same kit**: each run searches protocols.io's public API for the brand and kit
+  words in its reagent names (e.g. "PrimeSTAR", from "DNA polymerase (Prime STAR MAX)") and its protocol type, ranks
+  the results by shared reagent words and lists them with their DOIs, so the filmed volumes can be checked against
+  how other labs wrote the same kit up (also MCP `get_related_protocols`).
 - **Citable and forkable**: `scripts/zenodo_deposit.py <run>` deposits the run's RO-Crate on Zenodo with metadata
   from its receipt (CC BY 4.0, derived from BioVL2's DOI) and reserves a DOI; `scripts/protocolsio_publish.py <run>`
   puts it on protocols.io as one step per step found in the video (volume, reagent, video seconds, robot or by hand),
