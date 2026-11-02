@@ -178,7 +178,8 @@ def landing():
 def index():
     api = os.getenv("API_BASE", "")
     uploads = "true" if api or os.getenv("UPLOADS") == "1" else "false"  # only the Modal backend can take uploads
-    return _page(ROOT / "web" / "index.html", f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n')
+    pre = f'<link rel="preconnect" href="{api}" crossorigin>\n' if api else ""  # the run's data comes from there first
+    return _page(ROOT / "web" / "index.html", pre + f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n')
 
 
 @app.get("/api/runs")
