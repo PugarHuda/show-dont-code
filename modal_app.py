@@ -23,6 +23,7 @@ MAX_BYTES = 400 * 1024 * 1024
 PROCESS_TIMEOUT = 3600
 MAX_SECONDS = 300           # the reviewer agent watches up to 300 s, and cost scales with length
 DAILY_UPLOADS = int(os.getenv("DAILY_UPLOADS", "15"))  # ponytail: global daily cap; per-user quotas if abused
+DAILY_IMPORTS = int(os.getenv("DAILY_IMPORTS", "25"))  # protocols.io imports: text only, much cheaper than a video
 
 app = modal.App("show-dont-code")
 vol = modal.Volume.from_name("sdc-runs", create_if_missing=True)
@@ -138,6 +139,22 @@ def process(run_id: str):
     vol.commit()
 
 
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup, protocolsio], timeout=PROCESS_TIMEOUT)
+def process_text(run_id: str, link: str):
+    """A published protocol (protocols.io) through the same pipeline as a video, minus tracking."""
+    from sdc import pipeline
+
+    pipeline.OUT = Path(RUNS)
+    pipeline.on_progress = vol.commit
+    d = Path(RUNS) / run_id
+    try:
+        pipeline.run_text(link, run_id)
+    except Exception as e:  # the UI shows this stage as failed; details stay in the Modal logs
+        print(f"import {run_id} failed: {type(e).__name__}: {e}")
+        pipeline.progress(d, "failed", "error")
+    vol.commit()
+
+
 @app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup, protocolsio], timeout=900, scaledown_window=1200, max_containers=1,
               min_containers=1)  # always warm for judges: no cold start on the first visit
 @modal.concurrent(max_inputs=20)
@@ -186,14 +203,36 @@ def web():
 
     quota_lock = asyncio.Lock()  # one web container (max_containers=1), so this lock makes the quota atomic
 
-    def take_quota(delta):
-        counter = Path(RUNS) / f".uploads-{time.strftime('%Y-%m-%d')}"
+    def take_quota(delta, kind="uploads", cap=None):
+        counter = Path(RUNS) / f".{kind}-{time.strftime('%Y-%m-%d')}"
         used = int(counter.read_text()) if counter.exists() else 0
-        if delta > 0 and used >= DAILY_UPLOADS:
+        if delta > 0 and used >= (cap or DAILY_UPLOADS):
             return False
         counter.write_text(str(max(0, used + delta)))
         vol.commit()
         return True
+
+    @api.post("/api/import")
+    async def import_protocol(request: Request):
+        """Start a run from a published protocols.io protocol (link, URI or DOI) instead of a video. No access code:
+        it costs two Muse Spark text calls and a review, so it has its own daily cap."""
+        from sdc import pio
+
+        try:
+            link = str((await request.json()).get("link", ""))[:300]
+            pio.ref(link)  # only protocols.io addresses; anything else is refused before any work
+        except (ValueError, AttributeError, json.JSONDecodeError) as e:
+            raise HTTPException(422, str(e) if isinstance(e, ValueError) else "send {\"link\": \"...\"}")
+        async with quota_lock:
+            if not await asyncio.to_thread(take_quota, +1, "imports", DAILY_IMPORTS):
+                raise HTTPException(429, "today's protocol imports for this demo are used up; open the sample instead")
+        run_id = "p-" + secrets.token_urlsafe(12)
+        d = Path(RUNS) / run_id
+        d.mkdir(parents=True)
+        webapp.pipeline.progress(d, "protocol link received", "done")
+        await asyncio.to_thread(vol.commit)
+        await process_text.spawn.aio(run_id, link)
+        return {"run": run_id}
 
     @api.post("/api/upload")
     async def upload(request: Request):

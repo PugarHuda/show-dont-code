@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FUNCTION_FILES = ["result.json", "answers.json", "tubes.json", "tracks_tip.json", "sheet.json", "gt.csv",
+FUNCTION_FILES = ["result.json", "source.json", "answers.json", "tubes.json", "tracks_tip.json", "sheet.json", "gt.csv",
                   "sam_file.json", "profile.json", "analysis.json",
                   # model outputs: the receipt and RO-Crate cite them, and steps_raw.json is what proves a model ran
                   "steps_raw.json", "steps_stage2.json", "speech.json"]  # videos stay out: the bundle must fit Vercel's 250 MB standard size
@@ -26,7 +26,8 @@ for run in sys.argv[1:]:
             shutil.copy2(src / f, dst / f)
     if (src / "sam_frames").exists():
         shutil.copytree(src / "sam_frames", dst / "sam_frames", dirs_exist_ok=True)
-    pub = ROOT / "public" / "runs" / run
-    pub.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src / "video.mp4", pub / "video.mp4")
+    if (src / "video.mp4").exists():  # runs read from a published protocol have no video
+        pub = ROOT / "public" / "runs" / run
+        pub.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src / "video.mp4", pub / "video.mp4")
     print(f"{run}: exported")

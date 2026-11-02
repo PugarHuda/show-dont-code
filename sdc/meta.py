@@ -239,6 +239,32 @@ def voice_answers(transcript, questions):
     return [{**a, "key": allowed[norm(a["key"])]} for a in json.loads(r.output_text)["answers"] if norm(a["key"]) in allowed]
 
 
+TEXT_PROMPT = """This is a published wet-lab protocol (from protocols.io), as text; tables may have lost their
+column breaks ("Component25 µl Reaction50 µl Reaction..." is a table). Turn it into the steps a liquid-handling robot
+would do for ONE reaction, in the order the protocol says, using the same step fields as for a video:
+- One reagent added to the reaction tube is one "transfer" step: reagent = its name as written, source = its name,
+  destination = "tube 1". If the protocol gives several reaction sizes, use the smallest one and say which in the
+  first step's description.
+- volume_ul only when the protocol states a number for that reagent and size ("variable", "to X µl" or "up to" are
+  null: the scientist answers those). volume_evidence = "label" when a number is given, else "none".
+- Water "to volume" is still a transfer step with volume_ul null.
+- Mixing the reaction is a "mix" step on "tube 1"; spinning down is "centrifuge"; putting the tube in the
+  thermocycler is one "thermocycle" step; anything else a person does is "other".
+- start and end are the step's position (1, 2, 3...), not seconds: start = n, end = n + 0.9.
+- confidence: how clearly the text states the step (1.0 = explicit).
+Ignore notes about storage, ordering, safety and gel analysis after the PCR."""
+
+
+def steps_from_text(text, model=None):
+    """A published protocol's text -> the same step list a video yields, so the rest of the pipeline is shared."""
+    r = client().responses.create(
+        model=model or SPARK, max_output_tokens=12000, reasoning={"effort": "low"},
+        input=[{"role": "user", "content": [{"type": "input_text", "text": TEXT_PROMPT + "\n\nProtocol:\n" + text[:20000]}]}],
+        text={"format": {"type": "json_schema", "name": "steps", "schema": STEP_SCHEMA, "strict": True}},
+    )
+    return json.loads(r.output_text)["steps"]
+
+
 def extract_steps(file_id, extra="", model=None, max_tokens=16000):
     r = client().responses.create(
         model=model or SPARK,

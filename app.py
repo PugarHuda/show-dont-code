@@ -71,7 +71,7 @@ def _run_dir(name):
     return pipeline.OUT / name
 
 
-PRIVATE = ("u-", "c-")  # uploads and edit copies: unlisted, reachable only through their unguessable link
+PRIVATE = ("u-", "c-", "p-")  # uploads, edit copies and protocols.io imports: reachable only through their unguessable link
 _edit_locks = defaultdict(threading.Lock)  # ponytail: one web container (max_containers=1); a volume lock if that grows
 
 
@@ -199,6 +199,8 @@ def result(name: str):
     r["captions"] = len(_speech(d))
     r["max_reactions"] = protocol.max_reactions(r["steps"]) if r.get("protocol") else 1
     r["copy_of"] = (d / "copy_of").read_text().strip() if (d / "copy_of").exists() else None
+    src = d / "source.json"  # a run started from a published protocol instead of a video
+    r["source"] = {k: v for k, v in json.loads(src.read_text(encoding="utf-8")).items() if k != "text"} if src.exists() else None
     return r
 
 
@@ -475,7 +477,7 @@ def receipt(name: str):
         raise HTTPException(409, "no protocol yet: answer the open questions first")
     # every model output the protocol depends on: steps, bench sheet and cycling program, speech, tip and tube tracks
     files = {f: _sha256(pipeline.asset(d, f).read_bytes()) for f in (
-        "video.mp4", "steps_raw.json", "steps_stage2.json", "sheet.json", "profile.json", "speech.json",
+        "video.mp4", "source.json", "steps_raw.json", "steps_stage2.json", "sheet.json", "profile.json", "speech.json",
         "tracks_tip.json", "tubes.json", "analysis.json") if pipeline.asset(d, f).exists()}
     psha = _sha256(r["protocol"].encode("utf-8"))
     flex = [json.loads(f.read_text(encoding="utf-8")) for f in sorted((d / "flex_runs").glob(f"{psha[:16]}-*.json"))]
@@ -491,9 +493,14 @@ def receipt(name: str):
                                                            "matches_analysis", "completed_at")} for f in flex],
         "pylabrobot": {"hamilton_starlet_passed": r.get("plr_ok"), "tecan_evo_passed": r.get("evo_ok")},
         # a ground-truth replay never ran the models on its video, so don't claim it did
-        "models": {"steps_and_sheet": meta.SPARK, "tracking": "sam-3.1", "speech": "muse-voice-transcribe-1.0",
-                   "reviewer": r.get("review_model") or "not recorded for this run"} if (d / "steps_raw.json").exists()
+        # a text run read a published protocol, not a video: no tracking or speech model ran, so none is claimed
+        "models": ({"steps_and_cycling_program": meta.SPARK, "reviewer": r.get("review_model") or "not recorded for this run"}
+                   if (d / "source.json").exists() else
+                   {"steps_and_sheet": meta.SPARK, "tracking": "sam-3.1", "speech": "muse-voice-transcribe-1.0",
+                    "reviewer": r.get("review_model") or "not recorded for this run"}) if (d / "steps_raw.json").exists()
         else {"note": "steps replayed from BioVL2 human annotations; no model read this video"},
+        "source": {k: v for k, v in json.loads((d / "source.json").read_text(encoding="utf-8")).items() if k != "text"}
+        if (d / "source.json").exists() else {"video_sha256": files.get("video.mp4")},
         "human_input": {"answers": answers, "named_tubes": [t["name"] for t in _tubes(d) if t.get("name")]},
         "reviewer_findings": len(r.get("review") or []),
         "verify": "sha256 of each file must match; the protocol hash covers protocol.py byte for byte (UTF-8)",

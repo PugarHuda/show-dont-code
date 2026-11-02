@@ -148,8 +148,11 @@ def main():
             page.wait_for_timeout(1200)
             n_steps = len(page.query_selector_all("#steps li"))
             src = page.evaluate("() => document.getElementById('video').currentSrc")
+            pub = page.evaluate("() => document.getElementById('srcbox').hidden ? '' : document.querySelector('#srcline a')?.href || ''")
             wells = len(page.query_selector_all("#deck .well"))
-            check(f"run {run}: steps, video, deck", n_steps > 0 and src and wells > 0, (n_steps, src[-40:], wells))
+            # a run read from a published protocol has no video: its source is the protocols.io record instead
+            check(f"run {run}: steps, {'source protocol' if pub else 'video'}, deck",
+                  n_steps > 0 and (src or pub.startswith("https://www.protocols.io/")) and wells > 0, (n_steps, (src or pub)[-40:], wells))
         page.goto(BASE + "/app?run=pcr_3")
         page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
         page.wait_for_function("() => document.getElementById('video').readyState >= 1", timeout=60000)
@@ -640,6 +643,18 @@ def main():
         check("mcp: an unknown run is a readable tool error", err and "unknown run" in msg, msg)
         check("mcp: run_on_flex_robot_server returns the robot's own report", mflex.get("status") == "succeeded"
               and mflex.get("reactions") == 2, str(mflex)[:200])
+        # ---- protocols.io in: a published protocol instead of a video ---------------------------------------
+        tq = json.loads(fetch(f"{api}/api/runs/protocolsio_q5")[1])
+        check("protocols.io import: the sample read from a published protocol cites its DOI and asks for what the text leaves open",
+              tq["source"]["doi"].startswith("10.17504/protocols.io.") and any(s["volume_ul"] == 12.5 for s in tq["steps"])
+              and len(tq["questions"]) >= 2, str(tq.get("source"))[:200])
+        page.goto(BASE + "/app?run=protocolsio_q5")
+        page.wait_for_function("() => !document.getElementById('srcbox').hidden && document.querySelectorAll('#steps li').length", timeout=60000)
+        check("protocols.io import: the app shows the source protocol instead of a video, steps numbered",
+              page.evaluate("() => document.getElementById('humanbox').hidden && /^#1$/.test(document.querySelector('#steps li .t').textContent)"))
+        for bad in ("https://evil.example/x", "file:///etc/passwd", ""):
+            st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": bad}).encode(), {"Content-Type": "application/json"})
+            check(f"protocols.io import: refuses {bad or 'an empty link'!r} before any work", st == 422, (st, body[:100]))
         # ---- protocols.io: published protocols that use the same kit ----------------------------------------
         page.goto(BASE + "/app?run=pcr_3")
         page.wait_for_function("() => /protocols.io/.test(document.getElementById('relline').textContent) && "

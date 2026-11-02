@@ -24,7 +24,8 @@ MODEL_OUTPUTS = {"steps_raw.json": "Steps found in the video (Muse Spark, stage 
                  "speech.json": "Speech in the video, timestamped (Muse Voice Transcribe)",
                  "tracks_tip.json": "Pipette tip tracked frame by frame (SAM 3.1)",
                  "tubes.json": "Tubes the scientist clicked, tracked by SAM 3.1 and checked by Muse Spark"}
-NAMES = {"review.json": "Reviewer agent findings and its simulator tool calls", "answers.json": "The scientist's answers",
+NAMES = {"source.json": "The published protocol as read from protocols.io (title, DOI, text)",
+         "review.json": "Reviewer agent findings and its simulator tool calls", "answers.json": "The scientist's answers",
          "receipt.json": "Reproducibility receipt", "pylabrobot.py": "Hamilton STARlet translation (PyLabRobot)",
          "tecan-evo.py": "Tecan Freedom EVO 150 translation (PyLabRobot)", "analysis.json": "Opentrons protocol analysis",
          "protocol-designer.json": "The protocol as editable steps for Opentrons Protocol Designer (no code)",
@@ -42,13 +43,15 @@ def build(run_dir, name, generated, models):
     Returns the crate as zip bytes."""
     d = Path(run_dir)
     files = dict(generated)
-    for f in ("analysis.json", "answers.json", *MODEL_OUTPUTS):
+    for f in ("analysis.json", "answers.json", "source.json", *MODEL_OUTPUTS):
         if (d / f).exists():
             files[f] = (d / f).read_bytes()
     from_gt = "note" in models
     from .pipeline import asset
 
     video = asset(d, "video.mp4")
+    text = (d / "source.json").exists()  # started from a published protocol, not a video
+    pub = json.loads((d / "source.json").read_text(encoding="utf-8")) if text else {}
     graph = [
         {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"},
          "conformsTo": {"@id": "https://w3id.org/ro/crate/1.1"}},
@@ -65,8 +68,11 @@ def build(run_dir, name, generated, models):
            "encodingFormat": "video/mp4"}
     if video.exists():
         src |= {"sha256": hashlib.sha256(video.read_bytes()).hexdigest(), "contentSize": str(video.stat().st_size)}
+    if text:  # the source is the protocols.io record, cited by its DOI
+        src = {"@id": f"https://doi.org/{pub['doi']}" if pub.get("doi") else pub["url"], "@type": "CreativeWork",
+               "name": pub["title"], "url": pub["url"], "publisher": {"@id": "https://www.protocols.io"}}
     edited = name.startswith(("u-", "c-"))  # uploads and visitors' edited copies: not the author's work
-    if not name.startswith("u-"):  # sample runs and their edited copies come from BioVL2
+    if not name.startswith("u-") and not text:  # sample runs and their edited copies come from BioVL2
         src |= {"isPartOf": {"@id": BIOVL2}, "license": {"@id": "https://creativecommons.org/licenses/by/4.0/"}}
         graph.append({"@id": BIOVL2, "@type": "CreativeWork", "name": "BioVL2 (Nishimura et al., Kyoto University)",
                       "license": {"@id": "https://creativecommons.org/licenses/by/4.0/"}})
@@ -85,7 +91,13 @@ def build(run_dir, name, generated, models):
              app(OPENTRONS, "Opentrons protocol analysis and simulator", OPENTRONS, opentrons.__version__)]
     have = lambda *fs: [{"@id": f} for f in fs if f in files]  # noqa: E731
     actions = []
-    if not from_gt:
+    if text:
+        tools.append(app(META + "#muse-spark", "Muse Spark", META, models.get("steps_and_cycling_program")))
+        actions.append({"@id": "#read-protocol", "@type": "CreateAction", "name": "Read the published protocol with Muse Spark",
+                        "description": "Steps, volumes and the cycling program from the protocols.io text",
+                        "instrument": {"@id": META + "#muse-spark"}, "object": {"@id": src["@id"]},
+                        "result": have("steps_raw.json", "profile.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
+    elif not from_gt:
         tools += [app(META + "#muse-spark", "Muse Spark", META, models.get("steps_and_sheet")),
                   app(META + "#sam", "SAM 3.1", META, models.get("tracking")),
                   app(META + "#voice", "Muse Voice Transcribe", META, models.get("speech"))]
@@ -99,7 +111,7 @@ def build(run_dir, name, generated, models):
                     "name": "Deterministic code generation from the confirmed steps and the scientist's answers",
                     "description": "Model text only lands in comments and string literals; numbers are validated",
                     "instrument": {"@id": REPO},
-                    "object": ([{"@id": "#source-video"}] if from_gt else have(*MODEL_OUTPUTS)) + have("answers.json"),
+                    "object": ([{"@id": "#source-video"}] if from_gt and not text else have(*MODEL_OUTPUTS)) + have("answers.json"),
                     "result": have("protocol.py", "methods.md", "autoprotocol.json", "pylabrobot.py", "tecan-evo.py",
                                    "labels.svg", "labels.zpl"),
                     "endTime": _when(d / "result.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
@@ -133,10 +145,10 @@ def build(run_dir, name, generated, models):
     if rv and "review.json" in files:  # which host ran the reviewer: Baseten, or Fireworks after a failover
         host = "https://fireworks.ai" if rv.startswith("fireworks") else "https://www.baseten.co"
         tools.append(app(host + "#muse-spark-open", "Muse Spark Open (reviewer agent)", host, rv))
-        actions.append({"@id": "#review", "@type": "CreateAction", "name": "Reviewer agent checks the steps against the video",
+        actions.append({"@id": "#review", "@type": "CreateAction", "name": "Reviewer agent checks the steps" + ("" if text else " against the video"),
                         "description": "Watches the video, may look at single moments, runs the Opentrons simulator as a tool",
                         "instrument": {"@id": host + "#muse-spark-open"},
-                        "object": [{"@id": "#source-video"}] + have("steps_stage2.json", "sheet.json"),
+                        "object": [{"@id": src["@id"]}] + have("steps_raw.json", "steps_stage2.json", "sheet.json"),
                         "result": have("review.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
     if not edited:  # the sample runs were run by the author; uploads and edits stay anonymous
         graph += [{"@id": AUTHOR, "@type": "Person", "name": "Pugar Huda Mantoro", "affiliation": {"@id": "https://www.uii.ac.id"}},
@@ -152,15 +164,27 @@ def build(run_dir, name, generated, models):
             if isinstance(a.get(k), list) and len(a[k]) == 1:
                 a[k] = a[k][0]
     root = {"@id": "./", "@type": "Dataset", "name": f"Show, Don't Code run {name}",
-            "description": "An Opentrons Flex protocol recovered from a first-person video of the protocol done by hand, "
-                           "with every intermediate model output and the checks it passed.",
+            "description": ("An Opentrons Flex protocol generated from a published protocols.io protocol" if text else
+                            "An Opentrons Flex protocol recovered from a first-person video of the protocol done by hand")
+                           + ", with every intermediate model output and the checks it passed.",
             "datePublished": _when(d / "result.json"), "conformsTo": {"@id": PROFILE},
             "hasPart": [{"@id": e["@id"]} for e in entities if e["@type"] == "File"],
             "mentions": [{"@id": a["@id"]} for a in actions]}
-    if not name.startswith("u-"):
+    if text:
+        root["isBasedOn"] = {"@id": src["@id"]}
+    elif not name.startswith("u-"):
         root["isBasedOn"] = {"@id": BIOVL2}
-    if not edited:
+    # derived work keeps its source's licence: BioVL2 videos and public protocols.io protocols are both CC BY 4.0;
+    # a visitor's own upload grants none, and the crate says so rather than leaving it out
+    if name.startswith("u-"):
+        root["license"] = {"@id": "#no-license"}
+        graph.append({"@id": "#no-license", "@type": "CreativeWork", "name": "No licence granted",
+                      "description": "The uploader's own video and what was derived from it; no reuse rights are given."})
+    else:
         root["license"] = {"@id": "https://creativecommons.org/licenses/by/4.0/"}
+        if text:
+            graph.append({"@id": "https://creativecommons.org/licenses/by/4.0/", "@type": "CreativeWork", "name": "CC BY 4.0"})
+    if not edited:
         root["author"] = {"@id": AUTHOR}
     meta = {"@context": ["https://w3id.org/ro/crate/1.1/context", {"sha256": "http://schema.org/sha256"}],
             "@graph": graph + [root] + entities + tools + actions}

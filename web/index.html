@@ -124,6 +124,10 @@
   .upsteps li.done::marker { color: var(--accent); }
   .upsteps li.error { color: var(--bad); }
   .upbtns { display: flex; justify-content: flex-end; gap: 8px; }
+  .impbox { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0 0 14px; }
+  .impbox .hint { margin: 0 0 8px; }
+  .improw { display: flex; gap: 8px; }
+  .improw input { flex: 1; min-width: 0; }
   .recrow { display: flex; align-items: center; gap: 12px; }
   #recview { width: 100%; max-height: 40vh; background: #000; border-radius: 6px; }
   [hidden] { display: none !important; }  /* author display rules must not un-hide */
@@ -165,6 +169,12 @@
 <dialog id="updlg" aria-labelledby="uptitle">
   <form id="upform" method="dialog">
     <h2 id="uptitle">Analyse your own lab video</h2>
+    <div class="impbox">
+      <p class="hint"><b>No video?</b> Paste a published protocol from protocols.io: Muse Spark reads it and you get the same
+        robot protocol and checks, in about a minute. No access code needed.</p>
+      <div class="improw"><input type="url" id="implink" placeholder="https://www.protocols.io/view/... or its DOI" aria-label="protocols.io link or DOI">
+        <button type="button" id="impgo">Import protocol</button></div>
+    </div>
     <p class="hint">An MP4 or MOV up to 5 minutes, filmed from your point of view while you pipette, or record it here with your phone's camera. It takes about
       5 to 8 minutes: Muse Spark watches it, SAM 3.1 tracks the pipette, Muse Voice Transcribe listens, and a
       Muse Spark Open agent checks the result in the Opentrons simulator. Uploaded videos are stored for this demo and only people with the link can open the result.</p>
@@ -181,7 +191,13 @@
 </dialog>
 <main>
   <div class="stack">
-    <section>
+    <section id="srcbox" hidden>
+      <h2>Published protocol · protocols.io</h2>
+      <p id="srcline"></p>
+      <p class="hint">No video here: Muse Spark read this protocol's text, and everything below (steps, questions, the
+        Opentrons protocol and its checks) comes from the same pipeline as a filmed run.</p>
+    </section>
+    <section id="humanbox">
       <h2>Human, filmed once</h2>
       <div class="stage"><video id="video" controls muted playsinline crossorigin="anonymous"></video><canvas id="overlay"></canvas></div>
       <div class="now" id="now"></div>
@@ -306,10 +322,11 @@ async function init() {
   const runs = await api("/api/runs");
   const want = new URLSearchParams(location.search).get("run");
   // uploads and edit copies are private, so never in the listing; accept only the exact id shape the server issues
-  const upload = want && /^[uc]-[A-Za-z0-9_-]{16}$/.test(want) ? want : null;
+  const upload = want && /^[ucp]-[A-Za-z0-9_-]{16}$/.test(want) ? want : null;
   if (upload) runs.unshift(upload);
   // readable names: what each sample is, and whether a model or a human produced its steps
-  const label = (n) => n === upload ? (n[0] === "c" ? COPY : "your upload") : n.endsWith("-gt") ? `${n.slice(0, -3)} · human annotations replayed`
+  const label = (n) => n === upload ? (n[0] === "c" ? COPY : n[0] === "p" ? "your protocols.io import" : "your upload") : n.endsWith("-gt") ? `${n.slice(0, -3)} · human annotations replayed`
+    : n.startsWith("protocolsio") ? `${n.split("_")[1].toUpperCase()} PCR · from a published protocols.io protocol (no video)`
     : n.startsWith("pcr") ? `${n} · PCR setup` : n.startsWith("miniprep") ? `${n} · plasmid miniprep` : n;
   $("run").innerHTML = runs.map((n) => `<option value="${esc(n)}">${esc(label(n))}</option>`).join("");
   if (want && runs.includes(want)) $("run").value = want;
@@ -341,7 +358,12 @@ async function load(n) {
   if (n !== name) { placed.clear(); hereTube = null; scanStop(); rxWells = []; rxTips = []; $("rx").value = 1; $("rxline").textContent = ""; $("zplview").hidden = true; $("zplview").replaceChildren(); }
   name = n;
   R = await api(`/api/runs/${encodeURIComponent(n)}`);
-  $("video").src = `${API}/api/runs/${encodeURIComponent(n)}/video`;
+  $("humanbox").hidden = !!R.source; $("srcbox").hidden = !R.source;
+  if (R.source) {
+    $("srcline").innerHTML = `<a href="${esc(R.source.url)}" target="_blank" rel="noopener">${esc(R.source.title)}</a>${R.source.doi
+      ? ` · <a href="https://doi.org/${esc(R.source.doi)}" target="_blank" rel="noopener">doi:${esc(R.source.doi)}</a>` : ""}`;
+    $("video").removeAttribute("src");
+  } else $("video").src = `${API}/api/runs/${encodeURIComponent(n)}/video`;
   // captions of the speech in the video (Muse Voice Transcribe); a fresh <track> per run, none when nobody spoke
   $("video").querySelectorAll("track").forEach((t) => t.remove());
   if (R.captions) $("video").insertAdjacentHTML("beforeend", `<track kind="captions" default label="Speech (Muse Voice Transcribe)" src="${API}/api/runs/${encodeURIComponent(n)}/captions.vtt">`);
@@ -507,7 +529,7 @@ function render() {
       : s.tip_frames ? `<small class="sam" title="SAM 3.1 tracked the pipette tip in ${s.tip_frames} frames of this step">tip seen ×${s.tip_frames}</small>`
       : `<small class="sam none" title="SAM 3.1 never saw the pipette tip during this step">no tip seen</small>`;
     const text = s.reagent ? `${esc(s.description)}${s.reagent_by ? ` <small class="sam">reagent: ${esc(s.reagent)}</small>` : ""}` : esc(s.description);
-    return `<li data-i="${i}" tabindex="0" class="${s.action === "skipped" ? "skipped" : ""}"><span class="t">${fmt(s.start)}</span><span>${text}${sam}</span>${tag}</li>`;
+    return `<li data-i="${i}" tabindex="0" class="${s.action === "skipped" ? "skipped" : ""}"><span class="t">${R.source ? `#${Math.round(s.start)}` : fmt(s.start)}</span><span>${text}${sam}</span>${tag}</li>`;
   }).join("");
   $("steps").querySelectorAll("li").forEach((li) => {
     li.onclick = () => seek(R.steps[li.dataset.i].start);
@@ -515,7 +537,7 @@ function render() {
   });
 
   $("qbox").hidden = !R.questions.length;
-  $("copynote").hidden = /^[uc]-/.test(name);
+  $("copynote").hidden = /^[ucp]-/.test(name);
   $("voicebox").hidden = !window.UPLOADS || !navigator.mediaDevices?.getUserMedia;  // live models + a microphone
   // one question per reagent+source tube, not per transfer: the answer fans out to every step in the group
   const groups = {};
@@ -1025,6 +1047,18 @@ $("upform").onsubmit = (ev) => {
   xhr.onerror = () => { $("upmsg").textContent = "Upload failed: check your connection and try again."; $("upgo").disabled = false; };
   xhr.send(f);  // raw body: the server caps the size while streaming
 };
+// a published protocol instead of a video: same pipeline, text in
+$("impgo").onclick = async () => {
+  const link = $("implink").value.trim();
+  if (!link) { $("upmsg").textContent = "Paste a protocols.io link or DOI first."; return; }
+  $("impgo").disabled = true; $("upmsg").textContent = "Reading the protocol…";
+  try {
+    const j = await api("/api/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ link }) });
+    history.replaceState(null, "", `?run=${encodeURIComponent(j.run)}`);
+    follow(j.run, " A published protocol takes about a minute.");
+  } catch (e) { $("upmsg").textContent = e.message; $("impgo").disabled = false; }
+};
+
 async function follow(run, note = "") {
   $("upmsg").textContent = "Analysing. You can keep this tab open; the run will open by itself when it's done." + note;
   for (;;) {

@@ -283,13 +283,33 @@ def run(video, name=None, gt_csv=None, from_gt=False):
     return result
 
 
+def run_text(link, name):
+    """Start from a published protocol instead of a video: protocols.io text -> Muse Spark steps -> the same
+    deterministic codegen, simulator, analysis and reviewer as a filmed run. No video, so no tracking."""
+    from . import meta, pio
+
+    run_dir = OUT / name
+    run_dir.mkdir(parents=True, exist_ok=True)
+    src = _cached(run_dir / "source.json", lambda: pio.fetch(link), "protocols.io: read the published protocol")
+    steps = _cached(run_dir / "steps_raw.json", lambda: meta.steps_from_text(src["text"]),
+                    "Muse Spark reads the protocol: steps and volumes")
+    _cached(run_dir / "profile.json", lambda: meta.thermal_profile(src["text"]), "Muse Spark reads the cycling program")
+    progress(run_dir, "Opentrons simulator + Muse Spark Open reviewer agent", "running")
+    result = build(run_dir, steps, {})
+    progress(run_dir, "finished", "done")
+    return result
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
     ap.add_argument("--from-gt", metavar="CSV", help="replay ground-truth steps instead of calling the models")
     ap.add_argument("--name")
     a = ap.parse_args()
-    r = run(a.video, a.name, gt_csv=a.from_gt, from_gt=bool(a.from_gt))
+    if "protocols.io" in a.video:  # python -m sdc.pipeline https://www.protocols.io/view/... --name pio-q5
+        r = run_text(a.video, a.name or "pio-run")
+    else:
+        r = run(a.video, a.name, gt_csv=a.from_gt, from_gt=bool(a.from_gt))
     print(json.dumps({k: r[k] for k in ("questions", "sim_ok", "layout")}, indent=1))
     if "eval" in r:
         print({k: v for k, v in r["eval"].items() if k != "matches"})

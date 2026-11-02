@@ -101,7 +101,7 @@ def missing_inputs(steps):
                                     f"and enter the new volume"})
         elif s["action"] == "thermocycle" and not s.get("cycles"):
             q.append({"step": i, "field": "cycles", "description": s["description"],
-                      "reason": "the video can't show the cycling program"})
+                      "reason": "the cycle count isn't given as one number"})
     return q
 
 
