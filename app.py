@@ -444,24 +444,32 @@ def _sha256(data: bytes):
 def receipt(name: str):
     """Reproducibility receipt: hashes that tie the protocol to the footage it came from, the models that read it,
     and the human answers that completed it. Anyone with the files can recompute every hash."""
-    from sdc import agent, meta
+    from sdc import meta
 
     d = _run_dir(name)
     r = json.loads((d / "result.json").read_text(encoding="utf-8"))
     if not r.get("protocol"):
         raise HTTPException(409, "no protocol yet: answer the open questions first")
-    files = {f: _sha256(pipeline.asset(d, f).read_bytes()) for f in ("video.mp4", "steps_raw.json", "steps_stage2.json",
-                                                                       "tracks_tip.json", "analysis.json") if pipeline.asset(d, f).exists()}
+    # every model output the protocol depends on: steps, bench sheet and cycling program, speech, tip and tube tracks
+    files = {f: _sha256(pipeline.asset(d, f).read_bytes()) for f in (
+        "video.mp4", "steps_raw.json", "steps_stage2.json", "sheet.json", "profile.json", "speech.json",
+        "tracks_tip.json", "tubes.json", "analysis.json") if pipeline.asset(d, f).exists()}
+    psha = _sha256(r["protocol"].encode("utf-8"))
+    flex = [json.loads(f.read_text(encoding="utf-8")) for f in sorted((d / "flex_runs").glob(f"{psha[:16]}-*.json"))]
     answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
     rec = {
         "run": name,
-        "protocol_sha256": _sha256(r["protocol"].encode("utf-8")),
+        "protocol_sha256": psha,
         "files_sha256": files,
         "simulator": {"passed": r["sim_ok"], "robot_actions": len(r["sim_log"])},
         "opentrons_analysis": {"passed": r.get("analysis_ok"), "commands": (r.get("analysis") or {}).get("commands")},
+        # this exact protocol.py run on Opentrons' robot-server (Flex simulation), if anyone pressed the button
+        "opentrons_robot_server": [{k: f.get(k) for k in ("reactions", "robot_software", "analysis", "status", "commands",
+                                                           "completed_at")} for f in flex],
+        "pylabrobot": {"hamilton_starlet_passed": r.get("plr_ok"), "tecan_evo_passed": r.get("evo_ok")},
         # a ground-truth replay never ran the models on its video, so don't claim it did
         "models": {"steps_and_sheet": meta.SPARK, "tracking": "sam-3.1", "speech": "muse-voice-transcribe-1.0",
-                   "reviewer": r.get("review_model") or f"baseten:{agent.MODEL}"} if (d / "steps_raw.json").exists()
+                   "reviewer": r.get("review_model") or "not recorded for this run"} if (d / "steps_raw.json").exists()
         else {"note": "steps replayed from BioVL2 human annotations; no model read this video"},
         "human_input": {"answers": answers, "named_tubes": [t["name"] for t in _tubes(d) if t.get("name")]},
         "reviewer_findings": len(r.get("review") or []),
@@ -516,6 +524,9 @@ def ro_crate(name: str, request: Request):
            "labels.zpl": export.tube_labels_zpl(steps, _app_link(name, request))[0].encode("utf-8")}
     if "error" not in rec["timestamp"]:
         gen["receipt.ots"] = (d / "stamps" / f"{rec['timestamp']['stamped_sha256']}.ots").read_bytes()
+    psha = rec["protocol_sha256"][:16]
+    for f in sorted((d / "flex_runs").glob(f"{psha}-*.json")):  # robot-server runs of this exact protocol.py
+        gen[f"opentrons-robot-server-run-{f.stem.split('-')[-1]}-reactions.json"] = f.read_bytes()
     if (d / "analysis.json").exists():
         gen["protocol-designer.json"] = json.dumps(_designer(d, name), indent=1).encode("utf-8")
     if "review" in r and "note" not in rec["models"]:
@@ -737,7 +748,8 @@ if MCPServer:
     mcp = MCPServer("show-dont-code", instructions=(
         "Robot protocols recovered from first-person lab videos. list_runs, then get_run for the steps found in the video "
         "and the checks they passed, get_protocol for the Opentrons Flex Python file, get_protocol_designer for the same "
-        "protocol as editable no-code steps, get_tube_labels for loading the tube rack, get_receipt for the hashes."))
+        "protocol as editable no-code steps, get_tube_labels for loading the tube rack, run_on_flex_robot_server to run the "
+        "protocol on Opentrons' robot software, get_receipt for the hashes."))
 
     def _http(fn, *args):  # an agent should read "unknown run", not a bare "Error executing tool"
         try:
@@ -790,6 +802,14 @@ if MCPServer:
         return {"run": name, "reactions": n, "max_reactions": protocol.max_reactions(steps),
                 "tubes": [{**t, "qr": f"{link}&tube={quote(t['tube'])}"} for t in export.label_tubes(steps, n)],
                 "labels_svg": f"{files}/labels.svg{q}", "labels_zpl": f"{files}/labels.zpl{q}"}
+
+    @mcp.tool()
+    def run_on_flex_robot_server(name: str, reactions: int = 1) -> dict:
+        """Run the run's protocol.py end to end on Opentrons' own robot-server (the software inside a Flex, v10.1.0) in
+        Flex simulation, with the Reactions parameter set: the robot's analysis, deck configuration, play to the end.
+        Returns the robot's report (status 'succeeded', command count). About a minute the first time, then cached.
+        Runs only the protocol this server generated, never code an agent sends."""
+        return _http(flex_robot_run, name, reactions)
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:

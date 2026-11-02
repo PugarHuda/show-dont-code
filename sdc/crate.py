@@ -22,7 +22,8 @@ MODEL_OUTPUTS = {"steps_raw.json": "Steps found in the video (Muse Spark, stage 
                  "sheet.json": "Bench sheet read from full-resolution stills (Muse Spark)",
                  "profile.json": "Thermal cycling program read off the bench sheet (Muse Spark)",
                  "speech.json": "Speech in the video, timestamped (Muse Voice Transcribe)",
-                 "tracks_tip.json": "Pipette tip tracked frame by frame (SAM 3.1)"}
+                 "tracks_tip.json": "Pipette tip tracked frame by frame (SAM 3.1)",
+                 "tubes.json": "Tubes the scientist clicked, tracked by SAM 3.1 and checked by Muse Spark"}
 NAMES = {"review.json": "Reviewer agent findings and its simulator tool calls", "answers.json": "The scientist's answers",
          "receipt.json": "Reproducibility receipt", "pylabrobot.py": "Hamilton STARlet translation (PyLabRobot)",
          "tecan-evo.py": "Tecan Freedom EVO 150 translation (PyLabRobot)", "analysis.json": "Opentrons protocol analysis",
@@ -55,7 +56,8 @@ def build(run_dir, name, generated, models):
     ]
     entities = []
     for f, data in sorted(files.items()):
-        entities.append({"@id": f, "@type": "File", "name": MODEL_OUTPUTS.get(f) or NAMES.get(f, f), "contentSize": str(len(data)),
+        entities.append({"@id": f, "@type": "File", "name": MODEL_OUTPUTS.get(f) or NAMES.get(f) or (
+            "Opentrons robot-server's report of the run" if f.startswith("opentrons-robot-server-run-") else f), "contentSize": str(len(data)),
                          "encodingFormat": FORMATS.get(Path(f).suffix, "application/octet-stream"),
                          "sha256": hashlib.sha256(data).hexdigest()})
     # the footage stays out of the crate (size, privacy of uploads); its hash pins exactly which video this was
@@ -106,6 +108,15 @@ def build(run_dir, name, generated, models):
                         "description": "Protocol analysis of the generated file, same as on import into the Opentrons App",
                         "instrument": {"@id": OPENTRONS}, "object": have("protocol.py"), "result": have("analysis.json"),
                         "endTime": _when(d / "analysis.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
+    runs = sorted(f for f in files if f.startswith("opentrons-robot-server-run-"))
+    if runs:  # the exact protocol.py run end to end by the software inside a Flex
+        tools.append(app(OPENTRONS + "/tree/edge/robot-server", "Opentrons robot-server in Flex simulation",
+                         OPENTRONS + "/tree/edge/robot-server", json.loads(files[runs[0]])["robot_software"]))
+        actions.append({"@id": "#robot-server", "@type": "CreateAction",
+                        "name": "Run on Opentrons' robot-server (Flex simulation): robot analysis, deck setup, play to the end",
+                        "description": "Uploaded over the robot's HTTP API as the Opentrons App does (scripts/send_to_flex.py)",
+                        "instrument": {"@id": OPENTRONS + "/tree/edge/robot-server"}, "object": have("protocol.py"),
+                        "result": have(*runs), "actionStatus": "http://schema.org/CompletedActionStatus"})
     if "protocol-designer.json" in files:
         actions.append({"@id": "#designer", "@type": "CreateAction", "name": "Analysed commands to Protocol Designer steps",
                         "description": "Every transfer, mix and thermocycler step read off Opentrons' own analysis",

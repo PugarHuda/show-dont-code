@@ -43,7 +43,8 @@ async def mcp_session(url):
         pd = json.loads((await c.call_tool("get_protocol_designer", {"name": "pcr_1-gt"})).content[0].text)
         lab = json.loads((await c.call_tool("get_tube_labels", {"name": "pcr_1-gt"})).content[0].text)
         lab8 = json.loads((await c.call_tool("get_tube_labels", {"name": "pcr_1-gt", "reactions": 8})).content[0].text)
-        return tools, proto, run, (bad.is_error, bad.content[0].text), pd, (lab, lab8)
+        flex = json.loads((await c.call_tool("run_on_flex_robot_server", {"name": "pcr_1-gt", "reactions": 2})).content[0].text)
+        return tools, proto, run, (bad.is_error, bad.content[0].text), pd, (lab, lab8), flex
 
 BASE = os.getenv("BASE", "http://127.0.0.1:8000").rstrip("/")
 RESULTS = []
@@ -605,9 +606,9 @@ def main():
         page.goto(BASE + "/app?run=pcr_2")
         page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
         check("captions: no empty track when nobody spoke", page.evaluate("() => !document.querySelector('#video track')"))
-        tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8) = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
+        tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8), mflex = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
         check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer",
-                                                     "get_tube_labels", "get_receipt"], tools)
+                                                     "get_tube_labels", "run_on_flex_robot_server", "get_receipt"], tools)
         check("mcp: get_tube_labels gives each rack tube's well, fill volume and label link",
               sorted(t["tube"] for t in mlab["tubes"]) == sorted(rack)
               and all(t["well"] == layout[t["tube"]].split(":")[1] and (t["fill_ul"] > t["drawn_ul"] > 0 or not t["source"])
@@ -621,6 +622,8 @@ def main():
         check("mcp: get_run carries the steps and the thermocycler time",
               len(mrun["steps"]) > 3 and mrun["simulator_ok"] and mrun["analysis"]["cycling_s"] > 1500, str(mrun)[:200])
         check("mcp: an unknown run is a readable tool error", err and "unknown run" in msg, msg)
+        check("mcp: run_on_flex_robot_server returns the robot's own report", mflex.get("status") == "succeeded"
+              and mflex.get("reactions") == 2, str(mflex)[:200])
         # ---- validation that runs before any copy, rebuild or live model call ----
         js = {"Content-Type": "application/json"}
         st, body = fetch(f"{api}/api/runs/pcr_3/answers", "POST", b"{}", js)

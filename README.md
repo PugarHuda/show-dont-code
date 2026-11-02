@@ -136,8 +136,8 @@ Then:
   its run status and command count (pcr_1-gt, two reactions: 240 commands, "succeeded").
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
-  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. Read-only on purpose: no tool runs code an agent sends (a
-  protocol is Python) or spends model credits. Add it to Claude Code with
+  analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a
+  protocol is Python) or spends model credits; robot-server runs are only of protocols this server generated, cached, and capped per day. Add it to Claude Code with
   `claude mcp add --transport http show-dont-code <url>/mcp`.
 - **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run
   goes to a private copy (`c-…`, as unguessable as an upload link) that the page switches to and keeps in the URL,
