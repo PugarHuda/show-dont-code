@@ -392,7 +392,8 @@ async function load(n) {
     $("srcline").innerHTML = `<a href="${esc(R.source.url)}" target="_blank" rel="noopener">${esc(R.source.title)}</a>${R.source.doi
       ? ` · <a href="https://doi.org/${esc(R.source.doi)}" target="_blank" rel="noopener">doi:${esc(R.source.doi)}</a>` : ""}`;
     $("video").removeAttribute("src");
-  } else $("video").src = `${API}/api/runs/${encodeURIComponent(n)}/video`;
+  } else $("video").src = API && !n.startsWith("u-")  // hosted: a sample's footage (or an edit copy's) is on the CDN, near the viewer
+    ? `/runs/${encodeURIComponent(R.copy_of || n)}/video.mp4` : `${API}/api/runs/${encodeURIComponent(n)}/video`;
   // captions of the speech in the video (Muse Voice Transcribe); a fresh <track> per run, none when nobody spoke
   $("video").querySelectorAll("track").forEach((t) => t.remove());
   if (R.captions) $("video").insertAdjacentHTML("beforeend", `<track kind="captions" default label="Speech (Muse Voice Transcribe)" src="${API}/api/runs/${encodeURIComponent(n)}/captions.vtt">`);
