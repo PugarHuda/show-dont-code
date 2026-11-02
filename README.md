@@ -152,7 +152,12 @@ Then:
 - **Published protocols with the same kit**: each run searches protocols.io's public API for the brand and kit
   words in its reagent names (e.g. "PrimeSTAR", from "DNA polymerase (Prime STAR MAX)") and its protocol type, ranks
   the results by shared reagent words and lists them with their DOIs, so the filmed volumes can be checked against
-  how other labs wrote the same kit up (also MCP `get_related_protocols`).
+  how other labs wrote the same kit up (also MCP `get_related_protocols`). **Volumes cross-checked against them**
+  (`sdc/crosscheck.py`): Muse Spark reads up to three of those protocols and gives the volume each uses for this run's
+  reagents with a verbatim quote; plain code keeps only quotes that are really in the protocol's text and compares each
+  reagent's share of its reaction. On pcr_1-gt, a published PrimeSTAR protocol uses "PrimeStar Mix (2X) 25 uL" in a
+  50 uL reaction, the same 50 % share as the filmed premix; its primers (1 uL) differ from the filmed 1.5 uL, and the
+  app says so (MCP `crosscheck_volumes`).
 - **Citable and forkable**: `scripts/zenodo_deposit.py <run>` deposits the run's RO-Crate on Zenodo with metadata
   from its receipt (CC BY 4.0, derived from BioVL2's DOI) and reserves a DOI; `scripts/protocolsio_publish.py <run>`
   puts it on protocols.io as one step per step found in the video (volume, reagent, video seconds, robot or by hand),

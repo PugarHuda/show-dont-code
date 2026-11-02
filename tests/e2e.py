@@ -628,7 +628,7 @@ def main():
         tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8), mflex, mcard = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
         check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer",
                                                      "get_tube_labels", "run_on_flex_robot_server", "get_related_protocols",
-                                                     "get_bench_card", "get_receipt"], tools)
+                                                     "crosscheck_volumes", "get_bench_card", "get_receipt"], tools)
         check("mcp: get_bench_card gives each step's drawing, Muse Spark's verdict and the protocol's own volume",
               mcard["image_model"] == "muse-image-1.0" and mcard["steps"] and all(
                   c["image"].endswith(f"/bench-card/{c['step']}.jpg") and isinstance(c["faithful"], bool) for c in mcard["steps"])
@@ -664,6 +664,19 @@ def main():
         for bad in ("https://evil.example/x", "file:///etc/passwd", ""):
             st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": bad}).encode(), {"Content-Type": "application/json"})
             check(f"protocols.io import: refuses {bad or 'an empty link'!r} before any work", st == 422, (st, body[:100]))
+        # ---- volumes cross-checked against published protocols (Muse Spark reads protocols.io) -------------
+        xc = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/related/crosscheck")[1])
+        rows = [(p, w) for p in xc.get("protocols", []) for w in p["rows"]]
+        check("cross-check: published volumes come with a quote and agree on the PrimeSTAR premix share",
+              xc.get("reaction_ul") == 50 and rows and all(w["quote"] and w["theirs_ul"] > 0 for _, w in rows)
+              and any(w["reagent"] == "PrimeSTAR Max Premix" and w["agree"] for _, w in rows), str(xc)[:200])
+        check("cross-check: a run whose volumes aren't all confirmed is refused, not compared half-done",
+              fetch(f"{api}/api/runs/pcr_3/related/crosscheck")[0] == 409)
+        page.goto(BASE + "/app?run=pcr_1-gt")
+        page.wait_for_function("() => document.querySelectorAll('#xcheck tr').length > 0", timeout=90000)
+        check("cross-check: the app shows each published volume next to the filmed one, with its source",
+              page.is_visible("#xbox") and "✓ same share" in page.inner_text("#xcheck") and page.locator("#xcheck a").count() > 0,
+              page.inner_text("#xline"))
         # ---- .eln: the run as one experiment for an electronic lab notebook (ELN Consortium format) ---------
         st, eln = fetch(f"{api}/api/runs/pcr_1-gt/run.eln")
         z = zipfile.ZipFile(io.BytesIO(eln)) if st == 200 else None

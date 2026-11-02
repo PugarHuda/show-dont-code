@@ -80,6 +80,9 @@
   .well.ok { fill: var(--accent); stroke: var(--accent); }
   .well.here { stroke: #ffd60a; stroke-width: 3; }
   .scan { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+  .xcheck .ok { color: var(--accent); font-weight: 700; } .xcheck .warn { color: var(--warn); font-weight: 700; }
+  .xcheck q { color: var(--muted); font-size: 12px; }
+  .tablewrap { overflow-x: auto; }
   .card { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
   .card figure { margin: 0; }
   .card button.seek { display: block; width: 100%; padding: 0; border: 0; background: none; border-radius: 8px; cursor: pointer; }
@@ -277,6 +280,9 @@
       <h2>Published protocols with the same reagents · protocols.io</h2>
       <p class="hint" id="relline" aria-live="polite"></p>
       <ul class="issues" id="rel"></ul>
+      <p class="hint" id="xline" aria-live="polite"></p>
+      <div id="xbox" hidden class="tablewrap"><table class="setup xcheck"><thead><tr><th scope="col">Reagent</th><th scope="col">Filmed</th>
+        <th scope="col">Published</th><th scope="col">Where it says so</th></tr></thead><tbody id="xcheck"></tbody></table></div>
     </section>
     <section id="cardbox" hidden>
       <h2>Bench card · Muse Image draws, Muse Spark checks</h2>
@@ -460,6 +466,7 @@ $("carddraw").addEventListener("click", async () => {
 // how other labs wrote up the same kit (protocols.io public search), to check the filmed volumes against
 async function related(n) {
   $("relbox").hidden = false; $("rel").innerHTML = ""; $("relline").textContent = "Searching protocols.io…";
+  $("xline").textContent = ""; $("xbox").hidden = true;
   try {
     const x = await api(`/api/runs/${encodeURIComponent(n)}/related`);
     if (n !== name) return;  // another run was opened meanwhile
@@ -467,9 +474,33 @@ async function related(n) {
     $("relline").textContent = x.protocols.length
       ? `Public protocols on protocols.io found by ${by}the protocol type (${x.kind}). Compare their volumes and steps with what was filmed.`
       : `No public protocol on protocols.io matches ${by}${x.kind}.`;
+    if (R.protocol && x.protocols.length) crosscheck(n);
     $("rel").innerHTML = x.protocols.map((p) => `<li class="info"><b><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></b><span>${p.matched.length ? `mentions ${esc(p.matched.join(", "))} · ` : ""}${p.doi ? `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener">doi:${esc(p.doi)}</a>` : ""}</span></li>`).join("");
   } catch (e) {
     if (n === name) $("relline").textContent = `protocols.io search didn't answer: ${e.message}`;
+  }
+}
+
+// volumes next to published ones: Muse Spark read the related protocols; each volume shown comes with its quote,
+// which the server checked is really in that protocol's text
+async function crosscheck(n) {
+  $("xline").textContent = "Muse Spark is reading the published protocols for their volumes…"; $("xcheck").replaceChildren();
+  try {
+    const r = await fetch(`${API}/api/runs/${encodeURIComponent(n)}/related/crosscheck`), x = await r.json();
+    if (n !== name) return;
+    if (!r.ok) throw new Error(x.detail || r.status);
+    const rows = x.protocols.flatMap((p) => p.rows.map((w) => ({ p, w })));
+    const same = rows.filter(({ w }) => w.agree).length;
+    $("xline").textContent = rows.length
+      ? `One filmed reaction is ${x.reaction_ul} µL. ${rows.length} published volume${rows.length > 1 ? "s" : ""} for the same reagents, as a share of each protocol's own reaction: ${same} agree within 20 %.`
+      : "Muse Spark found no volume for these reagents in the published protocols.";
+    const pct = (v) => v == null ? "?" : `${Math.round(v * 100)} %`;
+    $("xcheck").innerHTML = rows.map(({ p, w }) => `<tr><th scope="row">${esc(w.reagent)}</th><td>${w.ours_ul} µL (${pct(w.share_ours)})</td>
+      <td>${w.theirs_ul} µL (${pct(w.share_theirs)}) <span class="${w.agree ? "ok" : "warn"}">${w.agree == null ? "" : w.agree ? "✓ same share" : "differs"}</span></td>
+      <td><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a><br><q>${esc(w.quote)}</q></td></tr>`).join("");
+    $("xbox").hidden = !rows.length;
+  } catch (e) {
+    if (n === name) $("xline").textContent = `The volume cross-check didn't finish: ${e.message}`;
   }
 }
 

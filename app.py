@@ -513,6 +513,38 @@ def related_protocols(name: str):
     return out
 
 
+@app.get("/api/runs/{name}/related/crosscheck")
+def related_crosscheck(name: str):
+    """This run's volumes next to the volumes published protocols with the same kit use: Muse Spark reads up to three
+    of the related protocols.io protocols, and only volumes with a quote that is really in the protocol are kept.
+    Cached per run, kit words and volumes; computing it counts as one live model call per protocol read."""
+    from sdc import crosscheck, related
+
+    d = _run_dir(name)
+    r = json.loads((d / "result.json").read_text(encoding="utf-8"))
+    steps = r["steps"]
+    mine, _ = crosscheck.reaction(steps)
+    if not r.get("protocol") or not mine:  # shares of a half-confirmed reaction would mean nothing
+        raise HTTPException(409, "no protocol yet: answer the open questions first")
+    key = related.terms(steps)[0] + [f"{k}={v}" for k, v in sorted(mine.items())]
+    cache = pipeline.asset(d, "crosscheck.json")
+    if cache.exists():
+        c = json.loads(cache.read_text(encoding="utf-8"))
+        if c.get("key") == key:
+            return c
+    with _rx_locks[f"crosscheck-{d.name}"]:
+        rel = related_protocols(name)
+        spend_live_call(min(3, len([p for p in rel["protocols"] if p.get("doi")])) or 1)
+        try:
+            c = crosscheck.crosscheck(steps, rel)
+        except Exception:  # noqa: BLE001 - Muse Spark or protocols.io unreachable
+            log.exception("cross-check failed for %s", name)
+            raise HTTPException(503, "the cross-check with published protocols didn't finish; please try again later")
+        c["key"] = key
+        (d / "crosscheck.json").write_text(json.dumps(c), encoding="utf-8")
+    return c
+
+
 def _designer(d, name):
     from sdc import designer
 
@@ -967,6 +999,13 @@ if MCPServer:
         return {**card, "steps": [{**c, "image": f"{base}/{c['step']}.jpg", **{k: steps[c["step"]].get(k) for k in (
             "description", "reagent", "volume_ul", "destination")}} for c in card["steps"]
             if c["step"] < len(steps) and steps[c["step"]].get("action") != "skipped"]}
+
+    @mcp.tool()
+    def crosscheck_volumes(name: str) -> dict:
+        """This run's per-reaction volumes next to those of published protocols.io protocols that use the same kit, read by
+        Muse Spark: each match has the published volume, its verbatim quote (checked to be in the protocol's text), both
+        reagents' share of the reaction and whether they agree within 20 %."""
+        return _http(related_crosscheck, name)
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:
