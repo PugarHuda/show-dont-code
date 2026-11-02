@@ -664,14 +664,36 @@ def main():
         for bad in ("https://evil.example/x", "file:///etc/passwd", ""):
             st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": bad}).encode(), {"Content-Type": "application/json"})
             check(f"protocols.io import: refuses {bad or 'an empty link'!r} before any work", st == 422, (st, body[:100]))
+        # ---- .eln: the run as one experiment for an electronic lab notebook (ELN Consortium format) ---------
+        st, eln = fetch(f"{api}/api/runs/pcr_1-gt/run.eln")
+        import io, zipfile
+        z = zipfile.ZipFile(io.BytesIO(eln)) if st == 200 else None
+        names = z.namelist() if z else []
+        meta = json.loads(z.read("show-dont-code-pcr_1-gt/ro-crate-metadata.json")) if z else {"@graph": []}
+        g = {e["@id"]: e for e in meta["@graph"]}
+        exp = g.get("./pcr_1-gt/", {})
+        check(".eln: one root folder, RO-Crate 1.2 + ELN 1.2+20260923, one experiment with every file attached and hashed",
+              names and all(n.startswith("show-dont-code-pcr_1-gt/") for n in names)
+              and {"@id": "https://purl.archive.org/purl/elnconsortium/eln-spec/1.2+20260923"} in g["./"]["conformsTo"]
+              and exp.get("@type") == "Dataset" and "show-dont-code-pcr_1-gt/pcr_1-gt/protocol.py" in names
+              and all(len(g[p["@id"]]["sha256"]) == 64 and f"show-dont-code-pcr_1-gt/{p['@id'][2:]}" in names for p in exp["hasPart"])
+              and z.read("show-dont-code-pcr_1-gt/pcr_1-gt/protocol.py") == proto, (st, names[:3]))
+        check(".eln: the entry's body has the steps with volumes, the robot checks and the bench card",
+              "20.0 µL" in exp.get("text", "") and "Opentrons simulator: passed" in exp.get("text", "")
+              and "show-dont-code-pcr_1-gt/pcr_1-gt/bench-card-step-1.jpg" in names, exp.get("text", "")[:120])
         # ---- bench card: Muse Image redraws each step's frame, Muse Spark checks it -------------------------
         card = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/bench-card")[1])
         st, img = fetch(f"{api}/api/runs/pcr_1-gt/bench-card/{card['steps'][0]['step']}.jpg")
         check("bench card: every filmed step has a drawing and Muse Spark's verdict on it",
-              card["image_model"] == "muse-image-1.0" and len(card["steps"]) >= 5 and st == 200 and img[:3] == b"ÿØÿ"
+              card["image_model"] == "muse-image-1.0" and len(card["steps"]) >= 5 and st == 200 and img[:3] == bytes.fromhex("ffd8ff")
               and all(len(s["image_sha256"]) == 64 for s in card["steps"]), (st, len(card.get("steps", []))))
         check("bench card: a run read from a published protocol has no footage to draw",
               fetch(f"{api}/api/runs/protocolsio_q5/bench-card", "POST")[0] == 409)
+        check("bench card: a visitor can't redraw a shared sample's card (only their own upload's)",
+              fetch(f"{api}/api/runs/pcr_3/bench-card", "POST")[0] == 409)
+        rc = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/receipt.json")[1])
+        check("bench card: the receipt hashes card.json and names the models that drew and checked it",
+              len(rc["files_sha256"].get("card.json", "")) == 64 and rc["bench_card"]["image_model"] == "muse-image-1.0", rc.get("bench_card"))
         page.goto(BASE + "/app?run=pcr_1-gt")
         page.wait_for_function("() => document.querySelectorAll('#card img').length > 0", timeout=60000)
         page.locator("#card img").first.scroll_into_view_if_needed()
@@ -680,8 +702,8 @@ def main():
         check("bench card: the app shows the drawings with the protocol's own volume and the checker's verdict",
               page.evaluate("() => document.querySelectorAll('#card img').length") == len(card["steps"])
               and "µL" in cap and "Muse Spark" in cap and page.is_visible("#cardprint"), cap)
-        page.locator("#card img").nth(2).click()
-        check("bench card: clicking a drawing jumps the video to that moment",
+        page.locator("#card button.seek").nth(2).focus(); page.keyboard.press("Enter")  # keyboard, not just the mouse
+        check("bench card: a drawing (Enter on it) jumps the video to that moment",
               abs(page.evaluate("() => document.getElementById('video').currentTime") - card["steps"][2]["t"]) < 1.5)
         # ---- protocols.io: published protocols that use the same kit ----------------------------------------
         page.goto(BASE + "/app?run=pcr_3")

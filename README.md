@@ -158,6 +158,13 @@ Then:
   puts it on protocols.io as one step per step found in the video (volume, reagent, video seconds, robot or by hand),
   linked to protocol.py. pcr_1-gt is published on Zenodo:
   [doi:10.5281/zenodo.23876762](https://doi.org/10.5281/zenodo.23876762).
+- **A lab notebook entry** (`run.eln`, the ELN Consortium's file format: RO-Crate 1.2 in a zip, ELN version
+  1.2+20260923) that eLabFTW, RSpace, Kadi4Mat, SampleDB and other electronic lab notebooks import as one experiment:
+  the steps with volumes and video times, the checks the protocol passed and the bench card in the entry's body, every
+  file of the run attached with its SHA-256, and each reviewer-agent finding as a comment on the entry
+  (`sdc/eln.py`). It passes `rocrate-validator`'s RO-Crate 1.2 profile, and `python scripts/elabftw_roundtrip.py`
+  imports it into the public eLabFTW demo (6.0.9) and checks the entry: on Nov 2 pcr_1-gt arrived as experiment with
+  its steps table, checks, licence, tags and all 16 files, the bench card drawings shown as images.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
   analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_related_protocols`, `get_bench_card` (the illustrated steps with the checker's verdict), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a

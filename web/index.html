@@ -82,13 +82,14 @@
   .scan { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
   .card { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
   .card figure { margin: 0; }
-  .card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+  .card button.seek { display: block; width: 100%; padding: 0; border: 0; background: none; border-radius: 8px; cursor: pointer; }
+  .card img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
   .card figcaption { font-size: 13px; margin-top: 6px; line-height: 1.35; }
   .card figcaption span { display: block; color: var(--muted); font-size: 12px; }
   @media print {
-    body.printcard * { visibility: hidden; }
-    body.printcard #cardbox, body.printcard #cardbox * { visibility: visible; }
-    body.printcard #cardbox { position: absolute; inset: 0 auto auto 0; width: 100%; }
+    /* only the card prints: everything not on the way to it is taken out of the layout, so no blank pages */
+    body.printcard *:not(:has(#cardbox)):not(#cardbox):not(#cardbox *) { display: none !important; }
+    body.printcard :has(#cardbox) { display: block !important; margin: 0 !important; padding: 0 !important; border: 0 !important; box-shadow: none !important; }
     body.printcard #cardbox .files, body.printcard #cardline { display: none; }
     body.printcard .card { grid-template-columns: 1fr 1fr; }
     body.printcard .card li { break-inside: avoid; }
@@ -305,7 +306,8 @@
       <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
         <a id="f-pd" title="Open designer.opentrons.com, choose Import, and pick this file">Protocol Designer, no code (.json)</a>
         <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-evo">tecan-evo.py (Tecan Freedom EVO)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
-        <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-ots" hidden>Bitcoin timestamp proof (.ots)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a></p>
+        <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-ots" hidden>Bitcoin timestamp proof (.ots)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a>
+        <a id="f-eln" title="ELN Consortium format: import it into eLabFTW, RSpace, Kadi4Mat, SampleDB and other lab notebooks">Lab notebook entry (.eln)</a></p>
       <p class="hint" id="otsline" hidden></p>
       <p class="hint" id="pdline" hidden>To change a volume or the cycling program without code, open
         <a href="https://designer.opentrons.com/" target="_blank" rel="noopener">Opentrons Protocol Designer</a>, choose Import
@@ -398,44 +400,58 @@ async function benchCard(n) {
   const box = $("cardbox"), base = `${API}/api/runs/${encodeURIComponent(n)}/bench-card`;
   box.hidden = !!R.source; $("card").replaceChildren(); $("carddraw").hidden = true; $("cardprint").hidden = true;
   if (R.source) return;  // read from a published protocol: there is no footage to draw from
-  $("cardline").textContent = "Loading the bench card…";
-  const r = await fetch(base);
-  if (n !== name) return;
-  if (r.status === 404) {
-    $("cardline").textContent = "Muse Image can redraw each step's video frame as a clean illustration for a printed bench card, and Muse Spark checks every drawing against its frame. About two minutes.";
-    $("carddraw").hidden = false;
+  if (!R.bench_card) {
+    $("cardline").textContent = n.startsWith("u-")
+      ? "Muse Image can redraw each step's video frame as a clean illustration for a printed bench card, and Muse Spark checks every drawing against its frame. About two minutes."
+      : "This run has no bench card.";
+    $("carddraw").hidden = !n.startsWith("u-");
     return;
   }
-  if (!r.ok) { $("cardline").textContent = `The bench card didn't load (${r.status}).`; return; }
-  showCard(await r.json(), base);
+  await waitForCard(n, base);
+}
+async function waitForCard(n, base) {
+  $("cardline").textContent = R.bench_card === "drawing" ? "Muse Image is drawing each step and Muse Spark is checking every drawing…" : "Loading the bench card…";
+  for (;;) {
+    const r = await fetch(base);
+    if (n !== name) return;
+    if (r.status === 202) { await new Promise((ok) => setTimeout(ok, 5000)); continue; }
+    const x = await r.json().catch(() => ({}));
+    if (!r.ok) { $("cardline").textContent = `The bench card couldn't be drawn: ${x.detail || r.status}`; $("carddraw").hidden = !n.startsWith("u-"); return; }
+    return showCard(x, base);
+  }
 }
 function showCard(c, base) {
-  const ok = c.steps.filter((s) => s.faithful).length, redrawn = c.steps.filter((s) => s.attempts > 1).length;
-  $("cardline").textContent = `Each step's frame from the video, redrawn by ${c.image_model} with no text drawn in. ${c.check_model} compared every drawing with its frame: ${ok} of ${c.steps.length} kept every object${redrawn ? `; ${redrawn} first drawing${redrawn > 1 ? "s were" : " was"} sent back and redrawn` : ""}. Click a drawing to see that moment in the video.`;
-  $("card").innerHTML = c.steps.filter((s) => R.steps[s.step]).map((s) => {
-    const st = R.steps[s.step], what = st.action === "transfer" && st.volume_ul
-      ? `${st.volume_ul} µL ${esc(st.reagent || "")}${st.destination ? ` into ${esc(st.destination)}` : ""}` : esc(st.description || st.action);
-    return `<li><figure><img loading="lazy" data-t="${s.t}" src="${base}/${s.step}.jpg" alt="Illustration of step ${s.step + 1}: ${esc(st.description || st.action)}">
-      <figcaption><b>${s.step + 1}. ${esc(st.description || st.action)}</b>${what !== esc(st.description || st.action) ? ` · ${what}` : ""}
+  const shown = c.steps.filter((s) => R.steps[s.step] && R.steps[s.step].action !== "skipped");
+  const ok = shown.filter((s) => s.faithful).length, redrawn = shown.filter((s) => s.attempts > 1).length;
+  $("cardline").textContent = `Each step's frame from the video, redrawn by ${c.image_model} with no text drawn in. ${c.check_model} compared every drawing with its frame: ${ok} of ${shown.length} kept every object${redrawn ? `; ${redrawn} first drawing${redrawn > 1 ? "s were" : " was"} sent back and redrawn` : ""}. Click a drawing to see that moment in the video.`;
+  $("card").innerHTML = shown.map((s) => {
+    const st = R.steps[s.step], title = esc(st.description || st.action), what = st.action === "transfer" && st.volume_ul
+      ? `${st.volume_ul} µL ${esc(st.reagent || "")}${st.destination ? ` into ${esc(st.destination)}` : ""}` : "";
+    return `<li><figure><button type="button" class="seek" data-t="${s.t}" aria-label="Play step ${s.step + 1} in the video, at ${fmt(s.t)}"><img loading="lazy" src="${base}/${s.step}.jpg" alt="Illustration of step ${s.step + 1}: ${title}"></button>
+      <figcaption><b>${s.step + 1}. ${title}</b>${what && what !== title ? ` · ${what}` : ""}
       <span>video ${fmt(s.t)} · ${s.faithful ? "✓ Muse Spark: same scene" : `⚠ Muse Spark: ${esc(s.differences.join("; "))}`}</span></figcaption></figure></li>`;
   }).join("");
   $("cardprint").hidden = false;
 }
 $("card").addEventListener("click", (e) => {
-  const t = e.target.closest("img")?.dataset.t;
+  const t = e.target.closest("button.seek")?.dataset.t;
   if (t == null || R.source) return;
   $("video").currentTime = +t; $("video").scrollIntoView({ block: "center" });
 });
-$("cardprint").addEventListener("click", () => {
-  document.body.classList.add("printcard"); print(); document.body.classList.remove("printcard");
+$("cardprint").addEventListener("click", async () => {
+  const imgs = [...$("card").querySelectorAll("img")];
+  imgs.forEach((i) => { i.loading = "eager"; });  // lazy images below the fold would print blank
+  await Promise.all(imgs.map((i) => i.decode().catch(() => {})));
+  document.body.classList.add("printcard"); print();
 });
+addEventListener("afterprint", () => document.body.classList.remove("printcard"));  // print() may return early (Safari)
 $("carddraw").addEventListener("click", async () => {
   const n = name, btn = $("carddraw"), base = `${API}/api/runs/${encodeURIComponent(n)}/bench-card`;
-  btn.disabled = true; $("cardline").textContent = "Muse Image is drawing each step and Muse Spark is checking every drawing… about two minutes.";
+  btn.disabled = true;
   try {
     const r = await fetch(base, { method: "POST" }), x = await r.json();
     if (!r.ok) throw new Error(x.detail || r.status);
-    if (n === name) { btn.hidden = true; showCard(x, base); }
+    if (n === name) { btn.hidden = true; R.bench_card = "drawing"; await waitForCard(n, base); }
   } catch (e) {
     if (n === name) $("cardline").textContent = `The bench card couldn't be drawn: ${e.message}`;
   } finally { btn.disabled = false; }
@@ -568,7 +584,7 @@ function render() {
     $("f-proto").href = `${base}/protocol.py`;
     $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
     $("f-pd").href = `${base}/protocol-designer.json`; $("f-pd").hidden = $("pdline").hidden = !an;
-    $("f-receipt").href = `${base}/receipt.json`; $("f-crate").href = `${base}/ro-crate.zip`; $("f-ots").href = `${base}/receipt.ots`;
+    $("f-receipt").href = `${base}/receipt.json`; $("f-crate").href = `${base}/ro-crate.zip`; $("f-eln").href = `${base}/run.eln`; $("f-ots").href = `${base}/receipt.ots`;
     stampLine(base);
     $("f-plr").href = `${base}/pylabrobot.py`; $("f-evo").href = `${base}/tecan-evo.py`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
     // the same steps on two other vendors' robots, each run in PyLabRobot's simulator with volume tracking on

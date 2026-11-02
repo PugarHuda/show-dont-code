@@ -7,6 +7,7 @@ never a scene from nothing) and is told to write no text; every number and name 
 import base64
 import hashlib
 import json
+import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -77,7 +78,13 @@ def _jpeg(png, width=1280):
     return meta._jpeg_bytes(img, quality=86)
 
 
-def illustrate_step(video, run_dir, i, step, tries=2):
+def filmed(steps):
+    """(index, step) of every step that happens on camera; a step the scientist marked as never done is left out."""
+    return [(i, s) for i, s in enumerate(steps)
+            if s.get("start") is not None and s.get("end") is not None and s.get("action") != "skipped"]
+
+
+def illustrate_step(video, run_dir, out_dir, i, step, tries=2):
     t = moment(step)
     frame = meta._small_jpeg(meta.frames(video, [t], Path(run_dir) / "stills_card")[0])
     rejected = []  # what Muse Spark found wrong with drawings it sent back
@@ -87,25 +94,36 @@ def illustrate_step(video, run_dir, i, step, tries=2):
         if verdict["faithful"] or attempt == tries:
             break
         rejected.append([str(x)[:200] for x in verdict["differences"]][:8])
-    out = Path(run_dir) / "card" / f"step_{i}.jpg"
-    out.parent.mkdir(exist_ok=True)
-    out.write_bytes(drawing)
-    return {"step": i, "t": t, "image": out.name, "frame_sha256": hashlib.sha256(frame).hexdigest(),
+    (out_dir / f"step_{i}.jpg").write_bytes(drawing)
+    return {"step": i, "t": t, "image": f"step_{i}.jpg", "frame_sha256": hashlib.sha256(frame).hexdigest(),
             "image_sha256": hashlib.sha256(drawing).hexdigest(), "attempts": attempt,
             "faithful": verdict["faithful"], "differences": [str(x)[:200] for x in verdict["differences"]][:8], "rejected": rejected}
 
 
 def bench_card(run_dir, video=None):
-    """Draw every step that happens on camera (in parallel: ~30 s per image) and write card.json."""
+    """Draw every filmed step (in parallel: ~30 s per image) and write card/ and card.json. All or nothing: drawings
+    go to card.tmp/, which becomes card/ only when every step is drawn, and card.json (what marks a card as ready)
+    is written last."""
     run_dir = Path(run_dir)
     video = video or run_dir / "video.mp4"
     steps = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))["steps"]
-    todo = [(i, s) for i, s in enumerate(steps) if s.get("start") is not None and s.get("end") is not None]
+    todo = filmed(steps)
     if not todo or not Path(video).exists():
         raise ValueError("no filmed steps to illustrate")
-    with ThreadPoolExecutor(6) as pool:
-        cards = list(pool.map(lambda a: illustrate_step(video, run_dir, *a), todo))
-    out = {"image_model": IMAGE, "check_model": meta.SPARK, "prompt": PROMPT, "steps": cards}
+    tmp = run_dir / "card.tmp"
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir()
+    try:
+        with ThreadPoolExecutor(6) as pool:
+            cards = list(pool.map(lambda a: illustrate_step(video, run_dir, tmp, *a), todo))
+        shutil.rmtree(run_dir / "card", ignore_errors=True)
+        tmp.rename(run_dir / "card")
+    except BaseException:
+        shutil.rmtree(tmp, ignore_errors=True)
+        raise
+    out = {"image_model": IMAGE, "check_model": meta.SPARK, "prompt": PROMPT,
+           "frame": "frame_sha256 is of the 960-px JPEG of the video frame at t that both models were shown",
+           "steps": cards}
     (run_dir / "card.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
     return out
 

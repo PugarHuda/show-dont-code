@@ -19,7 +19,8 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 > generation is deterministic, so model output never becomes executable code. Muse Image turns the same footage into a
 > printable bench card for training: each step's own video frame redrawn as a manual illustration, which Muse Spark
 > checks against the frame and sends back if anything was added or moved; every word on the card comes from the
-> protocol. No video? Paste a published protocols.io
+> protocol. A lab notebook entry (.eln, the ELN Consortium format) imports the whole run into eLabFTW, RSpace or
+> Kadi4Mat as one experiment; verified by importing it into the public eLabFTW demo. No video? Paste a published protocols.io
 > protocol: Muse Spark reads its text into the same steps, and it goes through the same codegen and checks, so the
 > protocols labs already publish become robot runs too. Every protocol is run end to end on Opentrons' own
 > robot-server (the software inside a Flex), and every command it ran matched its own analysis (240 of 240). On held-out videos from the public

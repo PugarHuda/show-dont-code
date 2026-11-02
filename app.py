@@ -57,12 +57,12 @@ def live_calls_left():
     return LIVE_CALL_LIMIT - (used.get("used", 0) if used.get("day") == today else 0), today
 
 
-def spend_live_call():
+def spend_live_call(n=1):
     with _calls_lock:
         left, today = live_calls_left()
-        if left <= 0:
+        if left < n:
             raise HTTPException(429, "today's live model calls for this demo are used up; they reset at 00:00 UTC")
-        (pipeline.OUT / ".live_calls.json").write_text(json.dumps({"day": today, "used": LIVE_CALL_LIMIT - left + 1}))
+        (pipeline.OUT / ".live_calls.json").write_text(json.dumps({"day": today, "used": LIVE_CALL_LIMIT - left + n}))
 
 
 def _run_dir(name):
@@ -199,6 +199,7 @@ def result(name: str):
     r["captions"] = len(_speech(d))
     r["max_reactions"] = protocol.max_reactions(r["steps"]) if r.get("protocol") else 1
     r["copy_of"] = (d / "copy_of").read_text().strip() if (d / "copy_of").exists() else None
+    r["bench_card"] = card_state(d)  # the app asks for the card only when there is one: no 404 in the console
     src = d / "source.json"  # a run started from a published protocol instead of a video
     r["source"] = {k: v for k, v in json.loads(src.read_text(encoding="utf-8")).items() if k != "text"} if src.exists() else None
     return r
@@ -419,47 +420,74 @@ def flex_robot_run(name: str, n: int):
     return out
 
 
-_card_locks = defaultdict(threading.Lock)
+_card_jobs = {}  # run -> "drawing" | error text, for the one web container
+
+
+def card_state(d):
+    """"ready", "drawing", or None: what the app shows before asking for the card."""
+    if pipeline.asset(d, "card.json").exists():
+        return "ready"
+    return "drawing" if _card_jobs.get(d.name) == "drawing" else None
 
 
 @app.get("/api/runs/{name}/bench-card")
 def bench_card(name: str):
     """The illustrated bench card: each filmed step drawn by Muse Image from its own video frame, with Muse Spark's
-    verdict on whether the drawing kept the scene (card.json). 404 until someone draws it."""
-    f = pipeline.asset(_run_dir(name), "card.json")
-    if not f.exists():
-        raise HTTPException(404, "no bench card yet")
-    return json.loads(f.read_text(encoding="utf-8"))
+    verdict on whether the drawing kept the scene (card.json). 202 while it is being drawn, 404 before."""
+    d = _run_dir(name)
+    f = pipeline.asset(d, "card.json")
+    if f.exists():
+        return json.loads(f.read_text(encoding="utf-8"))
+    job = _card_jobs.get(d.name)
+    if job == "drawing":
+        return JSONResponse({"drawing": True}, status_code=202)
+    raise HTTPException(503 if job else 404, job or "no bench card yet")
 
 
 @app.get("/api/runs/{name}/bench-card/{i}.jpg")
 def bench_card_image(name: str, i: int):
-    f = pipeline.asset(_run_dir(name), "card") / f"step_{i}.jpg"
-    if not f.exists():
+    d = _run_dir(name)
+    f = pipeline.asset(d, "card") / f"step_{i}.jpg"
+    if not f.exists() or not pipeline.asset(d, "card.json").exists():  # only a finished card is served
         raise HTTPException(404, "no drawing for this step")
     return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 
-@app.post("/api/runs/{name}/bench-card")
+@app.post("/api/runs/{name}/bench-card", status_code=202)
 def draw_bench_card(name: str):
-    """Draw the bench card for a run that has a video (an upload; the samples come with theirs). About two minutes:
-    one Muse Image edit and one Muse Spark check per step, in parallel. Counts as one live model call."""
+    """Start drawing the bench card of an uploaded run (the samples come with theirs, and a shared sample is never
+    changed by a visitor). One Muse Image edit and one Muse Spark check per filmed step, in the background; each step
+    counts as a live model call. Poll GET until it answers 200."""
     from sdc import illustrate
 
     d = _run_dir(name)
+    if not name.startswith("u-"):
+        raise HTTPException(409, "the sample runs come with their bench cards; draw one for your own upload")
     if not pipeline.asset(d, "video.mp4").exists():
         raise HTTPException(409, "this run has no video to draw from")
+    steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
+    todo = illustrate.filmed(steps)
+    if not todo:
+        raise HTTPException(409, "no filmed steps to illustrate")
     with _card_locks[d.name]:
-        if pipeline.asset(d, "card.json").exists():
-            return bench_card(name)
-        spend_live_call()
+        if card_state(d):
+            return {"drawing": card_state(d) == "drawing"}
+        spend_live_call(len(todo))
+        _card_jobs[d.name] = "drawing"
+
+    def work():
         try:
-            return illustrate.bench_card(d, pipeline.asset(d, "video.mp4"))
-        except ValueError as e:
-            raise HTTPException(409, str(e))
-        except Exception:  # model refused or unreachable: say so, keep nothing half-made
+            illustrate.bench_card(d, pipeline.asset(d, "video.mp4"))
+            _card_jobs.pop(d.name, None)
+        except Exception:  # model refused or unreachable: nothing half-made is kept (illustrate writes card/ last)
             log.exception("bench card failed for %s", name)
-            raise HTTPException(503, "Muse Image or Muse Spark didn't answer; please try again later")
+            _card_jobs[d.name] = "Muse Image or Muse Spark didn't answer; please try again later"
+
+    threading.Thread(target=work, daemon=True).start()
+    return {"drawing": True, "steps": len(todo)}
+
+
+_card_locks = defaultdict(threading.Lock)
 
 
 @app.get("/api/runs/{name}/related")
@@ -521,7 +549,7 @@ def receipt(name: str):
     # every model output the protocol depends on: steps, bench sheet and cycling program, speech, tip and tube tracks
     files = {f: _sha256(pipeline.asset(d, f).read_bytes()) for f in (
         "video.mp4", "source.json", "steps_raw.json", "steps_stage2.json", "sheet.json", "profile.json", "speech.json",
-        "tracks_tip.json", "tubes.json", "analysis.json") if pipeline.asset(d, f).exists()}
+        "tracks_tip.json", "tubes.json", "card.json", "analysis.json") if pipeline.asset(d, f).exists()}
     psha = _sha256(r["protocol"].encode("utf-8"))
     flex = [json.loads(f.read_text(encoding="utf-8")) for f in sorted((d / "flex_runs").glob(f"{psha[:16]}-*.json"))]
     answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
@@ -542,6 +570,9 @@ def receipt(name: str):
                    {"steps_and_sheet": meta.SPARK, "tracking": "sam-3.1", "speech": "muse-voice-transcribe-1.0",
                     "reviewer": r.get("review_model") or "not recorded for this run"}) if (d / "steps_raw.json").exists()
         else {"note": "steps replayed from BioVL2 human annotations; no model read this video"},
+        # the bench card is drawn from the video for people; the protocol doesn't depend on it, but its models ran
+        "bench_card": ({k: json.loads(pipeline.asset(d, "card.json").read_text(encoding="utf-8"))[k] for k in
+                        ("image_model", "check_model")} if pipeline.asset(d, "card.json").exists() else None),
         "source": {k: v for k, v in json.loads((d / "source.json").read_text(encoding="utf-8")).items() if k != "text"}
         if (d / "source.json").exists() else {"video_sha256": files.get("video.mp4")},
         "human_input": {"answers": answers, "named_tubes": [t["name"] for t in _tubes(d) if t.get("name")]},
@@ -577,12 +608,10 @@ def receipt_ots(name: str):
                     headers={"Content-Disposition": f'attachment; filename="{name}-receipt.ots"'})
 
 
-@app.get("/api/runs/{name}/ro-crate.zip")
-def ro_crate(name: str, request: Request):
-    """The whole run as an RO-Crate (Process Run Crate): files, hashes, and which tool made which file from what."""
-    from fastapi.responses import Response
-
-    from sdc import crate, export
+def _run_files(name, request):
+    """Every file a run hands out (protocol, exports, receipt, robot-server reports, ...), shared by the RO-Crate and
+    the .eln export so both carry exactly the same bytes."""
+    from sdc import export
 
     rec = receipt(name)
     d, steps = _run_dir(name), _confirmed_steps(name)
@@ -605,8 +634,43 @@ def ro_crate(name: str, request: Request):
     if "review" in r and "note" not in rec["models"]:
         gen["review.json"] = json.dumps({k: r.get(k) for k in ("review", "agent_log", "review_model", "review_saw_video",
                                                               "review_host_failures")}, indent=1).encode("utf-8")
+    return gen, rec, d, steps, r
+
+
+@app.get("/api/runs/{name}/ro-crate.zip")
+def ro_crate(name: str, request: Request):
+    """The whole run as an RO-Crate (Process Run Crate): files, hashes, and which tool made which file from what."""
+    from fastapi.responses import Response
+
+    from sdc import crate
+
+    gen, rec, d, _, _ = _run_files(name, request)
     return Response(crate.build(d, name, gen, rec["models"]), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{name}-ro-crate.zip"'})
+
+
+@app.get("/api/runs/{name}/run.eln")
+def eln_file(name: str, request: Request):
+    """The run as one experiment in the ELN Consortium's .eln format (RO-Crate 1.2): import it into eLabFTW, RSpace,
+    Kadi4Mat, SampleDB or another electronic lab notebook. Steps, checks and bench card in the entry's body, every
+    file attached, each reviewer finding a comment."""
+    from fastapi.responses import Response
+
+    from sdc import eln
+
+    gen, rec, d, steps, r = _run_files(name, request)
+    card_f = pipeline.asset(d, "card.json")
+    card = json.loads(card_f.read_text(encoding="utf-8")) if card_f.exists() else None
+    imgs = {c["step"]: (pipeline.asset(d, "card") / c["image"]).read_bytes() for c in (card or {}).get("steps", [])
+            if (pipeline.asset(d, "card") / c["image"]).exists()}
+    src = d / "source.json"
+    source = json.loads(src.read_text(encoding="utf-8")) if src.exists() else None
+    mtime = (d / "result.json").stat().st_mtime
+    body = eln.build(name, f"Show, Don't Code run {name}", steps, gen, rec, source=source, card=card, card_images=imgs,
+                     review=r.get("review") or [], app_url=_app_link(name, request),
+                     created=eln._iso((d / "result.json").stat().st_ctime), modified=eln._iso(mtime))
+    return Response(body, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="show-dont-code-{name}.eln"'})
 
 
 @app.post("/api/runs/{name}/voice")
@@ -896,10 +960,13 @@ if MCPServer:
         edit of the real frame, no text drawn in), Muse Spark's check that the drawing kept every object, and the
         step's reagent and volume from the protocol. Image links are under /api/runs/<name>/bench-card/<step>.jpg."""
         card = _http(bench_card, name)
+        if not isinstance(card, dict):  # 202: an upload's card is still being drawn
+            raise ToolError("the bench card is still being drawn; try again in a minute")
         steps = _http(result, name)["steps"]
         base = f"{os.getenv('PUBLIC_URL', '')}/api/runs/{name}/bench-card"
         return {**card, "steps": [{**c, "image": f"{base}/{c['step']}.jpg", **{k: steps[c["step"]].get(k) for k in (
-            "description", "reagent", "volume_ul", "destination")}} for c in card["steps"] if c["step"] < len(steps)]}
+            "description", "reagent", "volume_ul", "destination")}} for c in card["steps"]
+            if c["step"] < len(steps) and steps[c["step"]].get("action") != "skipped"]}
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:
