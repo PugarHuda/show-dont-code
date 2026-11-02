@@ -370,7 +370,7 @@ async function flexRun(base) {
     if (!r.ok) throw new Error(x.detail || r.status);
     const secs = x.started_at && x.completed_at ? Math.round((Date.parse(x.completed_at) - Date.parse(x.started_at)) / 1000) : null;
     line.textContent = x.status === "succeeded"
-      ? `Opentrons robot-server ${x.robot_software} (Flex simulation) ran it to the end with ${x.reactions} reaction${x.reactions > 1 ? "s" : ""}: its own analysis passed, ${x.commands} robot commands, run status "succeeded"${secs != null ? ` after ${secs} s of simulated motion` : ""}. ${x.log.filter((l) => l.startsWith("deck")).join("")}`
+      ? `Opentrons robot-server ${x.robot_software} (Flex simulation) ran it to the end with ${x.reactions} reaction${x.reactions > 1 ? "s" : ""}: its own analysis passed, ${x.commands} robot commands, run status "succeeded"${secs != null ? ` after ${secs} s of simulated motion` : ""}. ${x.log.filter((l) => /^deck/i.test(l)).map((l) => l[0].toUpperCase() + l.slice(1) + ".").join("")}`
       : `Opentrons robot-server ${x.robot_software} did not finish the run (${x.status}): ${(x.errors || [x.error]).filter(Boolean).join("; ")}`;
   } catch (e) {
     line.textContent = `The robot-server run didn't complete: ${e.message}`;

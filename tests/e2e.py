@@ -148,6 +148,10 @@ def main():
         page.wait_for_function("() => document.getElementById('video').readyState >= 1", timeout=60000)
         labels = page.eval_on_selector_all("#run option", "o => o.map(x => x.textContent)")
         check("app: runs have readable labels", any("PCR setup" in x for x in labels) and any("human annotations" in x for x in labels), labels)
+        pre = page.evaluate("() => [document.querySelector('#qform .hint')?.textContent || '', "
+                            "[...document.querySelectorAll('#qform input[type=number]')].filter(i => i.value).length]")
+        check("app: pcr_3's pre-filled volumes come from a plan the simulator ran and passed",
+              "every value is from a plan it ran in the simulator, which passed" in pre[0] and pre[1] >= 3, pre)
         page.focus("#steps li:nth-child(3)")
         page.keyboard.press("Enter")
         page.wait_for_timeout(1200)
@@ -606,6 +610,10 @@ def main():
         page.goto(BASE + "/app?run=pcr_2")
         page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
         check("captions: no empty track when nobody spoke", page.evaluate("() => !document.querySelector('#video track')"))
+        page.goto(BASE + "/app?run=c-AAAAAAAAAAAAAAAA")  # the shape of an edit copy's link, but no such copy
+        page.wait_for_function("() => /expired/.test(document.getElementById('status').textContent)", timeout=60000)
+        check("app: an expired copy link says so instead of 'analysing your video'",
+              not page.evaluate("() => document.getElementById('updlg').open"), page.inner_text("#status"))
         tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8), mflex = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
         check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer",
                                                      "get_tube_labels", "run_on_flex_robot_server", "get_receipt"], tools)
