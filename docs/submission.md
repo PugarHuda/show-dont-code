@@ -35,7 +35,7 @@ served by Baseten as `meta-models/muse-spark-open-1026`, failing over to Firewor
 watches the video, calls the Opentrons simulator and `look_at_moment` as tools until the volumes add up, and proposes fixes
 the scientist applies with one click). Best Creative Build (Muse Image draws the bench card from the scientist's own
 footage; Muse Spark checks every drawing against its frame and has it redrawn when it isn't faithful).
-**Live demo:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (seven sample runs).
+**Live demo:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (eight sample runs: seven filmed BioVL2 videos and one published protocols.io protocol).
 Uploading your own video needs the access code; put it in the description field of the form, never in this
 repo (the code lives in `out/upload_code.txt`, which is gitignored).
 
@@ -83,7 +83,7 @@ thermocycler time from Opentrons' analysis at the module's rated ramp rates; an 
 >   "same object" score would help.
 
 **Feedback on partner technologies**
-> Baseten: Muse Spark Open with video input and tool calling worked first try over the OpenAI SDK. The
+> Baseten: Muse Spark Open with video input and tool calling worked first try over the OpenAI SDK.
 > Each key is bound to one model id: the hackathon key serves only `meta-models/muse-spark-open-1026` (403 on the
 > bare id), the earlier key only `meta-models/muse-spark-open` (404 on `-1026`), so the app keeps both as failover hosts.
 

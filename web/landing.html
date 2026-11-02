@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>Show, Don't Code</title>
-<meta name="description" content="Film yourself running a lab protocol once. Get an Opentrons robot protocol that passes the official simulator. Built on Muse Spark, SAM 3.1, Muse Voice Transcribe and Muse Spark Open.">
+<meta name="description" content="Film yourself running a lab protocol once. Get an Opentrons robot protocol that passes the official simulator. Built on Muse Spark, SAM 3.1, Muse Voice Transcribe, Muse Image and Muse Spark Open.">
 <meta property="og:title" content="Show, Don't Code">
 <meta property="og:description" content="Pipette it once on camera. Get the robot protocol.">
 <meta property="og:type" content="website">
@@ -101,13 +101,14 @@
   section .intro { color: var(--muted); max-width: 38em; margin: 0 0 44px; }
 
   /* the pipeline: a real sequence, so numbered */
-  ol.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; }
+  ol.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px; }
   ol.flow li { border-top: 2px solid var(--black); padding-top: 18px; }
   ol.flow .n { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--black); color: var(--paper);
                font-weight: 700; font-size: 15px; margin-bottom: 14px; }
   ol.flow h3 { font-weight: 900; font-size: 26px; letter-spacing: -0.02em; margin: 0; }
   ol.flow .model { font-weight: 700; font-size: 15px; margin: 2px 0 10px; }
   ol.flow p { color: var(--muted); font-size: 16.5px; margin: 0; }
+  @media (max-width: 1100px) { ol.flow { grid-template-columns: 1fr 1fr 1fr; } }
   @media (max-width: 920px) { ol.flow { grid-template-columns: 1fr 1fr; } }
   @media (max-width: 560px) { ol.flow { grid-template-columns: 1fr; } }
 
@@ -249,6 +250,12 @@
           <h3>Check</h3>
           <p class="model">Muse Spark Open</p>
           <p>A reviewer agent watches the same video, runs the Opentrons simulator itself until the volumes add up, and asks you about whatever the footage can't prove.</p>
+        </li>
+        <li>
+          <span class="n">5</span>
+          <h3>Draw</h3>
+          <p class="model">Muse Image</p>
+          <p>Redraws each step's own frame as an illustration for a printed bench card, and Muse Spark sends back any drawing that doesn't match its frame.</p>
         </li>
       </ol>
     </div>

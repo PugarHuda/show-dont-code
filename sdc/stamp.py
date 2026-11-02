@@ -7,6 +7,7 @@ Verify a downloaded proof independently with:  pip install opentimestamps-client
 
 Self-check (talks to the real calendars):  python -m sdc.stamp
 """
+import functools
 import json
 import os
 import threading
@@ -84,6 +85,13 @@ def _get(path):
     raise err
 
 
+@functools.lru_cache(maxsize=256)
+def _block(height):
+    """(block hash, header) at a confirmed height: buried blocks don't change, so ask Esplora once per process."""
+    block = _get(f"/block-height/{height}").strip()
+    return block, json.loads(_get(f"/block/{block}"))
+
+
 def status(ots: bytes) -> dict:
     """{"digest", "calendars" (pending), "bitcoin": [{"height", "block", "time"}] checked against Esplora}."""
     f = load(ots)
@@ -92,8 +100,7 @@ def status(ots: bytes) -> dict:
         if isinstance(att, PendingAttestation):
             pending.append(att.uri)
         elif isinstance(att, BitcoinBlockHeaderAttestation):
-            block = _get(f"/block-height/{att.height}").strip()
-            header = json.loads(_get(f"/block/{block}"))
+            block, header = _block(att.height)
             # Esplora prints the merkle root big-endian; the proof commits to it in Bitcoin's internal byte order
             if bytes.fromhex(header["merkle_root"])[::-1] != msg:
                 raise ValueError(f"proof does not match Bitcoin block {att.height}")

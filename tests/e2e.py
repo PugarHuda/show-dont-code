@@ -600,7 +600,7 @@ def main():
         for scheme in ("light", "dark"):
             ab = p.chromium.launch()
             ap = ab.new_page(color_scheme=scheme, bypass_csp=True)  # axe is injected inline
-            for path, ready in (("/", "h1"), ("/app?run=pcr_1-gt", "#steps li")):
+            for path, ready in (("/", "h1"), ("/app?run=pcr_1-gt", "#steps li"), ("/app?run=protocolsio_q5", "#srcline a")):
                 ap.goto(BASE + path)
                 ap.wait_for_selector(ready, timeout=60000)
                 ap.wait_for_timeout(1500)

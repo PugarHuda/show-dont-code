@@ -149,6 +149,8 @@ def _page(path, head=""):
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    if request.method == "HEAD":  # uptime and link checkers ask with HEAD: answer as GET (the server drops the body)
+        request.scope["method"] = "GET"
     api = os.getenv("API_BASE", "")
     if api and request.url.path.startswith(("/api/", "/mcp")):
         # the front end (Vercel) only holds a read-only demo bundle: no footage to hash, nowhere to keep a timestamp
@@ -161,6 +163,7 @@ async def security_headers(request: Request, call_next):
     else:
         resp = await call_next(request)
     resp.headers.update({"X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin",
+                         "Strict-Transport-Security": "max-age=31536000",
                          "Permissions-Policy": "camera=(self), geolocation=(), microphone=(self)"})  # voice answers, recording
     return resp
 
@@ -397,6 +400,11 @@ def flex_robot_run(name: str, n: int):
         raise HTTPException(409, "the protocol has to pass the simulator first")
     src = r["protocol"]
     cache = d / "flex_runs" / f"{hashlib.sha256(src.encode()).hexdigest()[:16]}-{n}.json"
+    top = protocol.max_reactions(steps)
+    # a shared sample's receipt cites its robot-server runs: visitors can't add one per reaction count (and use up
+    # the day's cap), only the counts the app offers; a private run (upload, edit copy) takes any count
+    if not name.startswith(PRIVATE) and not cache.exists() and n not in {1, 2, 8, 24, top}:
+        raise HTTPException(422, f"on a shared sample, run 1, 2, 8, 24 or {top} reactions (or open your own copy)")
     with _rx_locks[str(cache)]:
         if cache.exists():
             return json.loads(cache.read_text(encoding="utf-8"))
@@ -441,6 +449,8 @@ def bench_card(name: str):
     job = _card_jobs.get(d.name)
     if job == "drawing":
         return JSONResponse({"drawing": True}, status_code=202)
+    if not job and not pipeline.asset(d, "video.mp4").exists():
+        raise HTTPException(404, "this run has no video, so no bench card")
     raise HTTPException(503 if job else 404, job or "no bench card yet")
 
 
@@ -669,6 +679,32 @@ def _run_files(name, request):
     return gen, rec, d, steps, r
 
 
+_exports = {}  # (kind, run) -> (version, bytes): the last build of each export
+_export_slots = threading.BoundedSemaphore(2)  # builds take seconds on the one web container: two at a time, else 429
+
+
+def _export(name, request, kind, build):
+    """An export (RO-Crate, .eln) is rebuilt only when what it contains changed: the run, its stamps, robot-server
+    runs or bench card. Otherwise the bytes of the last build are served."""
+    d = _run_dir(name)
+    version = tuple(p.stat().st_mtime_ns if p.exists() else 0 for p in (
+        d / "result.json", d / "answers.json", d / "stamps", d / "flex_runs", pipeline.asset(d, "card.json"))) + (
+        _app_link(name, request),)
+    hit = _exports.get((kind, d.name))
+    if hit and hit[0] == version:
+        return hit[1]
+    if not _export_slots.acquire(blocking=False):
+        raise HTTPException(429, "busy building other downloads; try again in a few seconds")
+    try:
+        body = build(*_run_files(name, request))
+    finally:
+        _export_slots.release()
+    if len(_exports) > 64:  # ponytail: drop everything past 64 entries, an LRU if traffic ever needs it
+        _exports.clear()
+    _exports[(kind, d.name)] = (version, body)
+    return body
+
+
 @app.get("/api/runs/{name}/ro-crate.zip")
 def ro_crate(name: str, request: Request):
     """The whole run as an RO-Crate (Process Run Crate): files, hashes, and which tool made which file from what."""
@@ -676,8 +712,8 @@ def ro_crate(name: str, request: Request):
 
     from sdc import crate
 
-    gen, rec, d, _, _ = _run_files(name, request)
-    return Response(crate.build(d, name, gen, rec["models"]), media_type="application/zip",
+    body = _export(name, request, "crate", lambda gen, rec, d, steps, r: crate.build(d, name, gen, rec["models"]))
+    return Response(body, media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{name}-ro-crate.zip"'})
 
 
@@ -690,17 +726,19 @@ def eln_file(name: str, request: Request):
 
     from sdc import eln
 
-    gen, rec, d, steps, r = _run_files(name, request)
-    card_f = pipeline.asset(d, "card.json")
-    card = json.loads(card_f.read_text(encoding="utf-8")) if card_f.exists() else None
-    imgs = {c["step"]: (pipeline.asset(d, "card") / c["image"]).read_bytes() for c in (card or {}).get("steps", [])
-            if (pipeline.asset(d, "card") / c["image"]).exists()}
-    src = d / "source.json"
-    source = json.loads(src.read_text(encoding="utf-8")) if src.exists() else None
-    mtime = (d / "result.json").stat().st_mtime
-    body = eln.build(name, f"Show, Don't Code run {name}", steps, gen, rec, source=source, card=card, card_images=imgs,
-                     review=r.get("review") or [], app_url=_app_link(name, request),
-                     created=eln._iso((d / "result.json").stat().st_ctime), modified=eln._iso(mtime))
+    def build(gen, rec, d, steps, r):
+        card_f = pipeline.asset(d, "card.json")
+        card = json.loads(card_f.read_text(encoding="utf-8")) if card_f.exists() else None
+        imgs = {c["step"]: (pipeline.asset(d, "card") / c["image"]).read_bytes() for c in (card or {}).get("steps", [])
+                if (pipeline.asset(d, "card") / c["image"]).exists()}
+        src = d / "source.json"
+        source = json.loads(src.read_text(encoding="utf-8")) if src.exists() else None
+        return eln.build(name, f"Show, Don't Code run {name}", steps, gen, rec, source=source, card=card, card_images=imgs,
+                         review=r.get("review") or [], app_url=_app_link(name, request),
+                         created=eln._iso((d / "result.json").stat().st_ctime),
+                         modified=eln._iso((d / "result.json").stat().st_mtime))
+
+    body = _export(name, request, "eln", build)
     return Response(body, media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="show-dont-code-{name}.eln"'})
 
@@ -918,7 +956,8 @@ if MCPServer:
         "Robot protocols recovered from first-person lab videos. list_runs, then get_run for the steps found in the video "
         "and the checks they passed, get_protocol for the Opentrons Flex Python file, get_protocol_designer for the same "
         "protocol as editable no-code steps, get_tube_labels for loading the tube rack, run_on_flex_robot_server to run the "
-        "protocol on Opentrons' robot software, get_receipt for the hashes."))
+        "protocol on Opentrons' robot software, get_related_protocols and crosscheck_volumes for published protocols with "
+        "the same kit and their volumes, get_bench_card for the illustrated steps, get_receipt for the hashes."))
 
     def _http(fn, *args):  # an agent should read "unknown run", not a bare "Error executing tool"
         try:
