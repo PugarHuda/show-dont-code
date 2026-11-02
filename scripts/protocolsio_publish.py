@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
+UA = "show-dont-code/1.0 (+https://github.com/PugarHuda/show-dont-code)"  # Cloudflare refuses Python's default (1010)
 API = "https://pugarhuda--show-dont-code-web.us-east.modal.run"
 SITE = "https://show-dont-code.vercel.app"
 PIO = "https://www.protocols.io/api"
@@ -23,7 +24,7 @@ ROBOT = {"transfer", "mix", "thermocycle"}
 
 
 def _p(method, path, token, body=None, form=None):
-    data, headers = None, {"Authorization": f"Bearer {token}"}
+    data, headers = None, {"Authorization": f"Bearer {token}", "User-Agent": UA}
     if body is not None:
         data, headers["Content-Type"] = json.dumps(body).encode(), "application/json"
     elif form is not None:
@@ -59,7 +60,7 @@ def publish(run, token, doi=False, public=False, api=API, log=print):
         raise SystemExit(f"{run} has no simulator-passing protocol yet: answer its open questions first")
     steps = [s for s in R["steps"] if s["action"] != "skipped"]
     guid = uuid.uuid4().hex.upper()
-    p = _p("POST", f"/v3/protocols/{guid}", token, form={"type_id": 1})["protocol"]
+    p = _p("POST", f"/v3/protocols/{guid}", token, body={"type_id": 1})["protocol"]
     pid = p.get("id") or guid
     links = (f"{SITE}/app?run={run}", f"{api}/api/runs/{run}/protocol.py", f"{api}/api/runs/{run}/ro-crate.zip")
     _p("PUT", f"/v4/protocols/{pid}", token, body={
@@ -76,10 +77,11 @@ def publish(run, token, doi=False, public=False, api=API, log=print):
                      "section": "Robot" if s["action"] in ROBOT else "By hand"})
         prev = g
     _p("POST", f"/v4/protocols/{pid}/steps", token, body={"steps": body})
+    p["uri"] = _p("GET", f"/v4/protocols/{pid}", token)["payload"]["uri"]  # the URI follows the title set above
     log(f"protocol {pid} created with {len(body)} steps (private)")
-    out = {"id": pid, "guid": guid, "steps": len(body), "url": f"https://www.protocols.io/edit/{p.get('uri', guid)}"}
+    out = {"id": pid, "guid": guid, "steps": len(body), "url": f"https://www.protocols.io/edit/{p['uri']}"}
     if doi or public:
-        r = _p("POST", f"/v3/protocols/{p.get('uri', guid)}/publish", token, form={} if public else {"prepublish": 1})
+        r = _p("POST", f"/v3/protocols/{p['uri']}/publish", token, body={} if public else {"prepublish": 1})
         out["doi"] = (r.get("protocol") or {}).get("doi") or r.get("doi")
         out["public"] = public
         log(f"DOI {out['doi']} ({'public' if public else 'reserved, still private'})")

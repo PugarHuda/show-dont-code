@@ -14,6 +14,7 @@ import sys
 import urllib.error
 import urllib.request
 
+UA = "show-dont-code/1.0 (+https://github.com/PugarHuda/show-dont-code)"  # Cloudflare refuses Python's default (1010)
 API = "https://pugarhuda--show-dont-code-web.us-east.modal.run"
 ZENODO = os.getenv("ZENODO_URL", "https://zenodo.org").rstrip("/")
 
@@ -22,7 +23,7 @@ def _z(method, path, token, body=None, data=None, ctype="application/json"):
     url = path if path.startswith("http") else f"{ZENODO}/api{path}"
     payload = json.dumps(body).encode() if body is not None else data
     req = urllib.request.Request(url, data=payload, method=method,
-                                 headers={"Authorization": f"Bearer {token}", "Content-Type": ctype})
+                                 headers={"Authorization": f"Bearer {token}", "User-Agent": UA, "Content-Type": ctype})
     try:
         with urllib.request.urlopen(req, timeout=300) as r:
             return json.load(r)
