@@ -7,7 +7,7 @@ this repository was written during the hackathon. The git history starts on Oct 
 
 - **Live app:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (eight samples,
   no login: seven filmed BioVL2 videos and one published protocols.io protocol)
-- **Demo video (2:57):** https://youtu.be/zZE0nk85MxE, recorded live from production with Playwright, narrated and
+- **Demo video (2:53):** https://youtu.be/dWY0tJdk8qI, recorded live from production with Playwright, narrated and
   assembled in Remotion (`video/`); a 53 s square cut for X is the `Ad` composition (`npm run render:ad --prefix video`)
 - **Dataset:** the pcr_1-gt run as an RO-Crate on Zenodo, [doi:10.5281/zenodo.23876762](https://doi.org/10.5281/zenodo.23876762);
   its protocol on protocols.io: https://www.protocols.io/view/pcr-setup-recovered-from-a-first-person-video-pcr-krdncv25f

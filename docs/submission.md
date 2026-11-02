@@ -30,7 +30,7 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 
 **Public GitHub repository:** https://github.com/PugarHuda/show-dont-code
 **Dataset DOI (pcr_1-gt RO-Crate on Zenodo):** https://doi.org/10.5281/zenodo.23876762
-**3-minute demo video:** https://youtu.be/zZE0nk85MxE (2:57, unlisted)
+**3-minute demo video:** https://youtu.be/dWY0tJdk8qI (2:53, unlisted)
 **Bonus prizes this is eligible for:** Best Build on Meta Open Weight Models (the reviewer agent runs on Muse Spark Open,
 served by Baseten as `meta-models/muse-spark-open-1026`, failing over to Fireworks) and Best Agentic Use-Case (the agent
 watches the video, calls the Opentrons simulator and `look_at_moment` as tools until the volumes add up, and proposes fixes
@@ -90,9 +90,9 @@ thermocycler time from Opentrons' analysis at the module's rated ramp rates; an 
 > Each key is bound to one model id: the hackathon key serves only `meta-models/muse-spark-open-1026` (403 on the
 > bare id), the earlier key only `meta-models/muse-spark-open` (404 on `-1026`), so the app keeps both as failover hosts.
 
-## Demo video (2:57)
+## Demo video (2:53)
 
-https://youtu.be/zZE0nk85MxE. Every scene is recorded live from production with Playwright (`video/record.py`),
+https://youtu.be/dWY0tJdk8qI. Every scene is recorded live from production with Playwright (`video/record.py`),
 narrated by a neural AI voice with word-timed subtitles (`video/make_voice.py`, edge-tts) and assembled in Remotion
 (`video/src`); waits are sped up and marked on screen. The narration and the result callouts are in `video/script.json`;
 rebuild with `python video/make_voice.py && python video/record.py && npm run render --prefix video`.

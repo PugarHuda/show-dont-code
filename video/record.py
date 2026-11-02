@@ -109,13 +109,13 @@ def sync(s):
     # the lab video buffers before it plays: start the clip once it is really moving, not on a frozen frame
     s.wait("() => document.getElementById('video').currentTime > 31.6", 120000)
     s.restart()
-    time.sleep(3)
+    time.sleep(2)
     s.page.evaluate("() => __spot('#video')")  # the steps list is below the fold here; point at what is on screen
-    time.sleep(4)
+    time.sleep(3)
     s.page.evaluate("() => __spot('#deck')")
-    time.sleep(5)
+    time.sleep(3.5)
     s.page.evaluate("() => __spot('#now')")
-    time.sleep(5)
+    time.sleep(3)
     s.page.evaluate("() => document.getElementById('video').pause()")
 
 
@@ -206,25 +206,47 @@ def receipt(s):
     s.go(SITE + "/app?run=pcr_1-gt", "() => !document.getElementById('otsline').hidden || document.getElementById('f-receipt').href")
     s.show("#otsline")
     time.sleep(3)
-    s.page.goto(API + "/api/runs/pcr_1-gt/receipt.json")
-    time.sleep(3.5)
     s.page.goto("https://zenodo.org/records/23876762", wait_until="domcontentloaded")
-    time.sleep(2)
+    time.sleep(1.5)
     s.page.evaluate("() => { const b = [...document.querySelectorAll('button')].find(x => /Accept all cookies|Accept only essential/.test(x.textContent)); b && b.click(); }")
+    time.sleep(2)
+    # the run's .eln as eLabFTW showed it after import (scripts/elabftw_roundtrip.py on demo.elabftw.net, Nov 2)
+    s.page.goto((HERE / "public" / "elab.html").resolve().as_uri())
+    time.sleep(1.2)
+    time.sleep(1.5)
+    s.page.evaluate("() => scrollTo({top: document.body.scrollHeight * 0.4, behavior: 'smooth'})")
+    time.sleep(3)
+
+
+def card(s):
+    s.go(SITE + "/app?run=pcr_1-gt", "() => [...document.querySelectorAll('#card img')].length && [...document.querySelectorAll('#card img')].every(i => (i.loading = 'eager', true))")
+    s.wait("() => [...document.querySelectorAll('#card img')].every(i => i.complete && i.naturalWidth > 0)", 60000)
+    s.show("#cardbox", "start")
     time.sleep(4)
+    s.page.evaluate("() => __spot('#card li:nth-child(2)')")
+    time.sleep(3)
+    s.point("#card li:nth-child(2) button.seek", click=True)  # the drawing's own moment in the video
+    time.sleep(3)
+
+
+def crosscheck(s):
+    s.go(SITE + "/app?run=pcr_1-gt", "() => document.querySelectorAll('#xcheck tr').length > 0")
+    s.show("#xbox")
+    time.sleep(3)
+    s.page.evaluate("() => { const r = [...document.querySelectorAll('#xcheck tr')].find(t => /same share/.test(t.textContent)); r.id = '__same'; }")
+    s.page.evaluate("() => __spot('#__same')")
+    time.sleep(5)
 
 
 def ecosystem(s):
     s.go(SITE + "/app?run=protocolsio_q5", "() => !document.getElementById('srcbox').hidden && document.querySelectorAll('#steps li').length")
     time.sleep(0.8)
     s.page.evaluate("() => __spot('#srcbox')")
-    time.sleep(3.5)
+    time.sleep(2.5)
     s.show("#steps", "start")
-    time.sleep(3.5)
-    s.show("#qform")
-    time.sleep(3)
+    time.sleep(2.5)
     s.page.goto((HERE / "public" / "mcp.html").resolve().as_uri())
-    time.sleep(5)
+    time.sleep(4.5)
 
 
 def results(s):
@@ -261,13 +283,17 @@ def mcp_page():
         + "".join(lines), encoding="utf-8")
 
 
-SCENES = {f.__name__: f for f in (intro, landing, sync, tubes, reviewer, confirm, robot, browser, labels, receipt, ecosystem, results)}
+SCENES = {f.__name__: f for f in (intro, landing, sync, tubes, reviewer, confirm, robot, browser, labels, card, crosscheck,
+                                     receipt, ecosystem, results)}
 
 
 def record(name, min_s):
     out = HERE / "public" / "clips"
     raw = out / f"_raw_{name}"
     shutil.rmtree(raw, ignore_errors=True)
+    if name == "receipt":
+        (HERE / "public" / "elab.html").write_text('<body style="margin:0;background:#fff"><img src="elab_entry.png" '
+                                                   'style="width:100%;display:block" alt="eLabFTW entry"></body>')
     if name == "ecosystem":
         mcp_page()  # before the browser opens: Playwright's sync API owns an event loop, asyncio.run can't nest in it
     with sync_playwright() as p:

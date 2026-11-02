@@ -1,12 +1,14 @@
 """Import a run's .eln into a real eLabFTW and check what the notebook shows: the public eLabFTW demo
 (demo.elabftw.net, reset every 24 h, one-click demo login) by default. The entry is created visible to its owner only.
 
-  python scripts/elabftw_roundtrip.py [run] [api]     e.g. pcr_1-gt https://pugarhuda--show-dont-code-web.us-east.modal.run
+  python scripts/elabftw_roundtrip.py [run] [api] [screenshot.png]     e.g. pcr_1-gt https://pugarhuda--show-dont-code-web.us-east.modal.run
 """
+import re
 import sys
 import tempfile
 import time
 import urllib.request
+import zipfile
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -37,12 +39,22 @@ with sync_playwright() as p:
     pg.wait_for_load_state("networkidle")
     pg.get_by_text(f"Show, Don't Code run {run}").first.click()
     pg.wait_for_load_state("networkidle")
-    time.sleep(3)
+    want = len([n for n in zipfile.ZipFile(eln).namelist() if not n.endswith("ro-crate-metadata.json")])
+    for _ in range(30):  # eLabFTW stores the attachments after creating the entry: wait until it lists every one
+        m = re.search(r"ATTACHED FILES \((\d+)\)", pg.inner_text("body").upper())
+        if m and int(m[1]) >= want:
+            break
+        time.sleep(4)
+        pg.reload(wait_until="networkidle")
     body = pg.inner_text("body")
+    m = re.search(r"ATTACHED FILES \((\d+)\)", body.upper())
     checks = {"steps table": "Steps" in body and "µL" in body, "simulator passed": "Opentrons simulator: passed" in body,
               "protocol.py attached": "protocol.py" in body, "receipt attached": "receipt.json" in body,
-              "bench card attached": "bench-card-step-1.jpg" in body}
+              "bench card attached": "bench-card-step-1.jpg" in body,
+              f"all {want} files attached": bool(m) and int(m[1]) == want}
     print(pg.url)
+    if len(sys.argv) > 3:  # a full-page screenshot of the entry, e.g. for the demo video
+        pg.screenshot(path=sys.argv[3], full_page=True)
     for k, ok in checks.items():
         print(f"{'PASS' if ok else 'FAIL'}  eLabFTW shows the {k}")
     b.close()
