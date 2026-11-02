@@ -20,7 +20,7 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 > BioVL2 dataset, step recall is 0.79 and precision 0.69 on PCR (n=4 held-out videos), and 0.28 / 0.42 on a
 > protocol it was never developed on (plasmid miniprep).
 
-**Public GitHub repository:** https://github.com/PugarHuda/show-dont-code (make public before submitting)
+**Public GitHub repository:** https://github.com/PugarHuda/show-dont-code
 **Dataset DOI (pcr_1-gt RO-Crate on Zenodo):** https://doi.org/10.5281/zenodo.23876762
 **3-minute demo video:** (YouTube link)
 **Live demo:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (seven sample runs).
