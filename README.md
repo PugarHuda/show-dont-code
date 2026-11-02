@@ -230,7 +230,10 @@ replay, every download (the receipt hash must equal the SHA-256 of `protocol.py`
 and fixes on a sample land in a private copy, the sample is unchanged, the copy's link reopens it), the
 Protocol Designer round trip on designer.opentrons.com (import, then its own export through `opentrons analyze`), the CSP (headers, every
 script carries the nonce, nothing the pages need is blocked), and the MCP server through the official MCP client
-(`get_protocol` must be byte for byte the downloaded file). `BASE=<url>` runs it
+(`get_protocol` must be byte for byte the downloaded file), the bench card (every drawing served, the receipt hashes
+`card.json`, a shared sample can't be redrawn, Enter on a drawing seeks the video), the `.eln` (one root folder, ELN
+1.2+20260923, every file attached and hashed, the body's steps and checks) and the volume cross-check (quotes present,
+the premix share agrees, a half-confirmed run is refused): 172/172 against production on Nov 2. `BASE=<url>` runs it
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
 `python -m sdc.protocol`, `python -m sdc.designer`, `python -m sdc.stamp`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
 Accessibility runs inside the same suite: axe-core checks the landing page and the app in light and dark mode
