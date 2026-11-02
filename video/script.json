@@ -1,41 +1,168 @@
 [
-  {"id": "intro", "kind": "card",
-   "say": "Labs own liquid-handling robots that sit idle, because programming them means writing Python. Show, Don't Code lets a scientist do the protocol once, on camera, and get the robot protocol.",
-   "callouts": []},
-  {"id": "landing", "kind": "rec",
-   "say": "This is the app, live. Each step of a real PCR setup lights up where it happens on an Opentrons Flex deck: which tube the liquid is drawn from, and where it lands.",
-   "callouts": [{"at": 0.45, "text": "Real steps of pcr_1-gt, slot by slot"}]},
-  {"id": "sync", "kind": "rec",
-   "say": "Here is a four-minute PCR video from the public BioVL2 dataset. Muse Spark watched it and found every pipetting step. As the scientist works, the robot deck lights the source tube and the well it goes into, and every step links back to its second in the video.",
-   "callouts": [{"at": 0.3, "text": "Muse Spark: every pipetting step, timestamped"}, {"at": 0.65, "text": "Source tube and destination light up in sync"}]},
-  {"id": "tubes", "kind": "rec",
-   "say": "When tubes look alike, click one. SAM 3.1 follows it through the whole recording, and Muse Spark checks that each sighting is really the same tube before any step is renamed.",
-   "callouts": [{"at": 0.4, "text": "SAM 3.1 tracks, Muse Spark verifies"}]},
-  {"id": "reviewer", "kind": "rec",
-   "say": "A reviewer agent on Muse Spark Open watches the same video and runs the Opentrons simulator as a tool. Its volume plan passed the simulator, so the form arrives pre-filled, and every value is marked as simulator checked.",
-   "callouts": [{"at": 0.35, "text": "Agent ran the simulator: passed"}, {"at": 0.75, "text": "Pre-filled values: simulator checked"}]},
-  {"id": "confirm", "kind": "rec",
-   "say": "Confirm, and the protocol is regenerated deterministically, so model output never becomes code. It passes Opentrons' simulator and the official protocol analysis, and the setup table says what to load where.",
-   "callouts": [{"at": 0.45, "text": "Opentrons simulator: passed"}, {"at": 0.75, "text": "opentrons analyze: passed"}]},
-  {"id": "robot", "kind": "rec",
-   "say": "Then the strongest check. One click runs the protocol on Opentrons' own robot software, the robot server inside a Flex, in simulation. It analyses the file, configures its deck and runs it to the end, and every one of the two hundred and forty commands it ran matches its own analysis.",
-   "callouts": [{"at": 0.55, "text": "Opentrons robot-server v10.1.0: succeeded"}, {"at": 0.82, "text": "240 of 240 commands match its analysis"}]},
-  {"id": "browser", "kind": "rec",
-   "say": "The same steps are translated for a Hamilton STARlet and a Tecan EVO, and you can rerun those simulations right in your browser, in Python compiled to WebAssembly.",
-   "callouts": [{"at": 0.6, "text": "PyLabRobot in your browser (Pyodide)"}]},
-  {"id": "labels", "kind": "rec",
-   "say": "Film one reaction, run a plate of them. The Reactions parameter scales every volume, and the app prints QR tube labels that a phone camera checks against the rack.",
-   "callouts": [{"at": 0.35, "text": "Reactions: 8, verified by opentrons analyze"}, {"at": 0.75, "text": "QR tube labels, Avery or Zebra"}]},
-  {"id": "receipt", "kind": "rec",
-   "say": "Every run has a reproducibility receipt: hashes of the video, every model output and the protocol, timestamped in Bitcoin with OpenTimestamps, packaged as an RO-Crate, and published on Zenodo with a DOI.",
-   "callouts": [{"at": 0.4, "text": "SHA-256 of every file, anchored in Bitcoin"}, {"at": 0.8, "text": "doi:10.5281/zenodo.23876762"}]},
-  {"id": "ecosystem", "kind": "rec",
-   "say": "It also finds published protocols on protocols.io that use the same kit, and an MCP server lets other agents read runs, protocols and robot server results as tools.",
-   "callouts": [{"at": 0.3, "text": "protocols.io: same kit, with DOIs"}, {"at": 0.75, "text": "MCP: 8 tools for other agents"}]},
-  {"id": "results", "kind": "rec",
-   "say": "Measured on videos it never saw, it recalls seventy-nine percent of PCR steps, and it tells you plainly where it still needs you.",
-   "callouts": [{"at": 0.35, "text": "0.79 step recall on held-out PCR videos"}]},
-  {"id": "outro", "kind": "card",
-   "say": "Show, Don't Code. Pipette it once, get the robot protocol. Built on Muse Spark, SAM 3.1, Muse Voice Transcribe and Muse Spark Open.",
-   "callouts": []}
+  {
+    "id": "intro",
+    "kind": "rec",
+    "say": "A scientist did this PCR setup by hand, on camera. On the right, the robot replays the protocol our app wrote from that video, step for step. This is Show, Don't Code.",
+    "callouts": [
+      {
+        "at": 0.45,
+        "text": "Filmed by hand, replayed by the robot"
+      }
+    ]
+  },
+  {
+    "id": "landing",
+    "kind": "rec",
+    "say": "This is the app, live. Each step of a real PCR setup lights up where it happens on an Opentrons Flex deck: which tube the liquid is drawn from, and where it lands.",
+    "callouts": [
+      {
+        "at": 0.45,
+        "text": "Real steps of pcr_1-gt, slot by slot"
+      }
+    ]
+  },
+  {
+    "id": "sync",
+    "kind": "rec",
+    "say": "Here is a four-minute PCR video from the public BioVL2 dataset. Muse Spark watched it and found every pipetting step. As the scientist works, the robot deck lights the source tube and the well it goes into, and every step links back to its second in the video.",
+    "callouts": [
+      {
+        "at": 0.3,
+        "text": "Muse Spark: every pipetting step, timestamped"
+      },
+      {
+        "at": 0.65,
+        "text": "Source tube and destination light up in sync"
+      }
+    ]
+  },
+  {
+    "id": "tubes",
+    "kind": "rec",
+    "say": "When tubes look alike, click one. SAM 3.1 follows it through the whole recording, and Muse Spark checks that each sighting is really the same tube before any step is renamed.",
+    "callouts": [
+      {
+        "at": 0.4,
+        "text": "SAM 3.1 tracks, Muse Spark verifies"
+      }
+    ]
+  },
+  {
+    "id": "reviewer",
+    "kind": "rec",
+    "say": "A reviewer agent on Muse Spark Open watches the same video and runs the Opentrons simulator as a tool. Its volume plan passed the simulator, so the form arrives pre-filled, and every value is marked as simulator checked.",
+    "callouts": [
+      {
+        "at": 0.35,
+        "text": "Agent ran the simulator: passed"
+      },
+      {
+        "at": 0.75,
+        "text": "Pre-filled values: simulator checked"
+      }
+    ]
+  },
+  {
+    "id": "confirm",
+    "kind": "rec",
+    "say": "Confirm, and the protocol is regenerated deterministically, so model output never becomes code. It passes Opentrons' simulator and the official protocol analysis, and the setup table says what to load where.",
+    "callouts": [
+      {
+        "at": 0.45,
+        "text": "Opentrons simulator: passed"
+      },
+      {
+        "at": 0.75,
+        "text": "opentrons analyze: passed"
+      }
+    ]
+  },
+  {
+    "id": "robot",
+    "kind": "rec",
+    "say": "Then the strongest check. One click runs the protocol on Opentrons' own robot software, the robot server inside a Flex, in simulation. It analyses the file, configures its deck and runs it to the end, and every one of the two hundred and forty commands it ran matches its own analysis.",
+    "callouts": [
+      {
+        "at": 0.55,
+        "text": "Opentrons robot-server v10.1.0: succeeded"
+      },
+      {
+        "at": 0.82,
+        "text": "240 of 240 commands match its analysis"
+      }
+    ]
+  },
+  {
+    "id": "browser",
+    "kind": "rec",
+    "say": "The same steps are translated for a Hamilton STARlet and a Tecan EVO, and you can rerun those simulations right in your browser, in Python compiled to WebAssembly.",
+    "callouts": [
+      {
+        "at": 0.6,
+        "text": "PyLabRobot in your browser (Pyodide)"
+      }
+    ]
+  },
+  {
+    "id": "labels",
+    "kind": "rec",
+    "say": "Film one reaction, run a plate of them. The Reactions parameter scales every volume, and the app prints QR tube labels that a phone camera checks against the rack.",
+    "callouts": [
+      {
+        "at": 0.35,
+        "text": "Reactions: 8, verified by opentrons analyze"
+      },
+      {
+        "at": 0.75,
+        "text": "QR tube labels, Avery or Zebra"
+      }
+    ]
+  },
+  {
+    "id": "receipt",
+    "kind": "rec",
+    "say": "Every run has a reproducibility receipt: hashes of the video, every model output and the protocol, timestamped in Bitcoin with OpenTimestamps, packaged as an RO-Crate, and published on Zenodo with a DOI.",
+    "callouts": [
+      {
+        "at": 0.4,
+        "text": "SHA-256 of every file, anchored in Bitcoin"
+      },
+      {
+        "at": 0.8,
+        "text": "doi:10.5281/zenodo.23876762"
+      }
+    ]
+  },
+  {
+    "id": "ecosystem",
+    "kind": "rec",
+    "say": "It also finds published protocols on protocols.io that use the same kit, and an MCP server lets other agents read runs, protocols and robot server results as tools.",
+    "callouts": [
+      {
+        "at": 0.3,
+        "text": "protocols.io: same kit, with DOIs"
+      },
+      {
+        "at": 0.75,
+        "text": "MCP: 8 tools for other agents"
+      }
+    ]
+  },
+  {
+    "id": "results",
+    "kind": "rec",
+    "say": "Measured on videos it never saw, it recalls seventy-nine percent of PCR steps, and it tells you plainly where it still needs you.",
+    "callouts": [
+      {
+        "at": 0.35,
+        "text": "0.79 step recall on held-out PCR videos"
+      }
+    ]
+  },
+  {
+    "id": "outro",
+    "kind": "card",
+    "say": "Any lab with an Opentrons Flex can now film a protocol once instead of programming it, and send it straight to the robot. Show, Don't Code. Built on Muse Spark, SAM 3.1, Muse Voice Transcribe and Muse Spark Open.",
+    "callouts": []
+  }
 ]

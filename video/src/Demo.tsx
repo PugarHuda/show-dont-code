@@ -21,42 +21,41 @@ const clips = clipsJson as Record<string, number>;
 const sceneSeconds = (s: Scene) => s.voice_s + PAD;
 export const totalFrames = () => Math.round(scenes.reduce((a, s) => a + sceneSeconds(s), 0) * FPS);
 
-const Subtitles = ({ scene }: { scene: Scene }) => {
+// recordings play on a 1600x900 stage; the black strips above and below carry every label, so nothing covers the app
+const STAGE = { x: 160, y: 84, w: 1600, h: 900 };
+
+const Subtitles = ({ scene, bottom = 54, size = 40, maxWidth = 1800 }: { scene: Scene; bottom?: number; size?: number; maxWidth?: number }) => {
   const t = useCurrentFrame() / FPS;
   const cur = scene.lines.find((l) => t >= l.from - 0.05 && t < l.to);
   if (!cur) return null;
   return (
-    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: 54 }}>
-      <div style={{ background: "rgba(0,0,0,.82)", color: "#fff", fontFamily, fontWeight: 700, fontSize: 40, lineHeight: 1.25,
-        padding: "12px 26px", borderRadius: 14, maxWidth: 1500, textAlign: "center" }}>{cur.text}</div>
+    <AbsoluteFill style={{ justifyContent: "flex-end", alignItems: "center", paddingBottom: bottom }}>
+      <div style={{ background: "rgba(0,0,0,.82)", color: "#fff", fontFamily, fontWeight: 700, fontSize: size, lineHeight: 1.25,
+        padding: "10px 24px", borderRadius: 14, maxWidth, textAlign: "center" }}>{cur.text}</div>
     </AbsoluteFill>
   );
 };
 
-const Callouts = ({ scene }: { scene: Scene }) => {
+// the newest result callout, in the top strip; it replaces the one before
+const Callout = ({ scene }: { scene: Scene }) => {
   const frame = useCurrentFrame();
   const len = sceneSeconds(scene) * FPS;
+  const shown = scene.callouts.map((c, i) => ({ ...c, i, start: Math.round(c.at * len) })).filter((c) => frame >= c.start);
+  const c = shown[shown.length - 1];
+  if (!c) return null;
+  const s = spring({ frame: frame - c.start, fps: FPS, config: { damping: 18, stiffness: 140 } });
   return (
-    <AbsoluteFill style={{ alignItems: "flex-end", justifyContent: "flex-start", padding: "48px 56px", gap: 14, flexDirection: "column" }}>
-      {scene.callouts.map((c, i) => {
-        const start = Math.round(c.at * len);
-        if (frame < start) return null;
-        const s = spring({ frame: frame - start, fps: FPS, config: { damping: 18, stiffness: 140 } });
-        return (
-          <div key={i} style={{ transform: `translateX(${(1 - s) * 60}px)`, opacity: s, background: "#000", color: "#fff", fontFamily,
-            fontWeight: 900, fontSize: 34, padding: "14px 26px 14px 20px", borderRadius: 999, display: "flex", alignItems: "center", gap: 14,
-            boxShadow: "0 10px 30px rgba(0,0,0,.35)" }}>
-            <span style={{ width: 18, height: 18, borderRadius: 9, background: RED, display: "inline-block" }} />{c.text}
-          </div>
-        );
-      })}
-    </AbsoluteFill>
+    <div style={{ position: "absolute", right: STAGE.x, top: 14, transform: `translateY(${(1 - s) * -20}px)`, opacity: s, background: "#fff",
+      color: "#000", fontFamily, fontWeight: 900, fontSize: 30, padding: "8px 22px 8px 16px", borderRadius: 999, display: "flex",
+      alignItems: "center", gap: 12 }}>
+      <span style={{ width: 16, height: 16, borderRadius: 8, background: RED, display: "inline-block" }} />{c.text}
+    </div>
   );
 };
 
 const Chip = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
-  <div style={{ position: "absolute", background: "rgba(0,0,0,.78)", color: "#fff", fontFamily, fontWeight: 700, fontSize: 24,
-    padding: "8px 18px", borderRadius: 999, ...style }}>{children}</div>
+  <div style={{ background: "#262626", color: "#fff", fontFamily, fontWeight: 700, fontSize: 22, padding: "7px 16px", borderRadius: 999,
+    whiteSpace: "nowrap", ...style }}>{children}</div>
 );
 
 const Recording = ({ scene, index }: { scene: Scene; index: number }) => {
@@ -68,12 +67,20 @@ const Recording = ({ scene, index }: { scene: Scene; index: number }) => {
   const fade = interpolate(frame, [0, 8], [0, 1], { extrapolateRight: "clamp" });
   return (
     <AbsoluteFill style={{ background: "#000", opacity: fade }}>
-      <OffthreadVideo src={staticFile(`clips/${scene.id}.mp4`)} playbackRate={rate} muted />
-      <Chip style={{ left: 40, top: 40 }}>{index} / {scenes.filter((s) => s.kind === "rec").length} · live at show-dont-code.vercel.app</Chip>
-      {rate > 1.25 && <Chip style={{ left: 40, top: 96, background: RED }}>sped up ×{rate.toFixed(1)}</Chip>}
-      {scene.id === "sync" && <Chip style={{ left: 40, bottom: 140, fontSize: 20 }}>Video: BioVL2 (Nishimura et al., Kyoto University), CC BY 4.0</Chip>}
-      <Callouts scene={scene} />
-      <Subtitles scene={scene} />
+      <div style={{ position: "absolute", left: STAGE.x, top: STAGE.y, width: STAGE.w, height: STAGE.h, borderRadius: 14, overflow: "hidden" }}>
+        <OffthreadVideo src={staticFile(`clips/${scene.id}.mp4`)} playbackRate={rate} muted style={{ width: "100%", height: "100%" }} />
+      </div>
+      <div style={{ position: "absolute", left: STAGE.x, top: 18, display: "flex", gap: 10 }}>
+        {scene.id === "intro"
+          ? <Chip style={{ background: "#fff", color: "#000", fontWeight: 900, fontSize: 28 }}>Show, Don't Code · pipette it once, get the robot protocol</Chip>
+          : <Chip>{index - 1} / {scenes.filter((s) => s.kind === "rec").length - 1} · live at show-dont-code.vercel.app</Chip>}
+        {rate > 1.25 && <Chip style={{ background: RED }}>sped up ×{rate.toFixed(1)}</Chip>}
+      </div>
+      {["intro", "sync", "tubes"].includes(scene.id) && (  // the lab footage is on screen: credit it, under the stage
+        <div style={{ position: "absolute", left: 24, top: STAGE.y + STAGE.h + 6, color: "#9a9a9a", fontFamily, fontSize: 17, width: 120, lineHeight: 1.2 }}>
+          Lab video: BioVL2, CC BY 4.0</div>)}
+      <Callout scene={scene} />
+      <Subtitles scene={scene} bottom={10} size={34} maxWidth={1240} />
     </AbsoluteFill>
   );
 };
@@ -108,9 +115,9 @@ const Card = ({ scene }: { scene: Scene }) => {
   const outro = scene.id === "outro";
   return (
     <AbsoluteFill style={{ background: "#000", alignItems: "center", justifyContent: "flex-start", fontFamily, color: "#fff" }}>
-      <div style={{ marginTop: 70 }}><Deck lit={lit} /></div>
-      <div style={{ position: "absolute", bottom: 0, left: 260, right: 260, height: 470 * rise, background: "#fff", borderRadius: "48px 48px 0 0",
-        color: "#000", textAlign: "center", paddingTop: 48 }}>
+      <div style={{ marginTop: 40 }}><Deck lit={lit} /></div>
+      <div style={{ position: "absolute", bottom: 0, left: 260, right: 260, height: 540 * rise, background: "#fff", borderRadius: "48px 48px 0 0",
+        color: "#000", textAlign: "center", paddingTop: 40 }}>
         <div style={{ fontWeight: 900, fontSize: 108, lineHeight: 0.95, letterSpacing: "-0.035em" }}>
           {outro ? "Pipette it once." : "Show, Don't Code"}</div>
         <div style={{ fontWeight: 700, fontSize: 40, marginTop: 22 }}>

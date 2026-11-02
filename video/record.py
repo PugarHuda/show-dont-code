@@ -29,7 +29,7 @@ OVERLAY = """
     border:3px solid #d4231b;z-index:2147483647;pointer-events:none;transition:transform .15s;left:-50px;top:-50px}
     .__cur.down{transform:scale(.7)}
     .__spot{position:fixed;border:5px solid #d4231b;border-radius:16px;z-index:2147483646;pointer-events:none;
-    box-shadow:0 0 0 9999px rgba(0,0,0,.22);transition:all .35s ease}`;
+    transition:all .35s ease}`;  /* an outline only: dimming the page made whole scenes look dark */
   const add = () => { document.head.appendChild(css); const c = document.createElement('div'); c.className = '__cur'; document.body.appendChild(c);
     addEventListener('mousemove', e => { c.style.left = e.clientX + 'px'; c.style.top = e.clientY + 'px'; }, true);
     addEventListener('mousedown', () => c.classList.add('down'), true); addEventListener('mouseup', () => c.classList.remove('down'), true); };
@@ -62,15 +62,29 @@ class Scene:
         self.page.evaluate("s => __spot(s)", sel)
 
     def point(self, sel, click=False):
-        box = self.page.locator(sel).first.bounding_box()
+        """Move the visible cursor onto the element, then click that exact element. Scroll and let the layout settle
+        first: a click at stale coordinates once hit the button above the intended one."""
+        loc = self.page.locator(sel).first
+        loc.scroll_into_view_if_needed()
+        time.sleep(0.6)
+        box = loc.bounding_box()
         self.page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, steps=28)
         time.sleep(0.3)
         if click:
-            self.page.mouse.down(); time.sleep(0.12); self.page.mouse.up()
-            self.page.locator(sel).first.click()
+            loc.click()
 
     def wait(self, js, timeout=240000):
         self.page.wait_for_function(js, timeout=timeout)
+
+
+def intro(s):
+    """The hook: the scientist's own video on the left, the robot replaying the protocol written from it on the right."""
+    s.go(SITE + "/app?run=pcr_1-gt", "() => document.getElementById('video')?.readyState >= 2 && !document.getElementById('replaybox').hidden")
+    s.page.evaluate("() => scrollTo(0, 0)")
+    time.sleep(0.8)
+    s.page.locator("#replay").click()
+    s.restart()
+    time.sleep(13)
 
 
 def landing(s):
@@ -92,8 +106,11 @@ def sync(s):
     s.page.evaluate("() => new Promise(r => { const v = document.getElementById('video'); v.addEventListener('seeked', r, {once: true}); v.currentTime = 31; })")
     time.sleep(1)
     s.page.evaluate("() => document.getElementById('video').play()")
+    # the lab video buffers before it plays: start the clip once it is really moving, not on a frozen frame
+    s.wait("() => document.getElementById('video').currentTime > 31.6", 120000)
+    s.restart()
     time.sleep(3)
-    s.page.evaluate("() => __spot('#steps')")
+    s.page.evaluate("() => __spot('#video')")  # the steps list is below the fold here; point at what is on screen
     time.sleep(4)
     s.page.evaluate("() => __spot('#deck')")
     time.sleep(5)
@@ -239,7 +256,7 @@ def mcp_page():
         + "".join(lines), encoding="utf-8")
 
 
-SCENES = {f.__name__: f for f in (landing, sync, tubes, reviewer, confirm, robot, browser, labels, receipt, ecosystem, results)}
+SCENES = {f.__name__: f for f in (intro, landing, sync, tubes, reviewer, confirm, robot, browser, labels, receipt, ecosystem, results)}
 
 
 def record(name, min_s):
@@ -262,6 +279,7 @@ def record(name, min_s):
         def mark():
             nonlocal t0
             t0 = time.time()
+            return t0
 
         orig_go = s.go
 
@@ -271,6 +289,7 @@ def record(name, min_s):
                 time.sleep(0.6)
                 mark()
         s.go = go
+        s.restart = lambda: (time.sleep(0.2), mark())  # a scene can move the clip's start past its own loading
         SCENES[name](s)
         if t0 is None:
             mark()
