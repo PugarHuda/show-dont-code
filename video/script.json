@@ -136,11 +136,11 @@
   {
     "id": "ecosystem",
     "kind": "rec",
-    "say": "It also finds published protocols on protocols.io that use the same kit, and an MCP server lets other agents read runs, protocols and robot server results as tools.",
+    "say": "No video? Paste a published protocols.io protocol. Muse Spark reads its text into the same steps, checks and robot protocol, so protocols labs already publish become robot runs. An MCP server lets other agents use it all as tools.",
     "callouts": [
       {
-        "at": 0.3,
-        "text": "protocols.io: same kit, with DOIs"
+        "at": 0.2,
+        "text": "protocols.io protocol to robot protocol"
       },
       {
         "at": 0.75,

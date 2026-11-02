@@ -16,7 +16,10 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 > tubes the scientist clicks, and Muse Spark rejects the tracker's jumps. Muse Voice Transcribe turns narration into
 > evidence. A reviewer agent on Muse Spark Open watches the same video, runs the simulator as a tool to work out a
 > volume plan that hits the bench sheet's total, and asks the scientist about anything it can't verify. Code
-> generation is deterministic, so model output never becomes executable code. On held-out videos from the public
+> generation is deterministic, so model output never becomes executable code. No video? Paste a published protocols.io
+> protocol: Muse Spark reads its text into the same steps, and it goes through the same codegen and checks, so the
+> protocols labs already publish become robot runs too. Every protocol is run end to end on Opentrons' own
+> robot-server (the software inside a Flex), and every command it ran matched its own analysis (240 of 240). On held-out videos from the public
 > BioVL2 dataset, step recall is 0.79 and precision 0.69 on PCR (n=4 held-out videos), and 0.28 / 0.42 on a
 > protocol it was never developed on (plasmid miniprep).
 

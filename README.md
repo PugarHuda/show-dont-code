@@ -134,6 +134,14 @@ Then:
   Modal, and sends the protocol through the same script with the chosen number of reactions. The robot analyses it,
   takes the thermocycler into its deck configuration, plays it to the end with hand-off pauses resumed, and reports
   its run status and command count (pcr_1-gt, two reactions: 240 commands, "succeeded").
+- **Start from a published protocol instead of a video**: paste a protocols.io link or DOI (in the upload dialog, no
+  access code). Muse Spark reads the protocol's text into the same steps a video yields (one reaction, the smallest
+  size given; volumes only when stated, so ranges and "water to volume" become questions), reads the cycling program,
+  and the run goes through the same codegen, simulator, analysis, PyLabRobot and reviewer agent. Only public protocols
+  are read. Sample: `protocolsio_q5`, from NEB's Q5 High-Fidelity 2X Master Mix protocol
+  ([doi:10.17504/protocols.io.7cwhixe](https://doi.org/10.17504/protocols.io.7cwhixe)); answered with the reviewer's
+  plan it passes the simulator, `opentrons analyze` (145 commands) and both PyLabRobot robots. Also checked live with
+  [Colony PCR](https://doi.org/10.17504/protocols.io.gzbbx2n).
 - **Published protocols with the same kit**: each run searches protocols.io's public API for the brand and kit
   words in its reagent names (e.g. "PrimeSTAR", from "DNA polymerase (Prime STAR MAX)") and its protocol type, ranks
   the results by shared reagent words and lists them with their DOIs, so the filmed volumes can be checked against

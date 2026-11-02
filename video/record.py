@@ -215,11 +215,16 @@ def receipt(s):
 
 
 def ecosystem(s):
-    s.go(SITE + "/app?run=pcr_3", "() => /Compare their volumes/.test(document.getElementById('relline').textContent)")
-    s.show("#relbox")
-    time.sleep(4.5)
+    s.go(SITE + "/app?run=protocolsio_q5", "() => !document.getElementById('srcbox').hidden && document.querySelectorAll('#steps li').length")
+    time.sleep(0.8)
+    s.page.evaluate("() => __spot('#srcbox')")
+    time.sleep(3.5)
+    s.show("#steps", "start")
+    time.sleep(3.5)
+    s.show("#qform")
+    time.sleep(3)
     s.page.goto((HERE / "public" / "mcp.html").resolve().as_uri())
-    time.sleep(6)
+    time.sleep(5)
 
 
 def results(s):
