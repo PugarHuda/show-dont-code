@@ -42,6 +42,83 @@ baseten = modal.Secret.from_name("show-dont-code-baseten")  # hackathon Baseten 
 backup = modal.Secret.from_name("show-dont-code-fireworks")  # Fireworks key for the reviewer's backup host
 
 
+# Opentrons' own robot-server (the software on a Flex, v10.1.0) in Flex simulation mode. Its own image: it pins
+# fastapi 0.100 and pydantic 2.11.7, and it isn't on PyPI, so it comes from Opentrons' repo at the released tag.
+OT_TAG = "v10.1.0"
+flex_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .apt_install("git")
+    .pip_install("opentrons==10.1.0", "anyio==4.9.0", "fastapi==0.100.0", "python-dotenv==1.0.1",
+                 "python-multipart==0.0.28", "pydantic==2.11.7", "pydantic-settings==2.4.0", "uvicorn==0.27.0.post1",
+                 "wsproto==1.2.0", "sqlalchemy==1.4.51", "paho-mqtt==1.6.1", "aiohttp>=3.12.14,<4", "Pyro5>=5.16,<6",
+                 "zipstream-ng==1.9.3", "pyserial==3.5", "numpy>=1.24.5,<2", "python-can==4.2.2", "setuptools>=69.1.1,<82")
+    .run_commands(f"git clone -q --depth 1 --branch {OT_TAG} --filter=blob:none --sparse "
+                  "https://github.com/Opentrons/opentrons /ot",
+                  "cd /ot && git sparse-checkout set --no-cone /robot-server/robot_server/ /robot-server/simulators/ "
+                  "/server-utils/server_utils/ /hardware/opentrons_hardware/")
+    .env({"PYTHONPATH": "/ot/robot-server:/ot/server-utils:/ot/hardware", "OT_API_CONFIG_DIR": "/tmp/opentrons",
+          # what robot-server's own `make dev-flex` sets (robot-server/dev-flex.env)
+          "ENABLE_VIRTUAL_SMOOTHIE": "true", "OT_ROBOT_SERVER_persistence_directory": "automatically_make_temporary",
+          "OT_ROBOT_SERVER_simulator_configuration_file_path": "/ot/robot-server/simulators/test-flex.json",
+          "OT_API_FF_enableOT3HardwareController": "true", "DEV_ROBOT_NAME": "show-dont-code-flex",
+          "OT_API_FF_enableHardwareSubprocess": "false", "OT_API_FF_enableProtocolSubprocess": "false"})
+    .add_local_file("scripts/send_to_flex.py", "/root/send_to_flex.py")
+)
+
+
+@app.function(image=flex_image, timeout=1800, cpu=2.0, memory=4096, max_containers=2)
+def flex_run(source: str, params: dict | None = None) -> dict:
+    """Upload a protocol to a fresh robot-server in Flex simulation, exactly as the Opentrons App would, let the robot
+    analyse it, then press play and run it to the end (hand-off pauses resumed). Returns what the robot reported."""
+    import urllib.request
+
+    import send_to_flex
+
+    t0 = time.time()
+    # robot-server quietly becomes an OT-2 if the Flex hardware stack can't import; fail loudly instead
+    probe = subprocess.run(["python", "-c", "from opentrons_hardware.drivers.can_bus import CanDriver"],
+                           capture_output=True, text=True)
+    if probe.returncode:
+        raise RuntimeError("the Flex hardware stack doesn't import: " + probe.stderr[-1200:])
+    srv = subprocess.Popen(["python", "-m", "uvicorn", "robot_server.app:app", "--host", "127.0.0.1", "--port", "31950",
+                            "--ws", "wsproto"], cwd="/ot/robot-server", stdout=open("/tmp/rs.log", "wb"),
+                           stderr=subprocess.STDOUT)
+    tail = lambda: open("/tmp/rs.log", errors="replace").read()[-1500:]
+    try:
+        for _ in range(180):
+            try:
+                with urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:31950/health",
+                                                                   headers=send_to_flex.HEAD), timeout=2):
+                    break
+            except OSError:
+                if srv.poll() is not None:
+                    raise RuntimeError("robot-server exited: " + tail())
+                time.sleep(1)
+        log = []
+        out = send_to_flex.send("127.0.0.1", source, params or {}, start=True, log=log.append, resume_pauses=True, deck=True)
+        run = send_to_flex._call("127.0.0.1", "GET", f"/runs/{out['run_id']}")["data"]
+        cmds = send_to_flex._call("127.0.0.1", "GET", f"/runs/{out['run_id']}/commands?pageLength=1")["meta"]
+        out.update(robot_software=OT_TAG, log=log, commands=cmds["totalLength"], started_at=run.get("startedAt"),
+                   completed_at=run.get("completedAt"), seconds=round(time.time() - t0, 1))
+        return out
+    except SystemExit as e:  # send_to_flex reports a robot refusal this way
+        return {"status": "rejected", "error": str(e)[:600], "robot_software": OT_TAG}
+    except Exception as e:
+        raise RuntimeError(f"{type(e).__name__}: {e}\n--- robot-server log ---\n{tail()}") from None
+    finally:
+        srv.terminate()
+
+
+@app.local_entrypoint()
+def try_flex(run: str = "pcr_1-gt", reactions: int = 0):
+    """modal run modal_app.py::try_flex --run pcr_1-gt --reactions 2"""
+    import urllib.request
+
+    src = urllib.request.urlopen(f"https://pugarhuda--show-dont-code-web.us-east.modal.run/api/runs/{run}/protocol.py",
+                                 timeout=120).read().decode()
+    print(json.dumps(flex_run.remote(src, {"reactions": reactions} if reactions else {}), indent=1))
+
+
 @app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup], timeout=3600, cpu=2.0, memory=4096)
 def process(run_id: str):
     """Run the whole pipeline on an uploaded video. Progress events are committed as they happen."""

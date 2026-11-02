@@ -50,10 +50,28 @@ def _wait(fn, done, what, timeout):
         time.sleep(1)
 
 
-def send(robot, source, params, start=False, log=print, resume_pauses=False):
+def configure_deck(robot, analysis, log=print):
+    """What the touchscreen asks before a run: tell the robot which fixtures are installed. Adds the thermocycler the
+    protocol loads (cutouts A1+B1) with the serial of the one the robot sees, keeping the rest of the deck as it is."""
+    # ponytail: thermocycler only, the one module the generator loads; other modules need their own cutout fixtures
+    if not any(c["commandType"] == "loadModule" and c["params"]["model"] == "thermocyclerModuleV2"
+               for c in analysis.get("commands", [])):
+        return
+    tc = [m for m in _call(robot, "GET", "/modules")["data"] if m["moduleModel"] == "thermocyclerModuleV2"]
+    if not tc:
+        raise SystemExit("the protocol needs a Thermocycler GEN2 and the robot doesn't see one")
+    deck = _call(robot, "GET", "/deck_configuration")["data"]["cutoutFixtures"]
+    deck = [f for f in deck if f["cutoutId"] not in ("cutoutA1", "cutoutB1")]
+    deck += [{"cutoutId": c, "cutoutFixtureId": f, "opentronsModuleSerialNumber": tc[0]["serialNumber"]}
+             for c, f in (("cutoutA1", "thermocyclerModuleV2Rear"), ("cutoutB1", "thermocyclerModuleV2Front"))]
+    _call(robot, "PUT", "/deck_configuration", body={"data": {"cutoutFixtures": deck}})
+    log(f"deck configuration: Thermocycler {tc[0]['serialNumber']} in A1+B1")
+
+
+def send(robot, source, params, start=False, log=print, resume_pauses=False, deck=False):
     """Upload `source` with runtime parameter values `params`, wait for the robot's analysis, create a run, optionally
     play it to the end. A pause (a hand-off such as the centrifuge) waits for someone to resume it on the robot, unless
-    `resume_pauses` (for tests). Returns {"protocol_id", "analysis", "run_id", "status"}."""
+    `resume_pauses` (for tests). `deck` writes the modules it loads into the robot's deck configuration. Returns {"protocol_id", "analysis", "run_id", "status"}."""
     health = _call(robot, "GET", "/health")
     log(f"robot {health.get('name')} ({health.get('robot_model')}, software {health.get('api_version')})")
     p = _call(robot, "POST", "/protocols", body={"runTimeParameterValues": json.dumps(params)},
@@ -65,6 +83,8 @@ def send(robot, source, params, start=False, log=print, resume_pauses=False):
     if an.get("result") != "ok":
         raise SystemExit(f"the robot's analysis failed: {[e.get('detail') for e in an.get('errors', [])][:3]}")
     log(f"uploaded as {pid}; the robot's analysis passed with {params or 'the defaults'}")
+    if deck:
+        configure_deck(robot, _call(robot, "GET", f"/protocols/{pid}/analyses/{an['id']}")["data"], log)
     run = _call(robot, "POST", "/runs", body={"data": {"protocolId": pid, "runTimeParameterValues": params}})["data"]
     out = {"protocol_id": pid, "analysis": an.get("result"), "run_id": run["id"], "status": run["status"]}
     log(f"run {run['id']} created ({run['status']}); it is on the robot's touchscreen now")
@@ -89,6 +109,8 @@ def main():
     ap.add_argument("run", help="a Show, Don't Code run name (e.g. pcr_1-gt), or a path to a protocol.py")
     ap.add_argument("--reactions", type=int, help="copies of the filmed reaction (the protocol's Reactions parameter)")
     ap.add_argument("--start", action="store_true", help="press play after creating the run")
+    ap.add_argument("--configure-deck", action="store_true",
+                    help="write the thermocycler (A1+B1) into the robot's deck configuration, as the touchscreen does")
     ap.add_argument("--api", default=API, help="the Show, Don't Code backend")
     a = ap.parse_args()
     if a.run.endswith(".py"):
@@ -97,7 +119,7 @@ def main():
         with urllib.request.urlopen(f"{a.api}/api/runs/{a.run}/protocol.py", timeout=120) as r:
             source = r.read().decode("utf-8")
     params = {"reactions": a.reactions} if a.reactions else {}
-    send(a.robot, source, params, a.start)
+    send(a.robot, source, params, a.start, deck=a.configure_deck)
 
 
 if __name__ == "__main__":

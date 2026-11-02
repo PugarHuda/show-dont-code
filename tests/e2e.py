@@ -621,7 +621,7 @@ def main():
         if os.getenv("FLEX"):  # ---- a robot-server (a real Flex, or Opentrons' robot-server in Flex simulation) ----
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
             import send_to_flex
-            r = send_to_flex.send(os.environ["FLEX"], proto.decode(), {"reactions": 2}, start=True, log=lambda *_: None, resume_pauses=True)
+            r = send_to_flex.send(os.environ["FLEX"], proto.decode(), {"reactions": 2}, start=True, log=lambda *_: None, resume_pauses=True, deck=True)
             check("flex: the robot's own analysis passes with Reactions = 2 and the run succeeds",
                   r["analysis"] == "ok" and r["status"] == "succeeded", r)
         check("no uncaught page errors", not errors, (errors[:3], bad[:5]))
