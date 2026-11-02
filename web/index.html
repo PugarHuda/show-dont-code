@@ -5,25 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Review a robot protocol recovered from a lab video: the human video next to the Opentrons deck, step by step, with the simulator's checks.">
 <title>Show, Don't Code</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230f6e5c'/><path d='M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z' fill='white'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='black'/><path d='M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z' fill='white'/></svg>">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- display=optional: if the font isn't there in time the page keeps the system font, so headings never jump -->
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@900&display=optional" rel="stylesheet">
 <style>
   :root {
-    --bg: #f4f3ef; --panel: #ffffff; --ink: #1b1d1f; --muted: #6b7075; --line: #dedbd2;
-    --accent: #0f6e5c; --accent-soft: #d6ece6; --on-accent: #fff; --src: #c2410c; --dst: #0f6e5c; --warn: #a15c00; --bad: #b42318;
+    --bg: #f2f2f2; --panel: #ffffff; --ink: #000000; --muted: #5b5b5b; --line: #e3e3e3;
+    --accent: #c81f17; --accent-soft: #fdeceb; --on-accent: #fff; --src: #c2410c; --dst: #0f6e5c; --warn: #a15c00; --bad: #b42318;
     --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+    --display: "Schibsted Grotesk", system-ui, "Segoe UI", sans-serif;  /* the landing page's heavy grotesk, headings only */
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #121416; --panel: #1b1e21; --ink: #e8e6e1; --muted: #9aa0a6; --line: #2e3236;
-            --accent: #4fc3a6; --accent-soft: #163a32; --on-accent: #06201a; --src: #fb923c; --dst: #4fc3a6; --warn: #f0b429; --bad: #f97066; }
+    :root { --bg: #000000; --panel: #141414; --ink: #f2f2f2; --muted: #a6a6a6; --line: #2b2b2b;
+            --accent: #ff6b5e; --accent-soft: #3a1210; --on-accent: #1a0402; --src: #fb923c; --dst: #4fc3a6; --warn: #f0b429; --bad: #f97066; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
   header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
-  header h1 { font-size: 16px; margin: 0 12px 0 0; letter-spacing: .2px; }
+  header h1 { font: 900 19px/1.1 var(--display); margin: 0 12px 0 0; letter-spacing: -0.02em; }
   header h1 span { color: var(--accent); }
   select, button, input { font: inherit; color: inherit; }
   select, input { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; }
-  button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 999px; padding: 6px 14px; font-weight: 700; cursor: pointer; }
   button:disabled { opacity: .4; cursor: default; }
   .pill { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
   .pill.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
@@ -41,7 +45,7 @@
     #upbtn, #download { order: 3; }
   }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
-  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+  h2 { font: 900 18px/1.15 var(--display); letter-spacing: -0.015em; color: var(--ink); margin: 0 0 10px; }
   .stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
   .stage video, .stage canvas { display: block; width: 100%; }
   .stage video { aspect-ratio: auto 16 / 9; }  /* space held before metadata (sample videos are 16:9); uploads keep theirs */
@@ -63,8 +67,8 @@
   ol.steps li:hover { background: var(--bg); }
   ol.steps li.active { background: var(--accent-soft); }
   .t { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .tag { font-size: 11px; color: var(--muted); white-space: nowrap; }
-  .tag.ask { color: var(--warn); }
+  .tag { font-size: 11px; font-weight: 700; white-space: nowrap; background: var(--ink); color: var(--panel); border-radius: 999px; padding: 2px 9px; align-self: start; }
+  .tag.ask { background: var(--accent); color: var(--on-accent); }
   svg.deck { width: 100%; height: auto; }
   .slot { fill: var(--bg); stroke: var(--line); }
   .slot-label { fill: var(--muted); font: 10px var(--mono); }
@@ -109,7 +113,7 @@
   .files a { color: var(--accent); display: inline-block; padding: 6px 0; }  /* 24 px+ tap target (WCAG 2.2) */
   .hint a, .scan a { color: var(--accent); }
   .scan a { display: inline-block; padding: 6px 0; font-size: 14px; }
-  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button.ghost { background: transparent; color: var(--ink); border: 1.5px solid var(--ink); }  /* red stays for the main action */
   dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); max-width: 520px; width: calc(100% - 32px); padding: 20px; }
   dialog::backdrop { background: rgba(0, 0, 0, .45); }
   dialog h2 { font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--ink); }

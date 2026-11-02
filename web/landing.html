@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
 <title>Show, Don't Code</title>
 <meta name="description" content="Film yourself running a lab protocol once. Get an Opentrons robot protocol that passes the official simulator. Built on Muse Spark, SAM 3.1, Muse Voice Transcribe and Muse Spark Open.">
 <meta property="og:title" content="Show, Don't Code">
@@ -17,144 +18,198 @@
 <meta name="twitter:title" content="Show, Don't Code">
 <meta name="twitter:description" content="Pipette it once on camera. Get an Opentrons robot protocol that passes the official simulator.">
 <meta name="twitter:image" content="https://show-dont-code.vercel.app/media/og.jpg">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232f63d8'/><path d='M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z' fill='white'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='16' fill='black'/><path d='M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z' fill='white'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
-  /* Palette from the footage itself: clean-bench white, lab-coat navy ink, nitrile-glove blue. */
+  /* One drawing on black, one white sheet over it, one red button: the deck is the thing you remember. */
   :root {
-    --bg: #f5f7f9; --surface: #ffffff; --ink: #142130; --muted: #566676; --rule: #d6dee5;
-    --glove: #2f63d8; --glove-ink: #ffffff; --glove-soft: #e3ebfb; --well: #0f7a5c;
-    --sans: "Schibsted Grotesk", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0d141b; --surface: #141d26; --ink: #e5ecf2; --muted: #92a3b3; --rule: #243240;
-      --glove: #7aa6ff; --glove-ink: #0d141b; --glove-soft: #1a2a45; --well: #4fd1a5;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #0d141b; --surface: #141d26; --ink: #e5ecf2; --muted: #92a3b3; --rule: #243240;
-    --glove: #7aa6ff; --glove-ink: #0d141b; --glove-soft: #1a2a45; --well: #4fd1a5;
+    --black: #000; --paper: #fff; --ink: #000; --muted: #5b5b5b; --line: #8c8c8c; --rule: #e3e3e3;
+    --red: #d4231b; --sans: "Schibsted Grotesk", system-ui, sans-serif;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 400 18px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 18px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
   a { color: inherit; }
-  a:focus-visible, button:focus-visible, video:focus-visible, pre:focus-visible { outline: 3px solid var(--glove); outline-offset: 3px; border-radius: 6px; }
-  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+  :focus-visible { outline: 3px solid var(--red); outline-offset: 3px; border-radius: 8px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
   @media (max-width: 600px) { .wrap { padding: 0 16px; } body { font-size: 17px; } }
 
-  /* header */
-  .top { display: flex; align-items: center; gap: 28px; padding-top: 22px; padding-bottom: 22px; }
-  .mark { font-weight: 800; font-size: 19px; letter-spacing: -0.01em; text-decoration: none; display: flex; align-items: center; gap: 10px; }
-  .mark svg { width: 26px; height: 26px; }
-  .top nav { margin-left: auto; display: flex; gap: 26px; align-items: center; font-size: 16px; }
-  .top nav a { text-decoration: none; color: var(--muted); }
-  .top nav a:hover { color: var(--ink); }
-  @media (max-width: 720px) { .top nav a.sec { display: none; } }
+  /* round controls, as in the shot: white disc left, red disc right */
+  .disc { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; border: 0; text-decoration: none; }
+  .disc svg { width: 22px; height: 22px; }
 
-  .btn { display: inline-block; padding: 13px 22px; border-radius: 999px; font-weight: 700; font-size: 17px; text-decoration: none; border: 2px solid var(--glove); }
-  .btn.solid { background: var(--glove); color: var(--glove-ink); }
-  .btn.solid:hover { filter: brightness(1.08); }
-  .btn.line { color: var(--glove); }
-  .btn.line:hover { background: var(--glove-soft); }
-  .top .btn { padding: 9px 18px; font-size: 15px; }
+  /* the black band: the deck drawn in white line, the slot in use filled */
+  .band { background: var(--black); color: var(--paper); padding: 22px 0 120px; }
+  .band .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .band .home { background: var(--paper); color: var(--black); }
+  .band .go { background: var(--red); color: var(--paper); width: auto; padding: 0 22px 0 18px; border-radius: 999px; gap: 10px;
+              display: inline-flex; align-items: center; font-weight: 700; font-size: 16px; }
+  .band nav { display: flex; gap: 24px; align-items: center; }
+  .band nav a.sec { color: #d0d0d0; text-decoration: none; font-size: 16px; }
+  .band nav a.sec:hover { color: var(--paper); }
+  @media (max-width: 720px) { .band nav a.sec { display: none; } }
+  .deck { display: block; width: 100%; max-width: 760px; margin: 34px auto 0; height: auto; }
+  .deck .slot rect, .deck .tc rect { fill: none; stroke: var(--paper); stroke-width: 1.6; transition: fill .25s; }
+  .deck .empty rect { stroke: var(--line); stroke-dasharray: 4 5; }
+  .deck text { fill: var(--paper); font: 700 11px var(--sans); letter-spacing: .08em; transition: fill .25s; }
+  .deck .empty text { fill: var(--line); }
+  .deck .lit rect { fill: var(--paper); }
+  .deck .lit text, .deck .lit .tube { fill: var(--black); }
+  .deck .dest rect { stroke: var(--red); stroke-width: 4; }  /* where the liquid lands: outlined, the source is the filled one */
+  .deck .tube { fill: none; stroke: currentColor; stroke-width: 1.2; }
+  .deck .lit .tube { stroke: var(--black); fill: none; }
+  .deck .lit .tube.on { fill: var(--red); stroke: var(--red); }
+  @media (prefers-reduced-motion: reduce) { .deck rect, .deck text { transition: none; } }
 
-  /* hero */
-  .hero { padding-top: 56px; }  /* top only: .wrap owns the side gutters */
-  .hero h1 { font-weight: 800; font-size: clamp(44px, 7.4vw, 96px); line-height: 0.98; letter-spacing: -0.035em; margin: 0; max-width: 13ch; }
-  .hero .lede { font-size: clamp(19px, 1.8vw, 22px); color: var(--muted); max-width: 40em; margin: 28px 0 32px; }
-  .hero .lede strong { color: var(--ink); font-weight: 500; }
-  .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
-  .stage { margin: 56px 0 0; position: relative; }
-  .stage video, .stage img { display: block; width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--rule); background: #000; }
+  /* the white sheet that rides up over the band */
+  .sheet { background: var(--paper); border-radius: 44px 44px 0 0; margin: -84px auto 0; max-width: 980px; padding: 52px 24px 0; text-align: center; position: relative; }
+  @media (max-width: 600px) { .sheet { border-radius: 32px 32px 0 0; padding: 36px 16px 0; } }
+  .sheet h1 { font-weight: 900; font-size: clamp(42px, 7.2vw, 88px); line-height: .96; letter-spacing: -0.035em; margin: 0 auto; max-width: 12ch; }
+  .sheet .run { font-weight: 700; font-size: clamp(20px, 2.2vw, 26px); margin: 22px 0 6px; }
+  .sheet .run small { display: block; font-weight: 400; font-size: 16px; color: var(--muted); }
+
+  /* the step carousel: the steak, swapped for what the scientist actually did */
+  .carousel { display: grid; grid-template-columns: 52px minmax(0, 1fr) 52px; align-items: center; gap: 12px; max-width: 640px; margin: 18px auto 0; }
+  .carousel .arrow { background: none; border: 0; cursor: pointer; color: var(--black); }
+  .carousel .arrow:hover { background: #f1f1f1; }
+  .shot { min-height: 168px; display: grid; align-content: center; }
+  .shot .vol { font-weight: 900; font-size: clamp(56px, 9vw, 96px); line-height: 1; letter-spacing: -0.04em; }
+  .shot .what { font-weight: 700; font-size: 20px; margin-top: 8px; }
+  .shot .where { color: var(--muted); font-size: 16px; }
+  .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+  .chips li { background: var(--black); color: var(--paper); border-radius: 999px; padding: 6px 14px; font-weight: 700; font-size: 14px; }
+  .count { color: var(--muted); font-size: 14px; margin: 14px 0 0; }
+
+  .cta { display: block; width: 100%; max-width: 640px; margin: 28px auto 0; background: var(--red); color: var(--paper); text-decoration: none;
+         border-radius: 999px; padding: 18px 24px; font-weight: 700; font-size: 18px; }
+  .cta:hover { filter: brightness(1.08); }
+  .quiet { display: inline-block; margin-top: 14px; color: var(--muted); font-size: 16px; }
+  .lede { color: var(--muted); max-width: 36em; margin: 44px auto 0; text-align: center; }
+  .lede strong { color: var(--ink); font-weight: 700; }
+
+  .stage { margin: 56px auto 0; position: relative; max-width: 980px; text-align: left; }
+  .stage video { display: block; width: 100%; height: auto; border-radius: 28px; background: var(--black); }
   .stage figcaption { color: var(--muted); font-size: 15px; margin-top: 12px; max-width: 70ch; }
-  .stage .toggle { position: absolute; right: 14px; top: 14px; background: rgba(13, 20, 27, .72); color: #fff; border: 0; border-radius: 999px; padding: 7px 14px; font: 500 14px var(--sans); cursor: pointer; }
+  .stage .toggle { position: absolute; right: 16px; top: 16px; background: var(--paper); color: var(--black); border: 0; border-radius: 999px;
+                   padding: 8px 16px; font: 700 14px var(--sans); cursor: pointer; }
 
-  section { padding: 104px 0 0; }
-  section > .wrap > h2 { font-weight: 800; font-size: clamp(32px, 4vw, 48px); line-height: 1.05; letter-spacing: -0.025em; margin: 0 0 18px; max-width: 18ch; }
-  section > .wrap > .intro { color: var(--muted); max-width: 38em; margin: 0 0 48px; }
+  section { padding: 112px 0 0; }
+  section h2 { font-weight: 900; font-size: clamp(34px, 4.6vw, 56px); line-height: 1; letter-spacing: -0.03em; margin: 0 0 18px; max-width: 16ch; }
+  section .intro { color: var(--muted); max-width: 38em; margin: 0 0 44px; }
 
-  /* the pipeline: a real sequence, numbered as wells filling left to right */
-  ol.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; border-top: 1px solid var(--rule); }
-  ol.flow li { padding: 26px 26px 6px 0; }
-  ol.flow li + li { padding-left: 26px; border-left: 1px solid var(--rule); }
-  .well { width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--well); display: grid; place-items: center; font-weight: 700; font-size: 15px; color: var(--well); margin-bottom: 18px; position: relative; }
-  .well::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: var(--well); clip-path: inset(var(--fill) 0 0 0); opacity: .22; }
-  ol.flow h3 { font-size: 21px; margin: 0 0 4px; letter-spacing: -0.01em; }
-  ol.flow .model { color: var(--glove); font-weight: 500; font-size: 15px; margin: 0 0 12px; }
-  ol.flow p { color: var(--muted); font-size: 16.5px; margin: 0 0 14px; }
-  @media (max-width: 920px) { ol.flow { grid-template-columns: 1fr 1fr; } ol.flow li:nth-child(3) { padding-left: 0; border-left: 0; } ol.flow li { border-bottom: 1px solid var(--rule); } }
-  @media (max-width: 560px) { ol.flow { grid-template-columns: 1fr; } ol.flow li, ol.flow li + li { padding-left: 0; border-left: 0; } }
+  /* the pipeline: a real sequence, so numbered */
+  ol.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 28px; }
+  ol.flow li { border-top: 2px solid var(--black); padding-top: 18px; }
+  ol.flow .n { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--black); color: var(--paper);
+               font-weight: 700; font-size: 15px; margin-bottom: 14px; }
+  ol.flow h3 { font-weight: 900; font-size: 26px; letter-spacing: -0.02em; margin: 0; }
+  ol.flow .model { font-weight: 700; font-size: 15px; margin: 2px 0 10px; }
+  ol.flow p { color: var(--muted); font-size: 16.5px; margin: 0; }
+  @media (max-width: 920px) { ol.flow { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { ol.flow { grid-template-columns: 1fr; } }
 
-  /* output */
-  .out { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 48px; align-items: start; }
+  /* the code sits on the same black as the deck */
+  .out { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 44px; align-items: start; }
   @media (max-width: 900px) { .out { grid-template-columns: 1fr; } }
-  pre.code { margin: 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 22px 24px; overflow-x: auto; font: 400 13.5px/1.7 var(--mono); color: var(--ink); }
-  pre.code .c { color: var(--muted); }
-  pre.code .k { color: var(--glove); }
+  pre.code { margin: 0; background: var(--black); color: #f2f2f2; border-radius: 28px; padding: 26px 28px; overflow-x: auto; font: 400 13.5px/1.7 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  pre.code .c { color: #a6a6a6; }
+  pre.code .k { color: #ff8a80; }
   .facts { margin: 0; padding: 0; list-style: none; }
   .facts li { padding: 0 0 22px; margin: 0 0 22px; border-bottom: 1px solid var(--rule); }
   .facts li:last-child { border: 0; }
-  .facts b { display: block; font-size: 22px; letter-spacing: -0.01em; margin-bottom: 4px; }
+  .facts b { display: block; font-weight: 900; font-size: 22px; letter-spacing: -0.01em; margin-bottom: 4px; }
   .facts span { color: var(--muted); font-size: 16.5px; }
+  .facts code { font-size: 15px; }
 
-  /* results: printed plainly, never animated */
   .scores { display: flex; flex-wrap: wrap; gap: 56px; margin: 0 0 40px; }
-  .scores div { min-width: 0; }
-  .scores b { display: block; font-weight: 800; font-size: clamp(56px, 8vw, 104px); line-height: 1; letter-spacing: -0.04em; }
+  .scores b { display: block; font-weight: 900; font-size: clamp(64px, 9vw, 120px); line-height: 1; letter-spacing: -0.05em; }
   .scores span { color: var(--muted); font-size: 16px; }
-  table.runs { border-collapse: collapse; width: 100%; max-width: 760px; font-size: 16px; }
-  table.runs th, table.runs td { text-align: left; padding: 11px 16px 11px 0; border-bottom: 1px solid var(--rule); }
-  table.runs th { font-weight: 500; color: var(--muted); }
+  .table { overflow-x: auto; }
+  table.runs { border-collapse: collapse; width: 100%; max-width: 780px; font-size: 16px; }
+  table.runs th, table.runs td { text-align: left; padding: 12px 16px 12px 0; border-bottom: 1px solid var(--rule); }
+  table.runs th { font-weight: 700; }
   table.runs td.n { font-variant-numeric: tabular-nums; }
   .note { color: var(--muted); max-width: 38em; margin: 26px 0 0; font-size: 16.5px; }
 
-  /* limits */
   .limits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 48px; max-width: 980px; }
-  .limits div { border-top: 1px solid var(--rule); padding: 22px 0 26px; }
-  .limits b { display: block; font-size: 19px; margin-bottom: 6px; }
+  .limits div { border-top: 2px solid var(--black); padding: 20px 0 28px; }
+  .limits b { display: block; font-weight: 900; font-size: 21px; margin-bottom: 6px; }
   .limits span { color: var(--muted); font-size: 16.5px; }
   @media (max-width: 720px) { .limits { grid-template-columns: 1fr; } }
 
-  /* closing */
-  .close { padding-top: 120px; padding-bottom: 96px; }
-  .close h2 { font-weight: 800; font-size: clamp(36px, 5vw, 64px); letter-spacing: -0.03em; line-height: 1.02; margin: 0 0 28px; max-width: 16ch; }
-  footer { border-top: 1px solid var(--rule); padding: 28px 0 44px; color: var(--muted); font-size: 14.5px; }
+  .close { background: var(--black); color: var(--paper); margin-top: 120px; padding: 88px 0 96px; text-align: center; }
+  .close h2 { font-weight: 900; font-size: clamp(38px, 5.4vw, 68px); letter-spacing: -0.035em; line-height: 1; margin: 0 auto 20px; max-width: 14ch; }
+  .close p { color: #c9c9c9; max-width: 36em; margin: 0 auto; }
+  .close .quiet { color: #c9c9c9; }
+  footer { background: var(--black); color: #b3b3b3; padding: 0 0 44px; font-size: 14.5px; }
+  footer .wrap { border-top: 1px solid #2b2b2b; padding-top: 28px; }
   footer p { margin: 0 0 8px; max-width: 80ch; }
 </style>
 </head>
 <body>
-<header class="wrap top">
-  <a class="mark" href="/" aria-label="Show, Don't Code home">
-    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--glove)"/><path d="M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z" fill="var(--glove-ink)"/></svg>
-    Show, Don't Code
-  </a>
-  <nav aria-label="Page">
-    <a class="sec" href="#how">How it works</a>
-    <a class="sec" href="#results">Results</a>
-    <a class="btn solid" href="/app?run=pcr_3">Open the app</a>
-  </nav>
-</header>
-
 <main>
-  <div class="wrap hero">
+  <div class="band">
+    <div class="wrap bar">
+      <a class="disc home" href="/" aria-label="Show, Don't Code home">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z" fill="currentColor"/></svg>
+      </a>
+      <nav aria-label="Page">
+        <a class="sec" href="#how">How it works</a>
+        <a class="sec" href="#results">Results</a>
+        <a class="disc go" href="/app?run=pcr_3">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l11 7-11 7z" fill="currentColor"/></svg>Open the app</a>
+      </nav>
+    </div>
+    <!-- the Opentrons Flex deck from above, as protocol.py loads it: 4 rows (A at the back) by 3 columns -->
+    <svg class="deck" id="deck" viewBox="0 0 600 404" role="img" aria-labelledby="deck-title">
+      <title id="deck-title">The Opentrons Flex deck for this protocol</title>
+      <g class="tc" data-slot="A1 B1"><rect x="20" y="16" width="176" height="180" rx="10"/>
+        <text x="108" y="100" text-anchor="middle">THERMOCYCLER</text><text x="108" y="118" text-anchor="middle">A1 + B1</text></g>
+      <g class="slot empty" data-slot="A2"><rect x="212" y="16" width="176" height="86" rx="10"/><text x="300" y="64" text-anchor="middle">A2</text></g>
+      <g class="slot" data-slot="A3"><rect x="404" y="16" width="176" height="86" rx="10"/><text x="492" y="64" text-anchor="middle">TRASH BIN</text></g>
+      <g class="slot" data-slot="B2"><rect x="212" y="110" width="176" height="86" rx="10"/><text x="300" y="158" text-anchor="middle">50 µL TIPS</text></g>
+      <g class="slot" data-slot="B3"><rect x="404" y="110" width="176" height="86" rx="10"/><text x="492" y="158" text-anchor="middle">50 µL TIPS</text></g>
+      <g class="slot" data-slot="C1"><rect x="20" y="204" width="176" height="86" rx="10"/><text x="108" y="252" text-anchor="middle">1000 µL TIPS</text></g>
+      <g class="slot rack" data-slot="C2"><rect x="212" y="204" width="176" height="86" rx="10"/>
+        <text x="300" y="282" text-anchor="middle">TUBE RACK</text></g>
+      <g class="slot empty" data-slot="C3"><rect x="404" y="204" width="176" height="86" rx="10"/><text x="492" y="252" text-anchor="middle">C3</text></g>
+      <g class="slot" data-slot="D1"><rect x="20" y="298" width="176" height="86" rx="10"/><text x="108" y="346" text-anchor="middle">50 µL TIPS</text></g>
+      <g class="slot empty" data-slot="D2"><rect x="212" y="298" width="176" height="86" rx="10"/><text x="300" y="346" text-anchor="middle">D2</text></g>
+      <g class="slot empty" data-slot="D3"><rect x="404" y="298" width="176" height="86" rx="10"/><text x="492" y="346" text-anchor="middle">D3</text></g>
+    </svg>
+  </div>
+
+  <div class="sheet">
     <h1>Pipette it once. Get the robot protocol.</h1>
+    <p class="run">PCR setup, filmed once<small>pcr_1-gt from the BioVL2 dataset, step by step as the robot will do it</small></p>
+    <div class="carousel">
+      <button class="disc arrow" id="prev" type="button" aria-label="Previous step">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <div class="shot" id="shot" aria-live="polite">
+        <div class="vol" id="vol">20 µL</div>
+        <div class="what" id="what">Sterile distilled water</div>
+        <div class="where" id="where">Tube rack A1 into the plate on the thermocycler</div>
+      </div>
+      <button class="disc arrow" id="next" type="button" aria-label="Next step">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <ul class="chips" id="chips"><li>Aqueous</li><li>50 µL pipette</li><li>Video 30–45 s</li></ul>
+    <p class="count" id="count">Step 1 of 6</p>
+    <a class="cta" href="/app?run=pcr_1-gt">Watch this run next to the robot</a>
+    <a class="quiet" href="https://github.com/PugarHuda/show-dont-code">Read the code on GitHub</a>
+
     <p class="lede">Film yourself running a protocol at the bench. Show, Don't Code watches the video, works out every transfer,
       and writes an <strong>Opentrons Flex protocol that passes the official simulator</strong>. You check each step against your own
       footage before anything touches a reagent.</p>
-    <div class="ctas">
-      <a class="btn solid" href="/app?run=pcr_3">Open a real PCR run</a>
-      <a class="btn line" href="https://github.com/PugarHuda/show-dont-code">Read the code</a>
-    </div>
+
     <figure class="stage">
       <video id="hero" src="/media/hero.mp4" poster="/media/hero.jpg" autoplay muted loop playsinline
              aria-label="The app playing a lab video next to the robot deck: each transfer lights up its source tube and destination well"></video>
       <button class="toggle" id="toggle" type="button">Pause</button>
-      <figcaption>A real 4-minute PCR setup from the BioVL2 dataset. Muse Spark found 18 transfers into 4 tubes; as the
+      <figcaption>A real 4-minute PCR setup from BioVL2. Muse Spark found 18 transfers into 4 tubes; as the
         scientist pipettes, the robot deck lights the source tube and the well it lands in.</figcaption>
     </figure>
   </div>
@@ -165,25 +220,25 @@
       <p class="intro">Four Meta models, each doing the part it is best at. Nothing reaches the robot until the simulator has run it and you have seen it.</p>
       <ol class="flow">
         <li>
-          <div class="well" style="--fill: 75%">1</div>
+          <span class="n">1</span>
           <h3>Watch</h3>
           <p class="model">Muse Spark 1.3</p>
           <p>Reads the whole video and the protocol sheet lying on the bench, then looks again at each moment liquid is drawn up to tell which tube it came from.</p>
         </li>
         <li>
-          <div class="well" style="--fill: 50%">2</div>
+          <span class="n">2</span>
           <h3>Track</h3>
           <p class="model">SAM 3.1</p>
           <p>Follows the pipette tip through the recording. Click any tube and it follows that tube too, while Muse Spark throws out the frames where it jumped to a look-alike cap.</p>
         </li>
         <li>
-          <div class="well" style="--fill: 25%">3</div>
+          <span class="n">3</span>
           <h3>Listen</h3>
           <p class="model">Muse Voice Transcribe</p>
           <p>Anything you say while you work, like “fifty microlitres of primer”, becomes timestamped evidence, biased toward the reagent names on your sheet.</p>
         </li>
         <li>
-          <div class="well" style="--fill: 0%">4</div>
+          <span class="n">4</span>
           <h3>Check</h3>
           <p class="model">Muse Spark Open</p>
           <p>A reviewer agent watches the same video, runs the Opentrons simulator itself until the volumes add up, and asks you about whatever the footage can't prove.</p>
@@ -221,6 +276,7 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
           <li><b>Runs on Opentrons' own robot software</b><span>The pcr_1-gt protocol passes Opentrons' simulator and <code>opentrons analyze</code> (134 commands), and runs to the end on Opentrons' robot-server, the software inside a Flex, in Flex simulation: 240 robot commands with two reactions, one fresh tip per transfer.</span></li>
           <li><b>Every line points back to the video</b><span>Each step carries the seconds it happened in your footage, so you can replay the moment before you trust it.</span></li>
           <li><b>Hand-offs where a robot can't help</b><span>Spinning down or inverting a tube becomes a pause that hands the run back to you.</span></li>
+          <li><b>Citable</b><span>The whole run, every model output and its hashes, is on Zenodo as <a href="https://doi.org/10.5281/zenodo.23876762">doi:10.5281/zenodo.23876762</a>.</span></li>
         </ul>
       </div>
     </div>
@@ -234,6 +290,7 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
         <div><b>0.79</b><span>step recall, held-out PCR videos</span></div>
         <div><b>0.69</b><span>step precision, held-out PCR videos</span></div>
       </div>
+      <div class="table">
       <table class="runs">
         <thead><tr><th scope="col">Video</th><th scope="col">Recall</th><th scope="col">Precision</th><th scope="col">What went wrong</th></tr></thead>
         <tbody>
@@ -244,6 +301,7 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
           <tr><td>miniprep_7</td><td class="n">0.28</td><td class="n">0.42</td><td>a different protocol: timing right, but no reagent label was readable</td></tr>
         </tbody>
       </table>
+      </div>
       <p class="note">On PCR, about one proposed step in three is extra or mislabelled; on a protocol it was never developed on, most reagents come out unnamed. That is why the app shows every step next to the footage, lets you name a tube with one click, and asks before it writes code.</p>
     </div>
   </section>
@@ -253,7 +311,7 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
       <h2>Where it still needs you</h2>
       <p class="intro">A camera can't see everything a protocol needs. The app asks once, in plain words, instead of guessing.</p>
       <div class="limits">
-        <div><b>Volumes nobody said out loud</b><span>One question per reagent, pre-filled with a plan the reviewer agent checked in the simulator. You decide.</span></div>
+        <div><b>Volumes nobody said out loud</b><span>One question per reagent, pre-filled with a plan the reviewer agent ran in the simulator. You decide.</span></div>
         <div><b>Anything under 1 µL</b><span>Below the Flex pipette's minimum, so it asks you to dilute the stock and enter the new volume.</span></div>
         <div><b>The thermocycler program</b><span>Read off the bench sheet when one is in shot; otherwise a standard program you set on the robot's touchscreen, and you type the cycle count.</span></div>
         <div><b>Tubes that look alike</b><span>Click a tube to name it once. SAM 3.1 follows it and Muse Spark checks every sighting is really that tube.</span></div>
@@ -261,13 +319,13 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
     </div>
   </section>
 
-  <div class="wrap close">
-    <h2>See it on a real lab video</h2>
-    <p class="note" style="margin: -8px 0 28px">Seven sample runs from BioVL2 are open to everyone. To analyse your own
-      video, use <strong>Upload your video</strong> in the app; uploads need an access code while we pay for the models.</p>
-    <div class="ctas">
-      <a class="btn solid" href="/app?run=pcr_3">Open the app</a>
-      <a class="btn line" href="https://github.com/PugarHuda/show-dont-code">Read the code</a>
+  <div class="close">
+    <div class="wrap">
+      <h2>See it on a real lab video</h2>
+      <p>Seven sample runs from BioVL2 are open to everyone. To analyse your own video, use Upload your video in the app;
+        uploads need an access code while we pay for the models.</p>
+      <a class="cta" href="/app?run=pcr_3">Open the app</a>
+      <a class="quiet" href="https://github.com/PugarHuda/show-dont-code">Read the code on GitHub</a>
     </div>
   </div>
 </main>
@@ -280,11 +338,47 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
   </div>
 </footer>
 <script>
-  // One moving thing on the page: the hero. Honour reduced motion and give a visible pause control.
+  // The hero video: honour reduced motion and give a visible pause control.
   const v = document.getElementById("hero"), b = document.getElementById("toggle");
   const set = (play) => { (play ? v.play() : (v.pause(), Promise.resolve())).catch(() => {}); b.textContent = play ? "Pause" : "Play"; };
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) set(false);
   b.addEventListener("click", () => set(v.paused));
+
+  // pcr_1-gt as protocol.py runs it: what is drawn, from which tube rack well, into the plate on the thermocycler
+  const STEPS = [
+    { vol: "20 µL", what: "Sterile distilled water", tube: "A1", chips: ["Aqueous", "50 µL pipette", "Video 30–45 s"] },
+    { vol: "1.5 µL", what: "Primer1", tube: "B1", chips: ["Aqueous", "50 µL pipette", "Video 64–99 s"] },
+    { vol: "1.5 µL", what: "Primer2", tube: "C1", chips: ["Aqueous", "50 µL pipette", "Video 106–130 s"] },
+    { vol: "2 µL", what: "Template", tube: "D1", chips: ["Aqueous", "50 µL pipette", "Video 149–173 s"] },
+    { vol: "25 µL", what: "PrimeSTAR Max Premix", tube: "A2", chips: ["Viscous", "50 µL pipette", "Video 190–238 s"] },
+    { vol: "35×", what: "Thermal cycling", tube: null, chips: ["98 / 55 / 72 °C", "Lid closed", "Video 260–266 s"] },
+  ];
+  // the 24-tube rack in C2: rows A–D, columns 1–6, drawn into the slot
+  const NS = "http://www.w3.org/2000/svg", rack = document.querySelector('[data-slot="C2"]');
+  for (const [r, row] of ["A", "B", "C", "D"].entries()) for (let c = 1; c <= 6; c++) {
+    const t = document.createElementNS(NS, "circle");
+    t.setAttribute("cx", 238 + (c - 1) * 25); t.setAttribute("cy", 220 + r * 12); t.setAttribute("r", 4.4);
+    t.setAttribute("class", "tube"); t.dataset.tube = row + c; rack.insertBefore(t, rack.querySelector("text"));
+  }
+  rack.style.color = "#fff";
+  const tc = document.querySelector(".tc"), $ = (id) => document.getElementById(id);
+  let i = 0;
+  function show(k) {
+    i = (k + STEPS.length) % STEPS.length;
+    const s = STEPS[i];
+    $("vol").textContent = s.vol; $("what").textContent = s.what;
+    $("where").textContent = s.tube ? `Tube rack ${s.tube} into the plate on the thermocycler` : "The plate stays in the thermocycler; the robot runs the program";
+    $("chips").innerHTML = s.chips.map((c) => `<li>${c}</li>`).join("");
+    $("count").textContent = `Step ${i + 1} of ${STEPS.length}`;
+    rack.classList.toggle("lit", !!s.tube);
+    rack.querySelectorAll(".tube").forEach((t) => t.classList.toggle("on", t.dataset.tube === s.tube));
+    tc.classList.toggle("dest", !!s.tube); tc.classList.toggle("lit", !s.tube);
+    $("deck-title").textContent = s.tube ? `The Opentrons Flex deck: ${s.what} is drawn from tube ${s.tube} in the tube rack (slot C2) into the thermocycler (A1 and B1)`
+      : "The Opentrons Flex deck: the thermocycler (A1 and B1) runs the PCR program";
+  }
+  $("prev").addEventListener("click", () => show(i - 1));
+  $("next").addEventListener("click", () => show(i + 1));
+  show(0);
 </script>
 </body>
 </html>
