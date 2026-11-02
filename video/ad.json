@@ -1,0 +1,102 @@
+[
+ {
+  "id": "hook",
+  "kind": "rec",
+  "clip": "intro",
+  "from": 0,
+  "crop": [
+   20,
+   110,
+   1040,
+   690
+  ],
+  "credit": true,
+  "head": "Lab robots sit idle.",
+  "say": "Lab robots sit idle, because programming them means writing Python."
+ },
+ {
+  "id": "film",
+  "kind": "rec",
+  "clip": "intro",
+  "from": 4,
+  "crop": [
+   20,
+   110,
+   1880,
+   700
+  ],
+  "credit": true,
+  "head": "So film it once,\nby hand.",
+  "say": "So don't code. Film the protocol once, by hand, and get the robot protocol."
+ },
+ {
+  "id": "steps",
+  "kind": "rec",
+  "clip": "sync",
+  "from": 3,
+  "crop": [
+   20,
+   110,
+   1040,
+   690
+  ],
+  "credit": true,
+  "head": "Muse Spark finds every step",
+  "say": "Muse Spark watches the video and finds every pipetting step."
+ },
+ {
+  "id": "track",
+  "kind": "rec",
+  "clip": "tubes",
+  "from": 7,
+  "crop": [
+   20,
+   110,
+   1040,
+   690
+  ],
+  "credit": true,
+  "head": "SAM 3.1 tracks\nthe tube you click",
+  "say": "Click a tube, and SAM 3.1 follows that exact tube through the whole recording."
+ },
+ {
+  "id": "agent",
+  "kind": "rec",
+  "clip": "reviewer",
+  "from": 9,
+  "crop": [
+   1080,
+   170,
+   840,
+   560
+  ],
+  "head": "An agent runs\nthe simulator itself",
+  "say": "An agent on Muse Spark Open runs the robot simulator itself, until the volumes add up."
+ },
+ {
+  "id": "robot",
+  "kind": "rec",
+  "clip": "robot",
+  "from": 12,
+  "crop": [
+   1080,
+   380,
+   840,
+   520
+  ],
+  "head": "240 of 240 robot\ncommands match",
+  "say": "Then Opentrons' own robot software runs it. Two hundred forty of two hundred forty commands match."
+ },
+ {
+  "id": "stat",
+  "kind": "stat",
+  "head": "79%",
+  "say": "It finds seventy-nine percent of PCR steps, on videos it never saw."
+ },
+ {
+  "id": "cta",
+  "kind": "cta",
+  "head": "Pipette it once.",
+  "say": "Pipette it once. Get the robot protocol. Try it free at show dont code dot vercel dot app."
+ }
+]

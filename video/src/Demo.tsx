@@ -5,11 +5,11 @@ import {
 import scenesJson from "../public/scenes.json";
 import clipsJson from "../public/clips.json";
 
-const { fontFamily } = loadFont("normal", { weights: ["400", "700", "900"] });
+export const { fontFamily } = loadFont("normal", { weights: ["400", "700", "900"] });
 
 export const FPS = 30;
 const PAD = 0.7; // seconds of quiet after each line before the next scene
-const RED = "#d4231b";
+export const RED = "#d4231b";
 
 type Word = { t: number; d: number; w: string };
 type Callout = { at: number; text: string };
@@ -86,7 +86,7 @@ const Recording = ({ scene, index }: { scene: Scene; index: number }) => {
 };
 
 // the Flex deck drawn in white line, as on the landing page; the slot in use fills in white
-const Deck = ({ lit }: { lit: number }) => {
+export const Deck = ({ lit }: { lit: number }) => {
   const slots = [[20, 16, 176, 180, "THERMOCYCLER"], [212, 16, 176, 86, "A2"], [404, 16, 176, 86, "TRASH"], [212, 110, 176, 86, "TIPS"],
     [404, 110, 176, 86, "TIPS"], [20, 204, 176, 86, "TIPS"], [212, 204, 176, 86, "TUBE RACK"], [404, 204, 176, 86, "C3"],
     [20, 298, 176, 86, "TIPS"], [212, 298, 176, 86, "D2"], [404, 298, 176, 86, "D3"]] as const;

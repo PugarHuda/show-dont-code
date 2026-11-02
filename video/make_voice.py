@@ -1,11 +1,13 @@
 """Narration for the demo video: one AI voice clip per scene (Microsoft Edge neural TTS) with word timings, which
 the Remotion composition turns into subtitles. Writes public/voice/<id>.mp3 and public/scenes.json.
 
-  python video/make_voice.py
+  python video/make_voice.py        (the demo: script.json -> public/scenes.json)
+  python video/make_voice.py ad     (the X ad: ad.json -> public/ad_scenes.json, voice/ad_<id>.mp3)
 """
 import asyncio
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import edge_tts
@@ -63,15 +65,17 @@ def seconds(path):
 
 
 async def main():
-    scenes = json.loads((HERE / "script.json").read_text(encoding="utf-8"))
+    name = sys.argv[1] if len(sys.argv) > 1 else ""
+    pre = f"{name}_" if name else ""
+    scenes = json.loads((HERE / f"{name or 'script'}.json").read_text(encoding="utf-8"))
     (HERE / "public" / "voice").mkdir(parents=True, exist_ok=True)
     for s in scenes:
-        mp3 = HERE / "public" / "voice" / f"{s['id']}.mp3"
+        mp3 = HERE / "public" / "voice" / f"{pre}{s['id']}.mp3"
         s["words"] = await speak(s["say"], mp3)
         s["voice_s"] = round(seconds(mp3), 2)
         s["lines"] = subtitle_lines(s["say"], s["words"], s["voice_s"])
         print(f"{s['id']:10} {s['voice_s']:5.1f} s  {len(s['words'])} words")
-    (HERE / "public" / "scenes.json").write_text(json.dumps(scenes, indent=1), encoding="utf-8")
+    (HERE / "public" / f"{pre}scenes.json").write_text(json.dumps(scenes, indent=1), encoding="utf-8")
     print(f"total {sum(s['voice_s'] for s in scenes):.1f} s of narration")
 
 

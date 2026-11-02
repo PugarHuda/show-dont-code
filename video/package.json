@@ -3,7 +3,8 @@
   "private": true,
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render": "remotion render src/index.ts Demo out/show-dont-code-demo.mp4 --codec h264 --crf 18"
+    "render": "remotion render src/index.ts Demo out/show-dont-code-demo.mp4 --codec h264 --crf 18",
+    "render:ad": "remotion render src/index.ts Ad out/show-dont-code-ad.mp4 --codec h264 --crf 18"
   },
   "dependencies": {
     "@remotion/cli": "4.0.539",
