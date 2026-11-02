@@ -6,6 +6,7 @@
 Usage: python scripts/export_demo.py pcr_1 pcr_2 ...
 """
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -32,4 +33,7 @@ for run in sys.argv[1:]:
         pub = ROOT / "public" / "runs" / run
         pub.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src / "video.mp4", pub / "video.mp4")
+        # a small first frame the app shows while the 13 MB video loads (the page's largest paint)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "1", "-i", str(pub / "video.mp4"), "-frames:v", "1",
+                        "-vf", "scale=960:-2", "-q:v", "5", str(pub / "poster.jpg")], check=True)
     print(f"{run}: exported")
