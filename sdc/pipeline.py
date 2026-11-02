@@ -121,6 +121,17 @@ def simulate_with(steps, volumes_ul):
                 s["volume_ul"] = float(v)
             else:
                 missing.add(str(s.get("reagent") or s["description"]))
+    # a mix with no reagent of its own ("gently mix the reaction") has no volume to plan: mix half of what the well
+    # holds once the transfers are in, as at the bench (capped at the 50 uL pipette)
+    for s in trial:
+        key = str(s.get("reagent") or s["description"])
+        if s["action"] == "mix" and not s.get("reagent") and key in missing:
+            dest = s.get("destination") or "sample tube"
+            held = sum(t["volume_ul"] for t in trial if t["action"] == "transfer" and (t.get("destination") or "sample tube") == dest
+                       and (t.get("volume_ul") or 0) >= protocol.MIN_UL)
+            if held:
+                s["volume_ul"] = round(min(50.0, max(protocol.MIN_UL, held / 2)), 1)
+                missing.discard(key)
     if missing:
         return {"ran": False, "missing_or_invalid_volume_for": sorted(missing)}
     totals = {}
