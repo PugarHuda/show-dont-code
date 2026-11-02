@@ -652,6 +652,10 @@ def main():
         page.wait_for_function("() => !document.getElementById('srcbox').hidden && document.querySelectorAll('#steps li').length", timeout=60000)
         check("protocols.io import: the app shows the source protocol instead of a video, steps numbered",
               page.evaluate("() => document.getElementById('humanbox').hidden && /^#1$/.test(document.querySelector('#steps li .t').textContent)"))
+        # the app's protocols.io token belongs to a real account: its private protocols must not be importable
+        st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": "pcr-setup-recovered-from-a-first-person-video-pcr-krdncv25f"}).encode(),
+                         {"Content-Type": "application/json"})
+        check("protocols.io import: a private protocol of the app's own account is refused", st == 422 and b"public" in body, (st, body[:120]))
         for bad in ("https://evil.example/x", "file:///etc/passwd", ""):
             st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": bad}).encode(), {"Content-Type": "application/json"})
             check(f"protocols.io import: refuses {bad or 'an empty link'!r} before any work", st == 422, (st, body[:100]))

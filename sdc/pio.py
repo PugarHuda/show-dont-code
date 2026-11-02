@@ -27,7 +27,7 @@ def ref(link):
         re.match(r"^(10\.17504/protocols\.io\.[\w.]+(?:/v\d+)?)$", link)
     if m:
         return urllib.parse.quote(m[1], safe="")  # the API takes a DOI as the id
-    m = re.match(r"^(?:https?://)?(?:www\.)?protocols\.io/(?:view|edit|private)/([\w-]+)", link) or re.match(r"^([\w-]{3,200})$", link)
+    m = re.match(r"^(?:https?://)?(?:www\.)?protocols\.io/view/([\w-]{3,200})", link) or re.match(r"^([\w-]{3,200})$", link)
     if not m:
         raise ValueError("give a protocols.io link, URI or DOI")
     return m[1]
@@ -45,6 +45,9 @@ def fetch(link, token=None):
         raise RuntimeError("PROTOCOLSIO_TOKEN is not set")
     pid = ref(link)
     p = _get(f"/v4/protocols/{pid}?content_format=markdown", token)
+    # the app's token belongs to a real account: never let a visitor read that account's private protocols through it
+    if not p.get("public"):
+        raise ValueError("only published (public) protocols.io protocols can be imported")
     steps = _get(f"/v4/protocols/{p['id']}/steps?content_format=markdown", token)
     # the API returns steps as a linked list (previous_guid); put them in protocol order
     by_prev = {s.get("previous_guid"): s for s in steps}
@@ -63,6 +66,12 @@ def fetch(link, token=None):
 
 if __name__ == "__main__":  # python -m sdc.pio: link parsing offline
     assert ref("https://www.protocols.io/view/colony-pcr-gzbbx2n") == "colony-pcr-gzbbx2n"
+    for private in ("https://www.protocols.io/edit/x-krdncv25f", "https://www.protocols.io/private/abc123"):
+        try:
+            ref(private)
+        except ValueError:
+            continue
+        raise AssertionError(private)
     assert ref("dx.doi.org/10.17504/protocols.io.7cwhixe") == "10.17504%2Fprotocols.io.7cwhixe"
     assert ref("https://doi.org/10.17504/protocols.io.81wgbrknnlpk/v2") == "10.17504%2Fprotocols.io.81wgbrknnlpk%2Fv2"
     for bad in ("https://evil.example/x", "../../etc", "file:///x"):

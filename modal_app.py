@@ -218,9 +218,14 @@ def web():
         it costs two Muse Spark text calls and a review, so it has its own daily cap."""
         from sdc import pio
 
+        import urllib.error
+
         try:
             link = str((await request.json()).get("link", ""))[:300]
-            pio.ref(link)  # only protocols.io addresses; anything else is refused before any work
+            pio.ref(link)  # only protocols.io addresses; anything else is refused before any request goes out
+            await asyncio.to_thread(pio.fetch, link)  # exists and is public, or a clear answer now rather than a failed run
+        except urllib.error.HTTPError:
+            raise HTTPException(422, "protocols.io has no public protocol at that address")
         except (ValueError, AttributeError, json.JSONDecodeError) as e:
             raise HTTPException(422, str(e) if isinstance(e, ValueError) else "send {\"link\": \"...\"}")
         async with quota_lock:
