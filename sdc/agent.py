@@ -13,6 +13,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
+from .protocol import MIN_UL
+
 load_dotenv()
 MODEL = os.getenv("OPEN_MODEL", "meta-models/muse-spark-open")
 # the hackathon's credited Baseten key only serves this id (and the older key only the bare one), so it is its own host
@@ -264,12 +266,16 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
     out["suggested_volumes"] = [v for v in out["suggested_volumes"]
                                 if v["reagent"] in reagents and 0 < v["volume_ul"] <= 1000]
     # an incomplete final answer falls back to the last plan the simulator actually accepted
-    missing = {s.get("reagent") for s in steps if s["action"] == "transfer" and not s.get("volume_ul")}
+    missing = {s.get("reagent") for s in steps if s["action"] == "transfer" and not (s.get("volume_ul") or 0) >= MIN_UL}
     passed = [c for c in log if c["result"].get("ran")]
     if passed and not missing <= {v["reagent"] for v in out["suggested_volumes"]}:
         plan = passed[-1]["args"]["volumes_ul"]
         out["suggested_volumes"] = [{"reagent": k, "volume_ul": float(v), "why": "last simulator-verified plan"}
                                     for k, v in plan.items() if k in reagents and 0 < v <= 1000]
+    # the UI says "simulator-checked" only for a volume that is part of a plan the simulator ran
+    plans = [c["args"]["volumes_ul"] for c in passed]
+    for v in out["suggested_volumes"]:
+        v["sim_checked"] = any(p.get(v["reagent"]) == v["volume_ul"] for p in plans)
     out["tool_log"], out["model"], out["host_failures"] = log, chat.used, chat.failures
     out["saw_video"] = bool(video) and chat.saw_video
     return out

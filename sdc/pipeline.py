@@ -114,7 +114,8 @@ def simulate_with(steps, volumes_ul):
     for s in trial:
         if s["action"] == "thermocycle" and not s.get("cycles"):
             s["cycles"] = 30  # the tool checks volumes; the real cycle count is the scientist's answer
-        if s["action"] in ("transfer", "mix") and not s.get("volume_ul"):
+        # open volumes: none yet, or one the pipette can't do (the sheet's 0.25 µL enzyme, before a dilution)
+        if s["action"] in ("transfer", "mix") and not (s.get("volume_ul") or 0) >= protocol.MIN_UL:
             v = volumes_ul.get(s.get("reagent") or "")
             if isinstance(v, (int, float)) and 0 < v <= 1000:
                 s["volume_ul"] = float(v)
@@ -183,8 +184,11 @@ def build(run_dir, steps, answers=None, review=True):
             reps = prof.get("repetitions")
             if not s.get("cycles") and isinstance(reps, int) and 1 <= reps <= 99:
                 s["cycles"], s["cycles_evidence"] = reps, "bench sheet"
-        result = {"steps": steps, "questions": [], "protocol": None, "layout": {}, "sim_ok": False, "sim_log": []}
+    result = {"steps": steps, "questions": [], "protocol": None, "layout": {}, "sim_ok": False, "sim_log": []}
     try:
+        if not any(s["action"] in ("transfer", "mix", "thermocycle") for s in steps):
+            raise ValueError("Muse Spark found no pipetting or thermocycling step in this video, so there is nothing "
+                             "for a robot to do")
         result["protocol"], result["layout"] = protocol.generate(steps)
         result["sim_ok"], result["sim_log"] = protocol.simulate(result["protocol"])
         if result["sim_ok"]:  # the Opentrons App's own analysis: the file it would accept, and what to load where
@@ -193,6 +197,8 @@ def build(run_dir, steps, answers=None, review=True):
             result["evo_ok"], result["evo"] = _second_robot(steps, "evo150")
     except protocol.NeedsInput as e:
         result["questions"], result["layout"] = e.questions, protocol.layout(steps)
+    except ValueError as e:  # the plan can't fit the robot (too many tubes for the racks, ...): say why, keep the run
+        result["sim_log"] = [f"no protocol: {e}"]
     sim = ("not run yet: waiting for scientist answers" if result["questions"]
            else "passed" if result["sim_ok"] else f"failed: {result['sim_log'][-1:]}")
     sheet_file = run_dir / "sheet.json"

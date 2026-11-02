@@ -20,6 +20,7 @@ import modal
 
 RUNS = "/runs"
 MAX_BYTES = 400 * 1024 * 1024
+PROCESS_TIMEOUT = 3600
 MAX_SECONDS = 300           # the reviewer agent watches up to 300 s, and cost scales with length
 DAILY_UPLOADS = int(os.getenv("DAILY_UPLOADS", "15"))  # ponytail: global daily cap; per-user quotas if abused
 
@@ -119,7 +120,8 @@ def try_flex(run: str = "pcr_1-gt", reactions: int = 0):
     print(json.dumps(flex_run.remote(src, {"reactions": reactions} if reactions else {}), indent=1))
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup], timeout=3600, cpu=2.0, memory=4096)
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup], timeout=PROCESS_TIMEOUT, cpu=2.0,
+              memory=4096)
 def process(run_id: str):
     """Run the whole pipeline on an uploaded video. Progress events are committed as they happen."""
     from sdc import pipeline
@@ -174,8 +176,8 @@ def web():
             response = await call_next(request)
         finally:
             inflight[0] -= 1
-        # answers, tube names, timestamp proofs: persist them and make them visible to other containers
-        if request.method == "POST" or request.url.path.endswith(("/receipt.json", "/receipt.ots", "/ro-crate.zip")):
+        # answers, tube names, timestamp proofs, robot-server runs: persist them and make them visible to other containers
+        if request.method == "POST" or request.url.path.endswith(("/receipt.json", "/receipt.ots", "/ro-crate.zip"))                 or "/flex-run/" in request.url.path:
             await asyncio.to_thread(vol.commit)
         return response
 
@@ -214,13 +216,23 @@ def web():
                     if size > MAX_BYTES:
                         raise HTTPException(413, f"videos up to {MAX_BYTES >> 20} MB")
                     out.write(chunk)
+            # only real video containers, by their magic bytes, and ffmpeg is told which demuxer to use: a text
+            # playlist (HLS, concat) named .mp4 would otherwise make it open other files or URLs
+            with open(d / "raw", "rb") as f:
+                head = f.read(12)
+            fmt = ("mov" if head[4:8] in (b"ftyp", b"moov", b"mdat", b"wide", b"free", b"skip") else
+                   "matroska" if head[:4] == bytes.fromhex("1a45dfa3") else
+                   "avi" if head[:4] == b"RIFF" and head[8:12] == b"AVI " else None)
+            if not fmt:
+                raise HTTPException(422, "that file isn't a video we can read; upload an MP4, MOV, WebM or AVI")
+            src = ["-protocol_whitelist", "file", "-f", fmt, "-i", str(d / "raw")]
             # cut to the limit for real: container metadata can claim any duration
             # off the event loop, with hard timeouts: this is the only web container
-            cut = await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(d / "raw"), "-t",
+            cut = await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", *src, "-t",
                                           str(MAX_SECONDS), "-c", "copy", "-movflags", "+faststart", str(d / "input.mp4")],
                                           capture_output=True, timeout=120)
             if cut.returncode != 0:  # a codec MP4 can't hold as is (VP8 from a browser recording): re-encode instead
-                cut = await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", "-i", str(d / "raw"), "-t",
+                cut = await asyncio.to_thread(subprocess.run, ["ffmpeg", "-v", "error", "-y", *src, "-t",
                                               str(MAX_SECONDS), "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
                                               "-pix_fmt", "yuv420p", "-c:a", "aac", "-movflags", "+faststart",
                                               str(d / "input.mp4")], capture_output=True, timeout=600)
@@ -252,7 +264,12 @@ def web():
         f = Path(RUNS) / name / "progress.json"
         if not f.exists():
             raise HTTPException(404, "unknown run")
-        return {"events": json.loads(f.read_text()), "ready": (Path(RUNS) / name / "result.json").exists()}
+        events, ready = json.loads(f.read_text()), (Path(RUNS) / name / "result.json").exists()
+        # a worker killed at its time limit (or out of memory) writes nothing: past the limit, say it stopped
+        if not ready and events and time.time() - events[0]["t"] > PROCESS_TIMEOUT + 120 and \
+                not any(e["state"] == "error" for e in events):
+            events.append({"stage": "analysis stopped before finishing", "state": "error", "t": round(time.time(), 1)})
+        return {"events": events, "ready": ready}
 
     # app.py mounts the MCP server at "/" as its last route; routes added here come after it and would never match
     # (upload and progress answered 404 until Oct 29), so the catch-all mount moves back to the end

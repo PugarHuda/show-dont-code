@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -197,6 +198,7 @@ def result(name: str):
     r["can_track"] = (d / "sam_file.json").exists()
     r["captions"] = len(_speech(d))
     r["max_reactions"] = protocol.max_reactions(r["steps"]) if r.get("protocol") else 1
+    r["copy_of"] = (d / "copy_of").read_text().strip() if (d / "copy_of").exists() else None
     return r
 
 
@@ -239,6 +241,8 @@ def protocol_file(name: str):
     r = json.loads((_run_dir(name) / "result.json").read_text(encoding="utf-8"))
     if not r["protocol"]:
         raise HTTPException(409, "protocol not generated yet: answer the open questions first")
+    if not r.get("sim_ok"):  # a file the Opentrons simulator rejects would be rejected by the robot too
+        raise HTTPException(409, "this protocol failed the Opentrons simulator; see the simulator log")
     return PlainTextResponse(r["protocol"], headers={"Content-Disposition": f'attachment; filename="{name}.py"'})
 
 
@@ -358,6 +362,40 @@ def reactions_analysis(name: str, n: int):
             # A crash or missing output may be transient and is not cached; the lock and the two slots still bound retries
             cache.parent.mkdir(exist_ok=True)
             cache.write_text(json.dumps(out), encoding="utf-8")
+    return out
+
+
+_flex_slot = threading.Semaphore(1)  # each robot-server run is a ~50 s Modal container
+
+
+@app.get("/api/runs/{name}/flex-run/{n}")
+def flex_robot_run(name: str, n: int):
+    """protocol.py run end to end on Opentrons' own robot-server (the software on a Flex) in Flex simulation, with
+    Reactions = n: upload, the robot's analysis, deck configuration, play, hand-off pauses resumed. Cached per protocol
+    version and n once the robot reports a finished or refused run."""
+    import hashlib
+
+    d = _run_dir(name)
+    steps = _confirmed_steps(name)
+    _reactions(steps, n)
+    r = json.loads((d / "result.json").read_text(encoding="utf-8"))
+    if not r.get("sim_ok"):
+        raise HTTPException(409, "the protocol has to pass the simulator first")
+    src = r["protocol"]
+    cache = d / "flex_runs" / f"{hashlib.sha256(src.encode()).hexdigest()[:16]}-{n}.json"
+    with _rx_locks[str(cache)]:
+        if cache.exists():
+            return json.loads(cache.read_text(encoding="utf-8"))
+        try:
+            import modal
+
+            with _flex_slot:
+                out = modal.Function.from_name("show-dont-code", "flex_run").remote(src, {"reactions": n} if n > 1 else {})
+        except Exception as e:  # Modal unreachable or the container failed: say so, don't cache
+            raise HTTPException(503, f"the robot-server run didn't finish: {type(e).__name__}: {str(e)[:200]}")
+        out["reactions"] = n
+        cache.parent.mkdir(exist_ok=True)
+        cache.write_text(json.dumps(out), encoding="utf-8")
     return out
 
 
@@ -572,13 +610,15 @@ def _apply_fix(d, k):
 
 @app.post("/api/runs/{name}/answers")
 def answer(name: str, answers: dict[str, float] = Body(...)):
+    _check_answers(_run_dir(name), answers)  # before _editable: a bad body must not make a copy or a rebuild
     with _editable(name) as d:
         _answer(d, answers)
     return result(d.name)
 
 
-def _answer(d, answers):
-    old = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
+def _check_answers(d, answers):
+    if not answers:
+        raise HTTPException(422, "no answers given")
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
     for k, v in answers.items():
         m = re.fullmatch(r"(\d+)(:cycles)?", k)
@@ -586,9 +626,16 @@ def _answer(d, answers):
             raise HTTPException(422, f"unknown step {k!r}")
         if m[2] and not (1 <= v <= 99 and v == int(v)):
             raise HTTPException(422, "cycles must be a whole number from 1 to 99")
-        if not m[2] and not 0 < v <= 1000:
-            raise HTTPException(422, "volumes must be in (0, 1000] µL")
-    pipeline.build(d, steps, {**old, **answers}, review=REVIEW_ON_EDIT)
+        if not m[2] and not protocol.MIN_UL <= v <= 1000:
+            raise HTTPException(422, f"volumes must be {protocol.MIN_UL:g} to 1000 µL (the Flex pipettes' range)")
+    return steps
+
+
+def _answer(d, answers):
+    old = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
+    steps = _check_answers(d, answers)
+    with _rx_slots:  # simulator, opentrons analyze and two PyLabRobot runs: share the two slots with /reactions
+        pipeline.build(d, steps, {**old, **answers}, review=REVIEW_ON_EDIT)
 
 
 def _tubes(d):
@@ -598,28 +645,39 @@ def _tubes(d):
 
 @app.post("/api/runs/{name}/tubes")
 def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: float = Body(...)):
-    """Scientist clicked a tube at time t, (x, y) in the 640x360 SAM frame: track it, then ground its uses."""
-    if not (_run_dir(name) / "sam_file.json").exists():
+    """Scientist clicked a tube at time t, (x, y) in the 640-px-wide SAM frame: track it, then ground its uses."""
+    d = _run_dir(name)
+    if not (d / "sam_file.json").exists():
         raise HTTPException(409, "this run has no SAM video (ground-truth replays can't track)")
-    if not (0 <= x < 640 and 0 <= y < 360 and t >= 0):
+    frame = pipeline.asset(d, "sam_frames") / f"{round(t * pipeline.SAM_FPS):05d}.jpg" if math.isfinite(t) and t >= 0 else None
+    if not (frame and frame.exists()):  # checked before a live call is spent
+        raise HTTPException(422, "no video frame at that time")
+    from PIL import Image
+
+    w, h = Image.open(frame).size  # portrait phone videos are 640 x 1138, not 640 x 360
+    if not (0 <= x < w and 0 <= y < h):
         raise HTTPException(422, "click outside the frame")
     if not os.getenv("MODEL_API_KEY"):
         raise HTTPException(503, "live model calls are not configured on this deployment")
     spend_live_call()
     with _editable(name) as d:
-        _track_tube(d, name, t, x, y)
+        _track_tube(d, name, t, x, y, (w, h))
     return result(d.name)
 
 
-def _track_tube(d, name, t, x, y):
+def _track_tube(d, name, t, x, y, size):
     from sdc import meta
 
     frame = round(t * pipeline.SAM_FPS)
     fid = json.loads((d / "sam_file.json").read_text())
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
     try:
-        track = {str(k): v for k, v in meta.track_point(fid, frame, x, y, (640, 360)).items()}
+        track = {str(k): v for k, v in meta.track_point(fid, frame, x, y, size).items()}
+        if not track.get(str(frame)):  # nothing to show Muse Spark: don't ask it about a tube that isn't outlined
+            raise HTTPException(422, "SAM 3.1 found no object at that point; click the middle of the tube")
         uses = meta.steps_using(pipeline.asset(d, "sam_frames"), track, steps, pipeline.SAM_FPS, frame)
+    except HTTPException:
+        raise
     except Exception as e:  # details go to the server log only; provider messages can carry ids and internals
         log.exception("tube tracking failed for run %s", name)
         busy = "RateLimit" in type(e).__name__ or "429" in str(e)

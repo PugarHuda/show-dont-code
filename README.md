@@ -18,7 +18,7 @@ Four Meta models, each doing the part it is best at:
 
 Then:
 
-1. A **deterministic code generator** turns the steps into an Opentrons Flex protocol (Protocol API 2.20). The
+1. A **deterministic code generator** turns the steps into an Opentrons Flex protocol (Protocol API 2.24). The
    models decide *what* happened; plain code decides *how* the robot does it, so model output never becomes
    executable code. Steps a robot can't do (centrifuge, invert) become `ctx.pause()` hand-offs. "Set in DNA
    engine" becomes the Thermocycler module.
@@ -67,7 +67,7 @@ Then:
   protocol version): the deck marks the plate wells the copies go into and draws the extra tip racks in the slots the
   analysis loaded them, and "Before you run" switches to that number's volumes. The PyLabRobot,
   Autoprotocol and Protocol Designer exports stay at the one filmed reaction.
-- **Four independent checks on three vendors' robots** for every confirmed protocol: the Opentrons simulator,
+- **Checks by three vendors' robot software** for every confirmed protocol: the Opentrons simulator,
   Opentrons' own protocol analysis (`opentrons analyze`, what the App runs on import, saved as `analysis.json`), and
   translations for a **Hamilton STARlet** and a **Tecan Freedom EVO 150** (LiHa arm, DiTi tips, the DiTi carrier's
   waste slot), each run in **PyLabRobot**'s simulator with volume tracking on, so over-drawing a tube fails there too.
@@ -127,7 +127,13 @@ Then:
   Opentrons' own `opentrons_simulate -e` reports 0 min for Flex protocols, which is why it is computed here.
 - **Straight to the robot**: `python scripts/send_to_flex.py <flex-ip> pcr_1-gt --reactions 8` uploads the protocol to a
   Flex on your network over its HTTP API (as the Opentrons App does), waits for the robot's own analysis with that
-  Reactions value and creates the run on its touchscreen; `--start` also presses play.
+  Reactions value and creates the run on its touchscreen; `--start` also presses play, `--configure-deck` writes the
+  thermocycler into the robot's deck configuration (cutouts A1+B1).
+- **A run on Opentrons' own robot software**, one click under "Before you run": the backend starts Opentrons'
+  robot-server v10.1.0 (the software inside a Flex, built from Opentrons' repo at that tag) in Flex simulation on
+  Modal, and sends the protocol through the same script with the chosen number of reactions. The robot analyses it,
+  takes the thermocycler into its deck configuration, plays it to the end with hand-off pauses resumed, and reports
+  its run status and command count (pcr_1-gt, two reactions: 240 commands, "succeeded").
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
   analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. Read-only on purpose: no tool runs code an agent sends (a

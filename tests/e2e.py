@@ -523,6 +523,9 @@ def main():
         sp.evaluate("tube => onLabel(`https://elsewhere.example/app?run=pcr_3&tube=${tube}`)", "not a tube here")
         check("labels: a label from another run's rack is refused by name", "isn't a tube in this run's rack" in sp.inner_text("#scanmsg"),
               sp.inner_text("#scanmsg"))
+        sp.evaluate("tube => onLabel(`https://elsewhere.example/app?run=pcr_3&tube=${tube}`)", rack[0])
+        check("labels: a label printed for another run is refused even when the tube name matches",
+              "printed for run pcr_3, not this one" in sp.inner_text("#scanmsg"), sp.inner_text("#scanmsg"))
         sp.goto(BASE + "/app?run=pcr_1-gt")
         sp.wait_for_selector("#rx", state="visible", timeout=60000)
         sp.fill("#rx", "8")
@@ -618,6 +621,34 @@ def main():
         check("mcp: get_run carries the steps and the thermocycler time",
               len(mrun["steps"]) > 3 and mrun["simulator_ok"] and mrun["analysis"]["cycling_s"] > 1500, str(mrun)[:200])
         check("mcp: an unknown run is a readable tool error", err and "unknown run" in msg, msg)
+        # ---- validation that runs before any copy, rebuild or live model call ----
+        js = {"Content-Type": "application/json"}
+        st, body = fetch(f"{api}/api/runs/pcr_3/answers", "POST", b"{}", js)
+        check("answers: an empty body is refused before a copy is made", st == 422 and b"no answers" in body, (st, body[:120]))
+        q = json.loads(fetch(f"{api}/api/runs/pcr_3")[1])["questions"][0]["step"]
+        st, body = fetch(f"{api}/api/runs/pcr_3/answers", "POST", json.dumps({str(q): 0.5}).encode(), js)
+        check("answers: a volume below the Flex pipette minimum (1 uL) is refused", st == 422 and b"1 to 1000" in body, (st, body[:120]))
+        for t, why in ((1e9, "a time past the video"), (-1, "a negative time")):
+            st, body = fetch(f"{api}/api/runs/pcr_3/tubes", "POST", json.dumps({"t": t, "x": 10, "y": 10}).encode(), js)
+            check(f"tubes: {why} is refused before a live call is spent", st == 422 and b"no video frame" in body, (st, body[:120]))
+        st, body = fetch(f"{api}/api/runs/pcr_3/tubes", "POST", json.dumps({"t": 40, "x": 10, "y": 5000}).encode(), js)
+        check("tubes: a click below the frame is refused", st == 422 and b"outside the frame" in body, (st, body[:120]))
+        st, body = fetch(f"{api}/api/runs/pcr_3/flex-run/1")
+        check("robot-server: a protocol still waiting for answers isn't sent", st == 409, (st, body[:120]))
+        # ---- Opentrons' own robot-server (Flex simulation, on Modal) runs the protocol end to end ----------
+        page.goto(BASE + "/app?run=pcr_1-gt")
+        page.wait_for_selector("#flexrun", state="visible", timeout=60000)
+        page.fill("#rx", "2")
+        page.click("#flexrun")
+        page.wait_for_function("() => /ran it to the end|did not finish|didn't complete/.test(document.getElementById('flexline').textContent)",
+                               timeout=300000)
+        fl = page.inner_text("#flexline")
+        check("robot-server: the button runs pcr_1-gt with 2 reactions to 'succeeded' on Opentrons' robot software",
+              "ran it to the end with 2 reactions" in fl and '"succeeded"' in fl and "Thermocycler" in fl, fl)
+        fr = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/flex-run/2")[1])
+        check("robot-server: the cached run is the robot's own report (v10.1.0, OT-3, deck set, >200 commands)",
+              fr["status"] == "succeeded" and fr["robot_software"] == "v10.1.0" and "OT-3 Standard" in fr["log"][0]
+              and fr["commands"] > 200 and fr["analysis"] == "ok", str(fr)[:300])
         if os.getenv("FLEX"):  # ---- a robot-server (a real Flex, or Opentrons' robot-server in Flex simulation) ----
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
             import send_to_flex

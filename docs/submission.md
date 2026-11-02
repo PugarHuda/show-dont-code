@@ -28,9 +28,11 @@ repo (the code lives in `out/upload_code.txt`, which is gitignored).
 
 **Features to name in the form:** upload a video and watch each stage run (Modal backend); click-to-track any tube
 (SAM 3.1 + Muse Spark verification); reviewer agent that runs the simulator as a tool (Muse Spark Open on
-Baseten); one question per reagent, pre-filled with a simulator-checked plan; robot replay of the simulator's
-own command log on the deck; downloadable `protocol.py` with Opentrons liquid definitions; three independent checks
-(Opentrons simulator, official `opentrons analyze`, PyLabRobot Hamilton STARlet simulator with volume tracking);
+Baseten); one question per reagent, pre-filled with the reviewer's plan (each value marked when the simulator ran it); robot replay of the simulator's
+own command log on the deck; downloadable `protocol.py` with Opentrons liquid definitions; checks by three vendors'
+robot software (Opentrons simulator, official `opentrons analyze`, a full run on Opentrons' own robot-server v10.1.0 in Flex
+simulation with the robot's analysis, deck configuration and play-to-the-end, and PyLabRobot Hamilton STARlet and Tecan EVO
+simulators with volume tracking);
 Methods / Autoprotocol / PyLabRobot exports; reproducibility receipt (SHA-256 of protocol, video and model outputs) anchored in Bitcoin with OpenTimestamps;
 answer by voice (Muse Voice Transcribe + Muse Spark); reviewer agent with a `look_at_moment` tool that proposes one-click fixes (rename reagent, set volume,
 skip invented steps; applied only when the scientist clicks); per-step SAM 3.1 tip evidence; thermal cycling program read off the bench sheet and exposed as Opentrons runtime
@@ -56,7 +58,7 @@ thermocycler time from Opentrons' analysis at the module's rated ramp rates; an 
 > the only piece that can follow one specific tube through a head-mounted camera's motion. Neither is enough alone:
 > SAM jumps to look-alike caps with 0.95 confidence, and Spark mislabels reagents when it only sees the whole video.
 > Combining them (SAM finds, Spark verifies; Spark segments, Spark-on-stills identifies) is what made held-out
-> held-out PCR precision go from 0.48 to 0.69. Running the reviewer on open weights means a lab could keep it on-premise.
+> PCR precision go from 0.48 to 0.69. Running the reviewer on open weights means a lab could keep it on-premise.
 
 **Feedback on Meta products** (honest, short)
 > - The `muse-voice-transcribe` keyword limit (30 characters) isn't in the docs; it returns a 400.

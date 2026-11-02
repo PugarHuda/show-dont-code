@@ -253,6 +253,8 @@
       <p class="files" id="herebox" hidden><button type="button" class="ghost" id="here-plr">Re-run the Hamilton simulation in this browser</button>
         <button type="button" class="ghost" id="here-evo">Re-run the Tecan simulation in this browser</button></p>
       <pre id="plrhere" hidden aria-live="polite"></pre>
+      <p class="files"><button type="button" class="ghost" id="flexrun">Run it on Opentrons' robot software</button></p>
+      <p class="hint" id="flexline" aria-live="polite">Sends protocol.py to Opentrons' own robot-server (the software inside a Flex, v10.1.0) running in Flex simulation, exactly as the Opentrons App would: the robot analyses it, the thermocycler goes into its deck configuration, and the run plays to the end with the number of reactions chosen above. About a minute.</p>
       <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
         <a id="f-pd" title="Open designer.opentrons.com, choose Import, and pick this file">Protocol Designer, no code (.json)</a>
         <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-evo">tecan-evo.py (Tecan Freedom EVO)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
@@ -303,7 +305,11 @@ async function init() {
   $("run").onchange = () => openRun($("run").value);
   if (upload) {
     try { await load(upload); tubeFromLink(want); }  // finished: open it
-    catch { $("status").textContent = "analysing your video…"; $("updlg").showModal(); follow(upload); }  // still running
+    catch {  // still running, or a link that no longer exists (edit copies are kept 7 days)
+      const running = upload[0] === "u" && await api(`/api/runs/${encodeURIComponent(upload)}/progress`).then(() => true, () => false);
+      if (!running) { $("status").className = "pill bad"; $("status").textContent = "this link has expired or never existed: edit copies are kept for 7 days. Open a sample run instead."; return; }
+      $("status").textContent = "analysing your video…"; $("updlg").showModal(); follow(upload);
+    }
     return;
   }
   if (!runs.length) { $("status").textContent = "no runs yet"; return; }
@@ -354,6 +360,24 @@ function pyodide() {
   }).catch((e) => { pyReady = null; throw e; });  // let a later click retry
   return pyReady;
 }
+async function flexRun(base) {
+  const n = $("rxbox").hidden ? 1 : +$("rx").value || 1, line = $("flexline"), btn = $("flexrun");
+  btn.disabled = true;
+  line.textContent = `Running on Opentrons' robot-server with ${n} reaction${n > 1 ? "s" : ""}: uploading, robot analysis, deck setup, play…`;
+  try {
+    const r = await fetch(`${base}/flex-run/${n}`), x = await r.json();
+    if (!r.ok) throw new Error(x.detail || r.status);
+    const secs = x.started_at && x.completed_at ? Math.round((Date.parse(x.completed_at) - Date.parse(x.started_at)) / 1000) : null;
+    line.textContent = x.status === "succeeded"
+      ? `Opentrons robot-server ${x.robot_software} (Flex simulation) ran it to the end with ${x.reactions} reaction${x.reactions > 1 ? "s" : ""}: its own analysis passed, ${x.commands} robot commands, run status "succeeded"${secs != null ? ` after ${secs} s of simulated motion` : ""}. ${x.log.filter((l) => l.startsWith("deck")).join("")}`
+      : `Opentrons robot-server ${x.robot_software} did not finish the run (${x.status}): ${(x.errors || [x.error]).filter(Boolean).join("; ")}`;
+  } catch (e) {
+    line.textContent = `The robot-server run didn't complete: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function runHere(url, label, server) {
   const out = $("plrhere"), btns = [$("here-plr"), $("here-evo")];
   out.hidden = false; btns.forEach((b) => { b.disabled = true; });
@@ -399,7 +423,7 @@ function render() {
   if (R.questions.length) { st.className = "pill warn"; st.textContent = `${R.questions.length} question(s) before the robot can run`; }
   else if (R.sim_ok) { st.className = "pill"; st.textContent = `simulator passed · ${R.sim_log.length} robot actions`; }
   else { st.className = "pill bad"; st.textContent = "simulator failed"; }
-  $("dl").disabled = !R.protocol;
+  $("dl").disabled = !(R.protocol && R.sim_ok);
   $("replaybox").hidden = !R.sim_ok;
   $("scanbox").hidden = !R.protocol || !rackTubes().length;  // labels need the confirmed steps
   const top = R.max_reactions || 1;
@@ -437,8 +461,9 @@ function render() {
     $("here-plr").hidden = R.plr_ok == null; $("here-evo").hidden = R.evo_ok == null;
     $("here-plr").onclick = () => runHere(`${base}/pylabrobot.py`, "Hamilton STARlet", R.plr);
     $("here-evo").onclick = () => runHere(`${base}/tecan-evo.py`, "Tecan Freedom EVO 150", R.evo);
+    $("flexrun").onclick = () => flexRun(base);
   }
-  $("download").href = R.protocol ? `${API}/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
+  $("download").href = R.protocol && R.sim_ok ? `${API}/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
   $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";
   $("sim").textContent = R.sim_log.join("\n") || "—";
 
@@ -473,12 +498,14 @@ function render() {
   // only pre-fill suggestions the robot can actually pipette (>= 1 µL) for reagents still being asked about
   const askedReagents = new Set(R.questions.map((q) => R.steps[q.step].reagent));
   const sugg = Object.fromEntries((R.suggested_volumes || []).filter((v) => v.volume_ul >= 1 && askedReagents.has(v.reagent)).map((v) => [v.reagent, v]));
-  $("qform").innerHTML = (Object.keys(sugg).length ? `<p class="hint">Pre-filled by the reviewer agent after it ran the simulator. Check before confirming.</p>` : "")
+  const checked = Object.values(sugg).filter((v) => v.sim_checked).length;
+  $("qform").innerHTML = (Object.keys(sugg).length ? `<p class="hint">Pre-filled by the reviewer agent${checked === Object.keys(sugg).length ? ": every value is from a plan it ran in the simulator, which passed"
+    : checked ? `: ${checked} of ${Object.keys(sugg).length} values are from a plan it ran in the simulator, which passed (marked ✓)` : "; the simulator has not checked these values"}. Check before confirming.</p>` : "")
     + Object.values(groups).map((g) => {
     const sv = sugg[g.s.reagent];
     const reason = R.questions.find((q) => q.step === g.steps[0])?.reason;
-    return `<label><span>${esc(g.s.reagent || g.s.description)}${g.s.source ? ` <span class="t">from ${esc(g.s.source)}</span>` : ""} · ${g.steps.length}×${reason ? `<small class="ask">${esc(reason)}</small>` : ""}</span>
-      <input type="number" name="${g.steps.join(",")}" min="0.1" max="1000" step="0.01" placeholder="µL per transfer" ${sv ? `value="${sv.volume_ul}" title="${esc(sv.why)}"` : ""} required></label>`;
+    return `<label><span>${esc(g.s.reagent || g.s.description)}${g.s.source ? ` <span class="t">from ${esc(g.s.source)}</span>` : ""} · ${g.steps.length}×${sv?.sim_checked ? ` <small class="sam" title="part of a plan the simulator ran">✓ simulator</small>` : ""}${reason ? `<small class="ask">${esc(reason)}</small>` : ""}</span>
+      <input type="number" name="${g.steps.join(",")}" min="1" max="1000" step="0.01" placeholder="µL per transfer" ${sv ? `value="${sv.volume_ul}" title="${esc(sv.why)}"` : ""} required></label>`;
   }).join("")
     + R.questions.filter((q) => q.field === "cycles").map((q) =>
       `<label><span>${esc(q.description)} <span class="t">at ${fmt(R.steps[q.step].start)}</span><small>${esc(q.reason)}: how many PCR cycles?</small></span>
@@ -651,7 +678,10 @@ function onLabel(text) {
   const tube = u?.searchParams.get("tube"), run = u?.searchParams.get("run");
   if (!tube) { $("scanmsg").textContent = "That QR code isn't one of these tube labels."; return; }
   if (!rackTubes().includes(tube)) { $("scanmsg").textContent = `“${tube}” (a label from run ${run}) isn't a tube in this run's rack.`; return; }
-  placeTube(tube, run === name ? "" : ` (label printed for run ${run})`);
+  // generic names ("source tube 1") repeat across runs, so a label only counts for the run it was printed for;
+  // a label from the sample this copy was edited from is the same rack, but its fill volume may be out of date
+  if (run !== name && run !== R.copy_of) { $("scanmsg").textContent = `That label was printed for run ${run}, not this one: print this run's labels so the fill volumes match.`; return; }
+  placeTube(tube, run === name ? "" : ` (label printed for ${run} before your edits: check its fill volume)`);
 }
 function scanStop() {
   if (scan) { clearTimeout(scan.timer); scan.stream.getTracks().forEach((t) => t.stop()); scan = null; }
@@ -863,7 +893,7 @@ $("pick").onclick = () => {
 cv.addEventListener("click", async (e) => {
   if (!picking) return;
   picking = false; $("video").parentElement.classList.remove("picking");
-  const x = e.offsetX / cv.clientWidth * 640, y = e.offsetY / cv.clientHeight * 360;
+  const k = cv.clientWidth / 640, x = e.offsetX / k, y = e.offsetY / k;  // the scale the boxes are drawn with: any aspect ratio, phone portrait too
   $("pickstate").textContent = "SAM 3.1 is tracking, then Muse Spark checks each sighting… (~1 min)";
   $("pick").disabled = true;
   try {
@@ -961,13 +991,13 @@ $("upform").onsubmit = (ev) => {
     let j = {}; try { j = JSON.parse(xhr.responseText); } catch {}
     if (xhr.status !== 200) { $("upmsg").textContent = j.detail || `Upload failed (${xhr.status})`; $("upgo").disabled = false; return; }
     history.replaceState(null, "", `?run=${encodeURIComponent(j.run)}`);
-    follow(j.run);
+    follow(j.run, j.trimmed ? ` Only the first ${Math.round(j.seconds / 60)} minutes were kept (the limit for this demo).` : "");
   };
   xhr.onerror = () => { $("upmsg").textContent = "Upload failed: check your connection and try again."; $("upgo").disabled = false; };
   xhr.send(f);  // raw body: the server caps the size while streaming
 };
-async function follow(run) {
-  $("upmsg").textContent = "Analysing. You can keep this tab open; the run will open by itself when it's done.";
+async function follow(run, note = "") {
+  $("upmsg").textContent = "Analysing. You can keep this tab open; the run will open by itself when it's done." + note;
   for (;;) {
     let p;
     try { p = await api(`/api/runs/${encodeURIComponent(run)}/progress`); } catch (e) { $("upmsg").textContent = e.message; return; }
