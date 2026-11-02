@@ -4,6 +4,7 @@ every download (the receipt's hash must match protocol.py byte for byte), and th
   python tests/e2e.py                                   # against http://127.0.0.1:8000 (python app.py)
   BASE=https://show-dont-code.vercel.app python tests/e2e.py
   VOICE=1 ... python tests/e2e.py                       # also speak answers through a fake microphone (costs API)
+  FLEX=127.0.0.1 ... python tests/e2e.py                # also send pcr_1-gt to a robot-server and run it (scripts/send_to_flex.py)
 
 Nothing here costs model calls unless VOICE=1. Its edits land in private copies (c-*); the shared sample runs never change.
 """
@@ -617,6 +618,12 @@ def main():
         check("mcp: get_run carries the steps and the thermocycler time",
               len(mrun["steps"]) > 3 and mrun["simulator_ok"] and mrun["analysis"]["cycling_s"] > 1500, str(mrun)[:200])
         check("mcp: an unknown run is a readable tool error", err and "unknown run" in msg, msg)
+        if os.getenv("FLEX"):  # ---- a robot-server (a real Flex, or Opentrons' robot-server in Flex simulation) ----
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+            import send_to_flex
+            r = send_to_flex.send(os.environ["FLEX"], proto.decode(), {"reactions": 2}, start=True, log=lambda *_: None, resume_pauses=True)
+            check("flex: the robot's own analysis passes with Reactions = 2 and the run succeeds",
+                  r["analysis"] == "ok" and r["status"] == "succeeded", r)
         check("no uncaught page errors", not errors, (errors[:3], bad[:5]))
         csp_seen += page.evaluate("() => window.__csp || []")
         check("security: the CSP blocked nothing the pages need", not csp_seen, csp_seen[:3])

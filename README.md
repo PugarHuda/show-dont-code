@@ -125,6 +125,9 @@ Then:
   Opentrons' analysis (every hold, plus every ramp at the Thermocycler GEN2's rated 4.25 °C/s heating and 2.0 °C/s
   cooling, [spec](https://docs.opentrons.com/thermocycler/product-specs/)). 35 cycles of 98/55/72 °C come to 31 min.
   Opentrons' own `opentrons_simulate -e` reports 0 min for Flex protocols, which is why it is computed here.
+- **Straight to the robot**: `python scripts/send_to_flex.py <flex-ip> pcr_1-gt --reactions 8` uploads the protocol to a
+  Flex on your network over its HTTP API (as the Opentrons App does), waits for the robot's own analysis with that
+  Reactions value and creates the run on its touchscreen; `--start` also presses play.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
   analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. Read-only on purpose: no tool runs code an agent sends (a
