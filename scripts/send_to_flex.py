@@ -50,6 +50,24 @@ def _wait(fn, done, what, timeout):
         time.sleep(1)
 
 
+def _sig(c):
+    """A command without the ids the robot makes up fresh each time: what it does, how much, where."""
+    p = c.get("params") or {}
+    return [c["commandType"], p.get("volume"), p.get("wellName"), p.get("flowRate"), p.get("celsius"),
+            p.get("message") if c["commandType"] == "comment" else None]
+
+
+def run_commands(robot, run_id):
+    """Every command the run executed, in order (the API pages them)."""
+    out, cursor = [], 0
+    while True:
+        page = _call(robot, "GET", f"/runs/{run_id}/commands?cursor={cursor}&pageLength=200")
+        out += page["data"]
+        cursor += len(page["data"])
+        if not page["data"] or cursor >= page["meta"]["totalLength"]:
+            return out
+
+
 def configure_deck(robot, analysis, log=print):
     """What the touchscreen asks before a run: tell the robot which fixtures are installed. Adds the thermocycler the
     protocol loads (cutouts A1+B1) with the serial of the one the robot sees, keeping the rest of the deck as it is."""
@@ -83,8 +101,9 @@ def send(robot, source, params, start=False, log=print, resume_pauses=False, dec
     if an.get("result") != "ok":
         raise SystemExit(f"the robot's analysis failed: {[e.get('detail') for e in an.get('errors', [])][:3]}")
     log(f"uploaded as {pid}; the robot's analysis passed with {params or 'the defaults'}")
+    full = _call(robot, "GET", f"/protocols/{pid}/analyses/{an['id']}")["data"]
     if deck:
-        configure_deck(robot, _call(robot, "GET", f"/protocols/{pid}/analyses/{an['id']}")["data"], log)
+        configure_deck(robot, full, log)
     run = _call(robot, "POST", "/runs", body={"data": {"protocolId": pid, "runTimeParameterValues": params}})["data"]
     out = {"protocol_id": pid, "analysis": an.get("result"), "run_id": run["id"], "status": run["status"]}
     log(f"run {run['id']} created ({run['status']}); it is on the robot's touchscreen now")
@@ -100,6 +119,15 @@ def send(robot, source, params, start=False, log=print, resume_pauses=False, dec
         out["status"] = end["status"]
         out["errors"] = [e.get("detail") for e in end.get("errors", [])][:3]
         log(f"run {end['status']}" + (f": {out['errors']}" if out["errors"] else ""))
+        # did the robot do exactly what its own analysis said it would? same command types, volumes and wells, in order
+        ran = run_commands(robot, run["id"])
+        a, b = [_sig(c) for c in full.get("commands", [])], [_sig(c) for c in ran]
+        out["analysis_commands"], out["run_commands"] = len(a), len(b)
+        out["matches_analysis"] = a == b
+        if a != b:
+            k = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+            out["first_difference"] = {"index": k, "analysis": a[k] if k < len(a) else None, "run": b[k] if k < len(b) else None}
+        log(f"the run {'matches' if a == b else 'differs from'} the robot's analysis: {len(b)} of {len(a)} commands")
     return out
 
 

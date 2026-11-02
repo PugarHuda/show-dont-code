@@ -488,7 +488,7 @@ def receipt(name: str):
         "opentrons_analysis": {"passed": r.get("analysis_ok"), "commands": (r.get("analysis") or {}).get("commands")},
         # this exact protocol.py run on Opentrons' robot-server (Flex simulation), if anyone pressed the button
         "opentrons_robot_server": [{k: f.get(k) for k in ("reactions", "robot_software", "analysis", "status", "commands",
-                                                           "completed_at")} for f in flex],
+                                                           "matches_analysis", "completed_at")} for f in flex],
         "pylabrobot": {"hamilton_starlet_passed": r.get("plr_ok"), "tecan_evo_passed": r.get("evo_ok")},
         # a ground-truth replay never ran the models on its video, so don't claim it did
         "models": {"steps_and_sheet": meta.SPARK, "tracking": "sam-3.1", "speech": "muse-voice-transcribe-1.0",

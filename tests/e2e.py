@@ -669,6 +669,8 @@ def main():
         check("robot-server: the cached run is the robot's own report (v10.1.0, OT-3, deck set, >200 commands)",
               fr["status"] == "succeeded" and fr["robot_software"] == "v10.1.0" and "OT-3 Standard" in fr["log"][0]
               and fr["commands"] > 200 and fr["analysis"] == "ok", str(fr)[:300])
+        check("robot-server: every command the robot ran matches its own analysis, in order",
+              fr.get("matches_analysis") is True and fr["run_commands"] == fr["analysis_commands"] == fr["commands"], str(fr)[:300])
         if os.getenv("FLEX"):  # ---- a robot-server (a real Flex, or Opentrons' robot-server in Flex simulation) ----
             sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
             import send_to_flex
