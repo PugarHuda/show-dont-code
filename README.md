@@ -225,8 +225,9 @@ script carries the nonce, nothing the pages need is blocked), and the MCP server
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
 `python -m sdc.protocol`, `python -m sdc.designer`, `python -m sdc.stamp`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
 Accessibility runs inside the same suite: axe-core checks the landing page and the app in light and dark mode
-(no serious or critical violations); Lighthouse scores both pages 100 for accessibility, best practices and SEO
-(Oct 28). Layout shift is measured while runs load at phone and desktop widths and must stay under 0.1 (it was 0.47
+(no serious or critical violations); Lighthouse 12 in a clean headless Chrome (Nov 2, from Indonesia) scores both
+pages 100 for accessibility, best practices and SEO; performance is 100 desktop / 88 mobile on the landing page and
+93 desktop / 84 mobile on the app (a sample's poster and video come from the CDN, the run data from Modal us-east). Layout shift is measured while runs load at phone and desktop widths and must stay under 0.1 (it was 0.47
 on phones before panels were revealed together and the video got a reserved 16:9 box; now 0, app performance 75 → 94).
 Speech that Muse Voice Transcribe heard in a video is served as WebVTT captions under the video (WCAG 1.2.2); the
 e2e loads the cues in the browser and checks that a silent video gets no empty track. `modal run scripts/failover_drill.py` runs a real review on Modal with a broken Baseten key: on Oct 28 Baseten
