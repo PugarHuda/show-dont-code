@@ -22,7 +22,7 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 
 **Public GitHub repository:** https://github.com/PugarHuda/show-dont-code
 **Dataset DOI (pcr_1-gt RO-Crate on Zenodo):** https://doi.org/10.5281/zenodo.23876762
-**3-minute demo video:** (YouTube link)
+**3-minute demo video:** https://youtu.be/eyRsNfQU-tU (2:47, unlisted)
 **Live demo:** https://show-dont-code.vercel.app (landing) and https://show-dont-code.vercel.app/app (seven sample runs).
 Uploading your own video needs the access code; put it in the description field of the form, never in this
 repo (the code lives in `out/upload_code.txt`, which is gitignored).
@@ -72,21 +72,12 @@ thermocycler time from Opentrons' analysis at the module's rated ramp rates; an 
 > Each key is bound to one model id: the hackathon key serves only `meta-models/muse-spark-open-1026` (403 on the
 > bare id), the earlier key only `meta-models/muse-spark-open` (404 on `-1026`), so the app keeps both as failover hosts.
 
-## Demo video (3:00)
+## Demo video (2:47)
 
-| Time | Picture | Voice-over |
-|---|---|---|
-| 0:00–0:15 | Idle Opentrons robot photo → scientist pipetting by hand (BioVL2 clip) | "Labs buy robots that sit idle, because programming them means writing Python. What if you could just show it once?" |
-| 0:15–0:35 | Terminal: `python -m sdc.pipeline pcr_3.mp4`, stages printing (sped up) | "This is a real lab video. One command: Muse Spark watches all four minutes and finds every pipetting step." |
-| 0:35–1:05 | UI: video plays, steps highlight in sync, deck wells light up (source orange, destination green) | "Each step lands on the robot deck. Water into four tubes, then primer, template, premix, then the thermocycler." |
-| 1:05–1:35 | Click a tube → SAM mask follows it → reviewer text "tracker jump, ignore" | "Not sure which tube is which? Click it. SAM 3.1 follows it through the whole video, and Muse Spark checks every sighting. Here it catches SAM jumping to a look-alike cap." |
-| 1:35–2:05 | Reviewer agent panel: tool runs, totals 12.5 µL, 0.25 µL warning, 35 cycles from the sheet | "A reviewer agent on Muse Spark Open watches the same video, runs the robot simulator itself, and works out volumes that add up to the sheet's 12.5 microlitres. It flagged a 0.25 µL step the robot can't pipette, and found 35 cycles on a handwritten note." |
-| 2:05–2:25 | Confirm → "simulator passed · 106 robot actions" → download protocol.py → code scroll | "Confirm, and you get a real Opentrons protocol that passes the official simulator." |
-| 2:25–2:45 | Eval table, held-out numbers | "On PCR videos we never tuned on, it finds 79% of the protocol steps; on a protocol it was never built for, far fewer, and we show that too. Every model call is cached and every number is reproducible." |
-| 2:45–3:00 | Title card + URL | "Show, Don't Code. Built in nine days on Muse Spark, SAM 3.1, Muse Voice Transcribe and Muse Spark Open." |
-
-Recording notes: record the UI at 1080p from the live Vercel link; trim model wait times and say so on screen
-("sped up"); show the BioVL2 credit on screen at the first lab clip.
+https://youtu.be/eyRsNfQU-tU. Every scene is recorded live from production with Playwright (`video/record.py`),
+narrated by a neural AI voice with word-timed subtitles (`video/make_voice.py`, edge-tts) and assembled in Remotion
+(`video/src`); waits are sped up and marked on screen. The narration and the result callouts are in `video/script.json`;
+rebuild with `python video/make_voice.py && python video/record.py && npm run render --prefix video`.
 
 ## X post (for Most Viral)
 
