@@ -1,0 +1,36 @@
+# Every self-check that needs no API key or network: codegen through Opentrons' simulator and analyzer (with every
+# Reactions count), the Protocol Designer round trip, PyLabRobot STARlet/EVO runs, the evaluator, the reviewer's host
+# failover and fix validation, the .eln structure, the cross-check's quote matching and the protocols.io link parser.
+# The model calls themselves run on Modal; tests/e2e.py drives the deployed app.
+name: checks
+on:
+  push:
+  pull_request:
+jobs:
+  self-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: sudo apt-get install -y ffmpeg
+      - run: pip install -r requirements.txt PyLabRobot==0.2.2
+      - name: Opentrons Flex codegen, simulator and analyzer
+        run: python -m sdc.protocol
+      - name: Protocol Designer export, re-analysed by Opentrons
+        run: python -m sdc.designer
+      - name: Exports (Methods, Autoprotocol, PyLabRobot STARlet and Tecan EVO)
+        run: python -m sdc.export
+      - name: Step evaluator
+        run: python -m sdc.evaluate
+      - name: Reviewer agent host failover and fix validation
+        run: python -m sdc.agent
+      - name: .eln (ELN Consortium) structure, licence and authorship
+        run: python -m sdc.eln
+      - name: Cross-check reaction totals and quote matching
+        run: python -m sdc.crosscheck --self-check
+      - name: protocols.io link parsing and related-protocol terms
+        run: python -m sdc.pio && python -m sdc.related

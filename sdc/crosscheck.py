@@ -94,7 +94,22 @@ def crosscheck(steps, related, top=3):
     return {"model": meta.SPARK, "reaction_ul": total, "ours": mine, "protocols": out}
 
 
+def _selfcheck():  # python -m sdc.crosscheck --self-check: the parts that need no network
+    steps = [{"action": "transfer", "reagent": "premix", "volume_ul": 25.0, "destination": "tube 1"},
+             {"action": "transfer", "reagent": "water", "volume_ul": 20.0, "destination": "tube 1"},
+             {"action": "transfer", "reagent": "primer", "volume_ul": 1.0, "destination": "tube 2"},
+             {"action": "mix", "reagent": None, "volume_ul": 10.0, "destination": "tube 1"}]
+    mine, total = reaction(steps)
+    assert mine == {"premix": 25.0, "water": 20.0} and total == 45.0, (mine, total)  # the fullest well, transfers only
+    body = _norm("Component | Volume\nPrimeStar Mix (2X) | 25 uL\n")
+    assert _norm("PrimeStar Mix (2X) | 25 uL") in body and _norm("PrimeStar Mix (2X) | 2.5 uL") not in body
+    print("crosscheck self-check OK")
+
+
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--self-check"]:
+        _selfcheck()
+        sys.exit(0)
     from . import pipeline, related as rel
 
     for name in sys.argv[1:]:

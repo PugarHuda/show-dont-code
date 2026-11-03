@@ -127,3 +127,21 @@ def build(name, title, steps, files, rec, source=None, card=None, card_images=No
         for f, b in sorted(files.items()):
             z.writestr(f"{root}/{name}/{f}", b)
     return buf.getvalue()
+
+
+if __name__ == "__main__":  # python -m sdc.eln: structure, licence and authorship, offline
+    steps = [{"action": "transfer", "description": "Add water", "reagent": "water", "volume_ul": 20.0,
+              "destination": "tube 1", "start": 1, "end": 2}]
+    rec = {"protocol_sha256": "0" * 64, "simulator": {"passed": True}, "opentrons_analysis": {"passed": True},
+           "pylabrobot": {}, "models": {"reviewer": "test"}}
+    for name, source, licensed, authored in (("pcr_x", None, True, True), ("u-abc", None, False, False),
+                                             ("p-doc", {"kind": "document", "title": "T", "pages": 1}, False, True)):
+        z = zipfile.ZipFile(io.BytesIO(build(name, "t", steps, {"protocol.py": b"x"}, rec, source=source)))
+        root = f"show-dont-code-{name}/"
+        assert all(n.startswith(root) for n in z.namelist()), z.namelist()
+        g = {e["@id"]: e for e in json.loads(z.read(root + "ro-crate-metadata.json"))["@graph"]}
+        assert {"@id": ELN_SPEC} in g["./"]["conformsTo"] and g[f"./{name}/"]["genre"] == "experiment"
+        assert (g["./"]["license"]["@id"] == CC_BY) == licensed, (name, g["./"]["license"])
+        assert ("author" in g[f"./{name}/"]) == authored, name
+        assert g[f"./{name}/protocol.py"]["sha256"] == hashlib.sha256(b"x").hexdigest()
+    print("eln self-check OK")
