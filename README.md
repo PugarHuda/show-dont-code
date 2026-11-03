@@ -233,7 +233,9 @@ script carries the nonce, nothing the pages need is blocked), and the MCP server
 (`get_protocol` must be byte for byte the downloaded file), the bench card (every drawing served, the receipt hashes
 `card.json`, a shared sample can't be redrawn, Enter on a drawing seeks the video), the `.eln` (one root folder, ELN
 1.2+20260923, every file attached and hashed, the body's steps and checks) and the volume cross-check (quotes present,
-the premix share agrees, a half-confirmed run is refused): 172/172 against production on Nov 2. `BASE=<url>` runs it
+the premix share agrees, a half-confirmed run is refused): 173/173 against production on Nov 2. A live upload, the way a judge would
+try it (Nov 3: the first 100 s of a BioVL2 PCR video with the access code), ran every stage on production in 3 min 11 s,
+from the bench sheet to the reviewer agent, and its bench card was drawn live in 105 s. `BASE=<url>` runs it
 against a deployment; `VOICE=1` also speaks answers through a fake microphone. Self-checks:
 `python -m sdc.protocol`, `python -m sdc.designer`, `python -m sdc.stamp`, `python -m sdc.evaluate`, `python -m sdc.export`, `python -m sdc.agent`.
 Accessibility runs inside the same suite: axe-core checks the landing page and the app in light and dark mode
