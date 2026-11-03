@@ -260,8 +260,17 @@ def web():
     async def import_document(request: Request):
         """Start a run from a photo (JPEG, PNG, WebP) or a PDF of a protocol: a printed sheet, a notebook page, a
         paper's methods. Raw body, 15 MB, at most 6 pages; counted against the daily imports cap like protocols.io."""
-        body = await request.body()
-        if not body or len(body) > 15 * 1024 * 1024:
+        cap = 15 * 1024 * 1024
+        if int(request.headers.get("content-length") or 0) > cap:
+            raise HTTPException(413, "send one photo or PDF of up to 15 MB")
+        chunks, size = [], 0
+        async for chunk in request.stream():  # stop at the cap rather than buffer whatever is sent
+            size += len(chunk)
+            if size > cap:
+                raise HTTPException(413, "send one photo or PDF of up to 15 MB")
+            chunks.append(chunk)
+        body = b"".join(chunks)
+        if not body:
             raise HTTPException(413, "send one photo or PDF of up to 15 MB")
         kind = ("pdf" if body[:5] == b"%PDF-" else "jpeg" if body[:3] == bytes.fromhex("ffd8ff")
                 else "png" if body[:8] == bytes.fromhex("89504e470d0a1a0a")

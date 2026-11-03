@@ -339,17 +339,23 @@ def document_pages(body, kind, max_pages=6):
 
     from PIL import Image
 
-    if kind == "pdf":
-        import pypdfium2
+    def pages():  # one page at a time, each sized before it is decoded: a huge page can't exhaust memory
+        if kind == "pdf":
+            import pypdfium2
 
-        pdf = pypdfium2.PdfDocument(body)
-        imgs = [pdf[i].render(scale=2).to_pil() for i in range(min(len(pdf), max_pages))]
-    else:
-        img = Image.open(io.BytesIO(body))
-        img.load()
-        imgs = [img]
+            pdf = pypdfium2.PdfDocument(body)
+            for i in range(min(len(pdf), max_pages)):
+                w, h = pdf[i].get_size()  # points
+                yield pdf[i].render(scale=min(2.0, 2000 / max(w, h, 1))).to_pil()
+        else:
+            img = Image.open(io.BytesIO(body))  # reads the header only
+            if img.width * img.height > 40_000_000:
+                raise ValueError("that image is over 40 megapixels")
+            img.draft("RGB", (2000, 2000))  # JPEG: decode at a reduced size straight away
+            img.load()
+            yield img
     out = []
-    for img in imgs:
+    for img in pages():
         img = img.convert("RGB")
         img.thumbnail((2000, 2000))
         buf = io.BytesIO()
