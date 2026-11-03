@@ -445,7 +445,7 @@ def main():
             check("api: the upload progress route answers (its own 404, not the catch-all's)",
                   st == 404 and body.startswith(b'{"detail":"unknown run"'), (st, body[:80]))
         st, _ = fetch(f"{api}/api/runs/pcr_3/voice", "POST", os.urandom(5000))
-        check("api: voice refuses non-audio", st in (415, 503, 404, 405), st)
+        check("api: voice refuses non-audio (or the day's live-call budget is spent)", st in (415, 503, 404, 405, 429), st)
         dialogs = []
         page.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
         page.goto(BASE + '/app?run=u-%22%3E%3Cimg%20src=x%20onerror=alert(1)%3E')
