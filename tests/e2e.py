@@ -662,9 +662,9 @@ def main():
         st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": "show-dont-code-e2e-fixture-private-never-published-krfpcv3mp"}).encode(),
                          {"Content-Type": "application/json"})
         check("protocols.io import: a private protocol of the app's own account is refused", st == 422 and b"public" in body, (st, body[:120]))
-        for bad in ("https://evil.example/x", "file:///etc/passwd", ""):
-            st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": bad}).encode(), {"Content-Type": "application/json"})
-            check(f"protocols.io import: refuses {bad or 'an empty link'!r} before any work", st == 422, (st, body[:100]))
+        for link in ("https://evil.example/x", "file:///etc/passwd", ""):  # not `bad`: that list collects failed requests
+            st, body = fetch(f"{api}/api/import", "POST", json.dumps({"link": link}).encode(), {"Content-Type": "application/json"})
+            check(f"protocols.io import: refuses {link or 'an empty link'!r} before any work", st == 422, (st, body[:100]))
         # ---- volumes cross-checked against published protocols (Muse Spark reads protocols.io) -------------
         xc = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/related/crosscheck")[1])
         rows = [(p, w) for p in xc.get("protocols", []) for w in p["rows"]]
@@ -700,12 +700,14 @@ def main():
               td["source"]["kind"] == "document" and td["source"]["pages"] == 3 and len(td["source"]["pages_sha256"]) == 3
               and td["source"]["license"] == "CC BY 4.0" and any(s["volume_ul"] == 5 for s in td["steps"]) and td["questions"],
               str(td.get("source"))[:200])
+        before = len(bad)
         page.goto(BASE + "/app?run=pdf_colony_pcr")
         page.wait_for_function("() => !document.getElementById('srcbox').hidden && document.querySelectorAll('#steps li').length", timeout=60000)
         check("document import: the app shows the pages as the source, with no video and no bench card",
               "Protocol from a photo or PDF" in page.inner_text("#srctitle") and "3 photographed or scanned pages" in page.inner_text("#srcline")
               and page.evaluate("() => document.getElementById('humanbox').hidden && document.getElementById('cardbox').hidden"),
               page.inner_text("#srcline"))
+        check("document import: a run without footage asks for no video (no 404s)", len(bad) == before, bad[before:])
         for body, want in ((b"not a picture at all", 422), (b"", 413), (b"%PDF-1.7 truncated", 422)):
             st, _ = fetch(f"{api}/api/import/document", "POST", body, {"Content-Type": "application/pdf"})
             check(f"document import: refuses {body[:12]!r} before any model call", st == want, st)

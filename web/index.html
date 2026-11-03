@@ -396,7 +396,8 @@ async function load(n) {
   if (n !== name) { placed.clear(); hereTube = null; scanStop(); rxWells = []; rxTips = []; $("rx").value = 1; $("rxline").textContent = ""; $("zplview").hidden = true; $("zplview").replaceChildren(); }
   name = n;
   // a sample's footage starts loading from the CDN before its run data arrives from the backend (largest paint)
-  const early = API && !/^[ucp]-/.test(n) ? `/runs/${encodeURIComponent(n)}/video.mp4` : "";
+  // ponytail: filmed samples are the BioVL2 runs (pcr_*, miniprep_*); a sample read from a protocol has no footage
+  const early = API && /^(pcr|miniprep)_/.test(n) ? `/runs/${encodeURIComponent(n)}/video.mp4` : "";
   if (early && !$("video").src.endsWith(early)) { $("video").poster = early.replace("video.mp4", "poster.jpg"); $("video").src = early; }
   R = await api(`/api/runs/${encodeURIComponent(n)}`);
   $("humanbox").hidden = !!R.source; $("srcbox").hidden = !R.source;
