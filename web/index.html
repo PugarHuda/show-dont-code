@@ -740,7 +740,7 @@ function render() {
         : `<button type="button" class="ghost fix" data-k="${k}">${esc(fixLabel(f))}</button>`;
       return `<li class="${esc(it.severity)}" data-k="${k}" tabindex="0"><b>${esc(it.finding)}</b><span>${esc(it.question)}</span>${action}</li>`;
     }).join("") + (!R.review_error && !issues.length
-      ? `<li class="info"><b>No findings</b><span>The reviewer agent ${R.review_saw_video ? "watched the video" : "read the steps"}${(R.agent_log || []).length ? ` and made ${R.agent_log.length} tool call${R.agent_log.length > 1 ? "s" : ""}` : ""}, and found nothing to flag. The open questions above are still yours to answer.</span></li>` : "");
+      ? `<li class="info"><b>No findings</b><span>The reviewer agent ${R.review_saw_video ? "watched the video" : "read the steps"}${(R.agent_log || []).length ? ` and made ${R.agent_log.length} tool call${R.agent_log.length > 1 ? "s" : ""}` : ""}, and found nothing to flag.${(R.questions || []).length ? " The open questions above are still yours to answer." : ""}</span></li>` : "");
   $("issues").querySelectorAll("li[data-k], li.look").forEach((li) => {
     li.onclick = () => {
       if (li.dataset.t) return seek(Number(li.dataset.t));
