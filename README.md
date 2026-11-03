@@ -260,7 +260,7 @@ script carries the nonce, nothing the pages need is blocked), and the MCP server
 (`get_protocol` must be byte for byte the downloaded file), the bench card (every drawing served, the receipt hashes
 `card.json`, a shared sample can't be redrawn, Enter on a drawing seeks the video), the `.eln` (one root folder, ELN
 1.2+20260923, every file attached and hashed, the body's steps and checks) and the volume cross-check (quotes present,
-the premix share agrees, a half-confirmed run is refused): 173/173 against production on Nov 2. A live upload, the way a judge would
+the premix share agrees, a half-confirmed run is refused): 183/183 against production on Nov 2. A live upload, the way a judge would
 try it (Nov 3: the first 100 s of a BioVL2 PCR video with the access code), ran every stage on production in 3 min 11 s,
 from the bench sheet to the reviewer agent, and its bench card was drawn live in 105 s. That upload also exposed an agent gap: with no legible bench sheet and
 unnamed tubes, the reviewer returned an empty review without calling a tool. It is now told, and reminded in its final

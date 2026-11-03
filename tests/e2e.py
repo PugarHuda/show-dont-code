@@ -723,6 +723,8 @@ def main():
         pp.evaluate("() => document.querySelectorAll('#card img').forEach(i => i.loading = 'eager')")
         pp.wait_for_function("() => [...document.querySelectorAll('#card img')].every(i => i.complete && i.naturalWidth > 0)", timeout=90000)
         pp.wait_for_timeout(1500)
+        mf = pctx.new_cdp_session(pp).send("Page.getAppManifest")  # online: Chrome fetches manifests itself, not via the worker
+        check("PWA: the web app manifest parses with no errors", not mf.get("errors") and mf.get("url", "").endswith("/manifest.webmanifest"), mf.get("errors"))
         pctx.set_offline(True)
         pp.reload()
         pp.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=30000)
@@ -731,8 +733,6 @@ def main():
         shown = pp.evaluate("() => [...document.querySelectorAll('#card img')].filter(i => i.complete && i.naturalWidth > 0).length")
         check("PWA: offline, a run already seen still shows its steps and every bench-card drawing",
               pp.evaluate("() => document.querySelectorAll('#steps li').length") == 6 and shown == 6, shown)
-        mf = pctx.new_cdp_session(pp).send("Page.getAppManifest")
-        check("PWA: the web app manifest parses with no errors", not mf.get("errors") and mf.get("url", "").endswith("/manifest.webmanifest"), mf.get("errors"))
         pctx.close()
         # ---- ARC (nfdi4plants): ISA investigation + assay table, with the run's files ----------------------
         st, arcz = fetch(f"{api}/api/runs/pcr_1-gt/run.arc.zip")
