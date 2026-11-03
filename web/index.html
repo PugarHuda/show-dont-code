@@ -716,7 +716,8 @@ function render() {
   });
 
   const issues = R.review || [];
-  $("reviewbox").hidden = !issues.length && !R.review_error;
+  // shown whenever the agent ran, findings or not: an empty review is a result too, and the visitor should see it
+  $("reviewbox").hidden = !R.review_model && !R.review_error;
   $("reviewstale").hidden = !R.review_before_edits;
   // which host ran the open-weights reviewer; the Fireworks backup sees frames only, never the whole video
   $("reviewhost").textContent = !R.review_model ? "" : R.review_model.startsWith("fireworks")
@@ -738,7 +739,8 @@ function render() {
       const action = f.kind === "none" ? "" : it.applied ? `<em class="applied">Applied: ${esc(fixLabel(f))}</em>`
         : `<button type="button" class="ghost fix" data-k="${k}">${esc(fixLabel(f))}</button>`;
       return `<li class="${esc(it.severity)}" data-k="${k}" tabindex="0"><b>${esc(it.finding)}</b><span>${esc(it.question)}</span>${action}</li>`;
-    }).join("");
+    }).join("") + (!R.review_error && !issues.length
+      ? `<li class="info"><b>No findings</b><span>The reviewer agent ${R.review_saw_video ? "watched the video" : "read the steps"}${(R.agent_log || []).length ? ` and made ${R.agent_log.length} tool call${R.agent_log.length > 1 ? "s" : ""}` : ""}, and found nothing to flag. The open questions above are still yours to answer.</span></li>` : "");
   $("issues").querySelectorAll("li[data-k], li.look").forEach((li) => {
     li.onclick = () => {
       if (li.dataset.t) return seek(Number(li.dataset.t));

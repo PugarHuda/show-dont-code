@@ -121,6 +121,12 @@ For each finding, propose at most one fix the scientist can accept with a click:
 the listed steps, e.g. a generic "source tube 3" you identified on a frame), set_volume (µL per transfer for the
 listed steps, only if the sheet or the simulator settled it), or skip_steps (steps you are confident did not
 happen, e.g. a preparation invented by the extraction). Use kind none when the scientist has to decide.
+Never stop at an empty review when work is left:
+- a reagent named "unknown, ..." or "source tube N": call look_at_moment at the start of a step that draws from it
+  and read the tube's label, cap and rack; if you can name it, propose set_reagent; if not, say what you saw.
+- volumes missing and no per-reaction total on the bench sheet: if you recognise the kit or protocol, plan from its
+  standard recipe with simulate_with_volumes as above; otherwise report the missing volumes as one "block" finding
+  that says why the video can't settle them (kind none), so the scientist knows what to measure or look up.
 Only report real problems visible in the data or video. severity "block" = robot must not run until answered."""
 
 
@@ -249,7 +255,15 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
             messages.append({"role": "user", "content": [part for sec, f in images for part in (
                 {"type": "text", "text": f"Frame at {sec:g} s:"},
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(f.read_bytes()).decode()}})]})
-    messages.append({"role": "user", "content": "Give your final review now."})
+    open_vols = [i for i, s in enumerate(steps) if s["action"] == "transfer" and not (s.get("volume_ul") or 0) >= MIN_UL]
+    unnamed = [i for i, s in enumerate(steps) if str(s.get("reagent") or "").lower().startswith(("unknown", "source tube"))]
+    messages.append({"role": "user", "content": "Give your final review now." + (
+        f" Steps {open_vols} still have no volume: put verified volumes in suggested_volumes (never 0 or a guess); "
+        "otherwise write one block entry in issues that says why the video can't settle them and what the scientist "
+        "should check." if open_vols else "") + (
+        f" Steps {unnamed} have unnamed reagents: add an entry in issues describing what you saw on the frames you "
+        "looked at (seconds, cap, label, rack), with a set_reagent fix where you could read the tube." if unnamed else "")
+        + " Findings go in issues; an empty issues list means you saw nothing worth telling the scientist."})
     r = chat(
         messages=messages, max_tokens=16000,
         response_format={"type": "json_schema", "json_schema": {"name": "review", "schema": REVIEW_SCHEMA, "strict": True}},
