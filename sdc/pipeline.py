@@ -329,6 +329,64 @@ def run_text(link, name):
     run_dir = OUT / name
     run_dir.mkdir(parents=True, exist_ok=True)
     src = _cached(run_dir / "source.json", lambda: pio.fetch(link), "protocols.io: read the published protocol")
+    return _from_text(run_dir, src)
+
+
+def document_pages(body, kind, max_pages=6):
+    """A photo or PDF -> JPEG pages: PDFs rendered at 2x, every page re-encoded so only plain pixels reach the model
+    and the run (no EXIF, no embedded scripts). kind: "pdf", "jpeg", "png" or "webp", from the file's magic bytes."""
+    import io
+
+    from PIL import Image
+
+    if kind == "pdf":
+        import pypdfium2
+
+        pdf = pypdfium2.PdfDocument(body)
+        imgs = [pdf[i].render(scale=2).to_pil() for i in range(min(len(pdf), max_pages))]
+    else:
+        img = Image.open(io.BytesIO(body))
+        img.load()
+        imgs = [img]
+    out = []
+    for img in imgs:
+        img = img.convert("RGB")
+        img.thumbnail((2000, 2000))
+        buf = io.BytesIO()
+        img.save(buf, "JPEG", quality=88)
+        out.append(buf.getvalue())
+    return out
+
+
+def run_document(name, license=None):
+    """Start from photos or PDF pages of a protocol (<run>/doc/page_N.jpg, already re-encoded): Muse Spark transcribes
+    them, then the same path as a protocols.io protocol. license: None for a visitor's own document (no rights
+    granted); a sample made from BioVL2 footage carries "CC BY 4.0"."""
+    import hashlib
+
+    from . import meta
+
+    run_dir = OUT / name
+    pages = sorted((run_dir / "doc").glob("page_*.jpg"), key=lambda p: int(p.stem.split("_")[1]))
+    if not pages:
+        raise ValueError("no pages to read")
+
+    def read():
+        jpegs = [p.read_bytes() for p in pages]
+        doc = meta.read_document(jpegs)
+        if not doc["is_protocol"]:
+            raise ValueError("Muse Spark found no lab protocol on these pages")
+        return {"kind": "document", "title": doc["title"][:200] or "Photographed protocol", "doi": None, "url": None,
+                "pages": len(pages), "pages_sha256": [hashlib.sha256(j).hexdigest() for j in jpegs],
+                "license": license, "text": doc["text"]}
+    src = _cached(run_dir / "source.json", read, "Muse Spark reads the protocol pages (photo or PDF)")
+    return _from_text(run_dir, src)
+
+
+def _from_text(run_dir, src):
+    """A protocol's text (published or transcribed) -> steps -> the same codegen, simulator, analysis and reviewer."""
+    from . import meta
+
     steps = _cached(run_dir / "steps_raw.json", lambda: meta.steps_from_text(src["text"]),
                     "Muse Spark reads the protocol: steps and volumes")
     _cached(run_dir / "profile.json", lambda: meta.thermal_profile(src["text"]), "Muse Spark reads the cycling program")

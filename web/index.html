@@ -197,6 +197,10 @@
         robot protocol and checks, in about a minute. No access code needed.</p>
       <div class="improw"><input type="url" id="implink" placeholder="https://www.protocols.io/view/... or its DOI" aria-label="protocols.io link or DOI">
         <button type="button" id="impgo">Import protocol</button></div>
+      <p class="hint">Or a <b>photo or PDF</b> of a protocol: the printed sheet on your bench, a notebook page, a paper's methods.
+        Muse Spark reads it into the same steps (up to 6 pages).</p>
+      <div class="improw"><input type="file" id="impfile" accept="image/jpeg,image/png,image/webp,application/pdf" aria-label="Photo or PDF of a protocol">
+        <button type="button" id="impdoc">Read the protocol</button></div>
     </div>
     <p class="hint">An MP4 or MOV up to 5 minutes, filmed from your point of view while you pipette, or record it here with your phone's camera. It takes about
       5 to 8 minutes: Muse Spark watches it, SAM 3.1 tracks the pipette, Muse Voice Transcribe listens, and a
@@ -215,7 +219,7 @@
 <main>
   <div class="stack">
     <section id="srcbox" hidden>
-      <h2>Published protocol · protocols.io</h2>
+      <h2 id="srctitle">Published protocol · protocols.io</h2>
       <p id="srcline"></p>
       <p class="hint">No video here: Muse Spark read this protocol's text, and everything below (steps, questions, the
         Opentrons protocol and its checks) comes from the same pipeline as a filmed run.</p>
@@ -397,7 +401,10 @@ async function load(n) {
   R = await api(`/api/runs/${encodeURIComponent(n)}`);
   $("humanbox").hidden = !!R.source; $("srcbox").hidden = !R.source;
   if (R.source) {
-    $("srcline").innerHTML = `<a href="${esc(R.source.url)}" target="_blank" rel="noopener">${esc(R.source.title)}</a>${R.source.doi
+    $("srctitle").textContent = R.source.kind === "document" ? "Protocol from a photo or PDF" : "Published protocol · protocols.io";
+    $("srcline").innerHTML = R.source.kind === "document"
+      ? `“${esc(R.source.title)}”, ${R.source.pages} photographed or scanned page${R.source.pages > 1 ? "s" : ""} read by Muse Spark${R.source.license ? ` (${esc(R.source.license)})` : ""}`
+      : `<a href="${esc(R.source.url)}" target="_blank" rel="noopener">${esc(R.source.title)}</a>${R.source.doi
       ? ` · <a href="https://doi.org/${esc(R.source.doi)}" target="_blank" rel="noopener">doi:${esc(R.source.doi)}</a>` : ""}`;
     $("video").removeAttribute("src");
   } else if (!early) $("video").src = API && !n.startsWith("u-")  // hosted: a sample's footage (or an edit copy's) is on the CDN, near the viewer
@@ -1200,6 +1207,20 @@ $("impgo").onclick = async () => {
     history.replaceState(null, "", `?run=${encodeURIComponent(j.run)}`);
     follow(j.run, " A published protocol takes about a minute.");
   } catch (e) { $("upmsg").textContent = e.message; $("impgo").disabled = false; }
+};
+
+$("impdoc").onclick = async () => {
+  const f = $("impfile").files[0];
+  if (!f) { $("upmsg").textContent = "Choose a photo or PDF of a protocol first."; return; }
+  if (f.size > 15 * 1024 * 1024) { $("upmsg").textContent = "That file is over 15 MB; a photo or PDF of a few pages is enough."; return; }
+  $("impdoc").disabled = true; $("upmsg").textContent = "Sending the pages…";
+  try {
+    const r = await fetch(`${API}/api/import/document`, { method: "POST", body: f, headers: { "Content-Type": f.type || "application/octet-stream" } });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || r.status);
+    history.replaceState(null, "", `?run=${encodeURIComponent(j.run)}`);
+    follow(j.run, ` ${j.pages} page${j.pages > 1 ? "s" : ""}: about a minute.`);
+  } catch (e) { $("upmsg").textContent = e.message; $("impdoc").disabled = false; }
 };
 
 async function follow(run, note = "") {

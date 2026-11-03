@@ -694,6 +694,21 @@ def main():
         check(".eln: the entry's body has the steps with volumes, the robot checks and the bench card",
               "20.0 µL" in exp.get("text", "") and "Opentrons simulator: passed" in exp.get("text", "")
               and "show-dont-code-pcr_1-gt/pcr_1-gt/bench-card-step-1.jpg" in names, exp.get("text", "")[:120])
+        # ---- a photo or PDF of a protocol instead of a video -----------------------------------------------
+        td = json.loads(fetch(f"{api}/api/runs/pdf_colony_pcr")[1])
+        check("document import: the sample read from a 3-page PDF cites its pages, licence and asks what the PDF leaves open",
+              td["source"]["kind"] == "document" and td["source"]["pages"] == 3 and len(td["source"]["pages_sha256"]) == 3
+              and td["source"]["license"] == "CC BY 4.0" and any(s["volume_ul"] == 5 for s in td["steps"]) and td["questions"],
+              str(td.get("source"))[:200])
+        page.goto(BASE + "/app?run=pdf_colony_pcr")
+        page.wait_for_function("() => !document.getElementById('srcbox').hidden && document.querySelectorAll('#steps li').length", timeout=60000)
+        check("document import: the app shows the pages as the source, with no video and no bench card",
+              "Protocol from a photo or PDF" in page.inner_text("#srctitle") and "3 photographed or scanned pages" in page.inner_text("#srcline")
+              and page.evaluate("() => document.getElementById('humanbox').hidden && document.getElementById('cardbox').hidden"),
+              page.inner_text("#srcline"))
+        for body, want in ((b"not a picture at all", 422), (b"", 413), (b"%PDF-1.7 truncated", 422)):
+            st, _ = fetch(f"{api}/api/import/document", "POST", body, {"Content-Type": "application/pdf"})
+            check(f"document import: refuses {body[:12]!r} before any model call", st == want, st)
         # ---- bench card: Muse Image redraws each step's frame, Muse Spark checks it -------------------------
         card = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/bench-card")[1])
         st, img = fetch(f"{api}/api/runs/pcr_1-gt/bench-card/{card['steps'][0]['step']}.jpg")

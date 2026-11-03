@@ -33,6 +33,7 @@ image = (
     .pip_install_from_requirements("requirements.txt")
     .pip_install("PyLabRobot==0.2.2")  # second-robot check; kept out of requirements.txt so Vercel stays small
     .pip_install("mcp==2.3.0")  # /mcp for other agents; own step: it lifts jsonschema past opentrons' pin (see app.py)
+    .pip_install("pypdfium2==4.30.0")  # PDF pages -> images for a photographed/scanned protocol import
     .env({"OT_API_CONFIG_DIR": "/tmp/opentrons", "PYTHONIOENCODING": "utf-8", "UPLOADS": "1",
           "REVIEW_ON_EDIT": "0", "LIVE_CALL_LIMIT": "30", "PUBLIC_URL": "https://show-dont-code.vercel.app"})
     .add_local_python_source("sdc")
@@ -155,6 +156,22 @@ def process_text(run_id: str, link: str):
     vol.commit()
 
 
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup, protocolsio], timeout=PROCESS_TIMEOUT)
+def process_document(run_id: str):
+    """Photos or PDF pages of a protocol (already re-encoded to <run>/doc/page_N.jpg) through the text pipeline."""
+    from sdc import pipeline
+
+    pipeline.OUT = Path(RUNS)
+    pipeline.on_progress = vol.commit
+    d = Path(RUNS) / run_id
+    try:
+        pipeline.run_document(run_id)
+    except Exception as e:  # the UI shows this stage as failed; details stay in the Modal logs
+        print(f"document {run_id} failed: {type(e).__name__}: {e}")
+        pipeline.progress(d, "failed", "error")
+    vol.commit()
+
+
 @app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup, protocolsio], timeout=900, scaledown_window=1200, max_containers=1,
               min_containers=1)  # always warm for judges: no cold start on the first visit
 @modal.concurrent(max_inputs=20)
@@ -238,6 +255,36 @@ def web():
         await asyncio.to_thread(vol.commit)
         await process_text.spawn.aio(run_id, link)
         return {"run": run_id}
+
+    @api.post("/api/import/document")
+    async def import_document(request: Request):
+        """Start a run from a photo (JPEG, PNG, WebP) or a PDF of a protocol: a printed sheet, a notebook page, a
+        paper's methods. Raw body, 15 MB, at most 6 pages; counted against the daily imports cap like protocols.io."""
+        body = await request.body()
+        if not body or len(body) > 15 * 1024 * 1024:
+            raise HTTPException(413, "send one photo or PDF of up to 15 MB")
+        kind = ("pdf" if body[:5] == b"%PDF-" else "jpeg" if body[:3] == bytes.fromhex("ffd8ff")
+                else "png" if body[:8] == bytes.fromhex("89504e470d0a1a0a")
+                else "webp" if body[:4] == b"RIFF" and body[8:12] == b"WEBP" else None)
+        if not kind:  # by content, not by the name or type the browser claims
+            raise HTTPException(422, "send a JPEG, PNG or WebP photo, or a PDF")
+
+        try:
+            jpegs = await asyncio.to_thread(webapp.pipeline.document_pages, body, kind)
+        except Exception:  # a broken or hostile file: refuse it, nothing is kept
+            raise HTTPException(422, "that file couldn't be read as a photo or PDF")
+        async with quota_lock:
+            if not await asyncio.to_thread(take_quota, +1, "imports", DAILY_IMPORTS):
+                raise HTTPException(429, "today's protocol imports for this demo are used up; open the sample instead")
+        run_id = "p-" + secrets.token_urlsafe(12)  # private like every import: the link is the only way in
+        d = Path(RUNS) / run_id
+        (d / "doc").mkdir(parents=True)
+        for i, j in enumerate(jpegs, 1):
+            (d / "doc" / f"page_{i}.jpg").write_bytes(j)
+        webapp.pipeline.progress(d, f"{len(jpegs)} page{'s' if len(jpegs) > 1 else ''} received", "done")
+        await asyncio.to_thread(vol.commit)
+        await process_document.spawn.aio(run_id)
+        return {"run": run_id, "pages": len(jpegs)}
 
     @api.post("/api/upload")
     async def upload(request: Request):

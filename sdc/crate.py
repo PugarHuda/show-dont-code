@@ -72,7 +72,11 @@ def build(run_dir, name, generated, models):
            "encodingFormat": "video/mp4"}
     if video.exists():
         src |= {"sha256": hashlib.sha256(video.read_bytes()).hexdigest(), "contentSize": str(video.stat().st_size)}
-    if text:  # the source is the protocols.io record, cited by its DOI
+    if text and pub.get("kind") == "document":  # photos or PDF pages: their hashes pin exactly which pages were read
+        src = {"@id": "#source-document", "@type": "MediaObject", "name": pub["title"], "encodingFormat": "image/jpeg",
+               "description": f"{pub['pages']} page(s) of a protocol, photographed or scanned",
+               "sha256": hashlib.sha256("".join(pub["pages_sha256"]).encode()).hexdigest()}
+    elif text:  # the source is the protocols.io record, cited by its DOI
         src = {"@id": f"https://doi.org/{pub['doi']}" if pub.get("doi") else pub["url"], "@type": "CreativeWork",
                "name": pub["title"], "url": pub["url"], "publisher": {"@id": "https://www.protocols.io"}}
     edited = name.startswith(("u-", "c-"))  # uploads and visitors' edited copies: not the author's work
@@ -191,7 +195,7 @@ def build(run_dir, name, generated, models):
         root["isBasedOn"] = {"@id": BIOVL2}
     # derived work keeps its source's licence: BioVL2 videos and public protocols.io protocols are both CC BY 4.0;
     # a visitor's own upload grants none, and the crate says so rather than leaving it out
-    if name.startswith("u-"):
+    if name.startswith("u-") or (pub.get("kind") == "document" and not pub.get("license")):  # a visitor's own
         root["license"] = {"@id": "#no-license"}
         graph.append({"@id": "#no-license", "@type": "CreativeWork", "name": "No licence granted",
                       "description": "The uploader's own video and what was derived from it; no reuse rights are given."})

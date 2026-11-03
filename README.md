@@ -187,6 +187,13 @@ Then:
   (`sdc/eln.py`). It passes `rocrate-validator`'s RO-Crate 1.2 profile, and `python scripts/elabftw_roundtrip.py`
   imports it into the public eLabFTW demo (6.0.9) and checks the entry: on Nov 2 pcr_1-gt arrived as experiment with
   its steps table, checks, licence, tags and all 16 files, the bench card drawings shown as images.
+- **A photo or PDF of a protocol instead of a video** (`POST /api/import/document`, the upload dialog): a printed
+  sheet, a notebook page or a paper's methods, up to 6 pages. The file's type is checked by its bytes, PDF pages are
+  rendered and every page is re-encoded as a plain JPEG before Muse Spark transcribes them (illegible parts are marked,
+  never guessed); then the same step reader, codegen, simulator, analysis and reviewer agent as a protocols.io import.
+  The sample `pdf_colony_pcr` is protocols.io's own 3-page PDF of a public Colony PCR protocol (CC BY 4.0); on Nov 3 the
+  same PDF and a single page photo ran live on production in about 2 minutes each. A visitor's document gets no licence,
+  like a video upload; the RO-Crate and .eln cite it by the SHA-256 of its pages.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
   analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_related_protocols`, `crosscheck_volumes` (this run's volumes next to published ones, with quotes), `get_bench_card` (the illustrated steps with the checker's verdict), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a

@@ -22,7 +22,7 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 > checks against the frame and sends back if anything was added or moved; every word on the card comes from the
 > protocol. A lab notebook entry (.eln, the ELN Consortium format) imports the whole run into eLabFTW, RSpace or
 > Kadi4Mat as one experiment; verified by importing it into the public eLabFTW demo. The volumes are cross-checked against
-> published protocols.io protocols with the same kit: Muse Spark reads them, and only volumes quoted verbatim are kept. No video? Paste a published protocols.io
+> published protocols.io protocols with the same kit: Muse Spark reads them, and only volumes quoted verbatim are kept. No video? Upload a photo or PDF of a protocol (a bench sheet, a notebook page), or paste a published protocols.io
 > protocol: Muse Spark reads its text into the same steps, and it goes through the same codegen and checks, so the
 > protocols labs already publish become robot runs too. Every protocol is run end to end on Opentrons' own
 > robot-server (the software inside a Flex), and every command it ran matched its own analysis (240 of 240). On held-out videos from the public

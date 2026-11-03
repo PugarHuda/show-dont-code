@@ -35,7 +35,9 @@ def _body(name, steps, rec, source, card, app_url):
         f"<td>{e(s.get('destination') or '')}</td>"
         f"<td>{'' if s.get('start') is None else f'{s["start"]:.0f}–{s["end"]:.0f} s'}</td></tr>"
         for i, s in enumerate(steps))
-    src = (f'<a href="{e(source["url"])}">{e(source["title"])}</a> (protocols.io' +
+    src = (f"{source.get('pages', 1)} photographed or scanned page(s) of a protocol, \"{e(source['title'])}\""
+           ) if source and source.get("kind") == "document" else (
+           f'<a href="{e(source["url"])}">{e(source["title"])}</a> (protocols.io' +
            (f', doi:{e(source["doi"])})' if source.get("doi") else ")")) if source else \
         ("a first-person video of the protocol done by hand" + ("" if name.startswith("u-") else
                                                                f' (<a href="{BIOVL2}">BioVL2</a>, CC BY 4.0)'))
@@ -81,7 +83,7 @@ def build(name, title, steps, files, rec, source=None, card=None, card_images=No
                  "text": f"[{f.get('severity')}] steps {', '.join(str(s + 1) for s in f.get('steps', []))}: {f.get('finding')}"
                          + (f" Question: {f['question']}" if f.get("question") else "")}
                 for k, f in enumerate(review or [])]
-    upload = name.startswith("u-")
+    upload = name.startswith("u-") or bool(source and source.get("kind") == "document" and not source.get("license"))
     licence = {"@id": "#no-license"} if upload else {"@id": CC_BY}
     experiment = {
         "@id": exp, "@type": "Dataset", "genre": "experiment", "name": title,
@@ -94,7 +96,7 @@ def build(name, title, steps, files, rec, source=None, card=None, card_images=No
     }
     if not name.startswith(("u-", "c-")):  # a visitor's upload or edited copy is their work, not the repo author's
         experiment["author"] = {"@id": AUTHOR}
-    if source:  # read from a published protocol: that protocol, by DOI when it has one
+    if source and (source.get("doi") or source.get("url")):  # read from a published protocol: by DOI when it has one
         experiment["isBasedOn"] = {"@id": f"https://doi.org/{source['doi']}" if source.get("doi") else source["url"]}
     elif not upload:
         experiment["isBasedOn"] = {"@id": BIOVL2}

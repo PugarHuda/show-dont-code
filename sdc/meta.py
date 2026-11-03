@@ -239,7 +239,7 @@ def voice_answers(transcript, questions):
     return [{**a, "key": allowed[norm(a["key"])]} for a in json.loads(r.output_text)["answers"] if norm(a["key"]) in allowed]
 
 
-TEXT_PROMPT = """This is a published wet-lab protocol (from protocols.io), as text; tables may have lost their
+TEXT_PROMPT = """This is a wet-lab protocol (published on protocols.io, or transcribed from a photo or PDF), as text; tables may have lost their
 column breaks ("Component25 µl Reaction50 µl Reaction..." is a table). Turn it into the steps a liquid-handling robot
 would do for ONE reaction, in the order the protocol says, using the same step fields as for a video:
 - One reagent added to the reaction tube is one "transfer" step: reagent = its name as written, source = its name,
@@ -253,6 +253,33 @@ would do for ONE reaction, in the order the protocol says, using the same step f
 - start and end are the step's position (1, 2, 3...), not seconds: start = n, end = n + 0.9.
 - confidence: how clearly the text states the step (1.0 = explicit).
 Ignore notes about storage, ordering, safety and gel analysis after the PCR."""
+
+
+DOC_SCHEMA = {
+    "type": "object", "additionalProperties": False, "required": ["is_protocol", "title", "text"],
+    "properties": {
+        "is_protocol": {"type": "boolean", "description": "the pages describe a wet-lab procedure"},
+        "title": {"type": "string"},
+        "text": {"type": "string", "description": "everything on the pages, in reading order, tables row by row"},
+    },
+}
+
+
+def read_document(jpegs):
+    """Photos or PDF pages of a protocol -> {"is_protocol", "title", "text"}: Muse Spark reads them as a scientist
+    would type them out, so the text goes through the same step reader as a protocols.io protocol."""
+    content = [{"type": "input_text", "text": (
+        "These are photos or scanned pages of a lab protocol (a printed sheet, a notebook page or a PDF). Transcribe "
+        "everything on them in reading order: the title, every step, every table row by row with its column names "
+        "(e.g. 'Primer F | 1.25 uL'), volumes and units exactly as written. Mark illegible parts as [illegible]; do "
+        "not guess numbers. is_protocol is false when the pages are not a wet-lab procedure.")}]
+    content += [{"type": "input_image", "image_url": "data:image/jpeg;base64," + base64.b64encode(j).decode()} for j in jpegs]
+    r = client().responses.create(
+        model=SPARK, max_output_tokens=16000, input=[{"role": "user", "content": content}],
+        text={"format": {"type": "json_schema", "name": "document", "schema": DOC_SCHEMA, "strict": True}})
+    if not r.output_text:
+        raise RuntimeError(f"Muse Spark returned no text: status={r.status}")
+    return json.loads(r.output_text)
 
 
 def steps_from_text(text, model=None):
