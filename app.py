@@ -125,6 +125,23 @@ def _editable(name):
             raise
 
 
+@app.get("/sw.js")
+def service_worker():  # at the root so its scope covers /app; no-cache so a new version is picked up at once
+    return FileResponse(ROOT / "web" / "sw.js", media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return FileResponse(ROOT / "web" / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/icon-{size}.png")
+def icon(size: int):
+    if size not in (192, 512):
+        raise HTTPException(404, "no such icon")
+    return FileResponse(ROOT / "web" / f"icon-{size}.png", media_type="image/png")
+
+
 @app.get("/media/{name}")
 def media(name: str):  # local preview only; on Vercel public/media is served by the CDN before this runs
     path = ROOT / "public" / "media" / name
@@ -146,7 +163,7 @@ def _page(path, head=""):
     zplr = "https://cdn.jsdelivr.net/npm/zpl-renderer-js@4.0.0/dist/"  # draws the Zebra labels in the browser (zebrash)
     csp = (f"default-src 'self'; script-src 'nonce-{nonce}' 'wasm-unsafe-eval' {pyo} {jsqr} {zplr}index.external.esm.js; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
            f"font-src https://fonts.gstatic.com; img-src 'self' data: blob: {api}; media-src 'self' blob: {api}; "
-           f"connect-src 'self' {api} {pyo} {zplr}zebrash.wasm https://pypi.org https://files.pythonhosted.org; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+           f"connect-src 'self' {api} {pyo} {zplr}zebrash.wasm https://pypi.org https://files.pythonhosted.org; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
     return HTMLResponse(html, headers={"Content-Security-Policy": " ".join(csp.split())})
 
 
@@ -177,11 +194,49 @@ def landing():
     return _page(page if page.exists() else ROOT / "web" / "index.html")
 
 
+def lab_protocol(name):
+    """Bioschemas LabProtocol (0.8-DRAFT) JSON-LD for a shared run, so search engines and FAIR crawlers can read the
+    protocol from the page: steps, reagents, equipment, source and licence. None for a private run or no run."""
+    if not re.fullmatch(r"[\w.-]+", name or "") or name.startswith(PRIVATE):
+        return None
+    f = pipeline.OUT / name / "result.json"
+    if not f.exists():
+        return None
+    r = json.loads(f.read_text(encoding="utf-8"))
+    src = pipeline.OUT / name / "source.json"
+    source = json.loads(src.read_text(encoding="utf-8")) if src.exists() else None
+    site = os.getenv("PUBLIC_URL", "https://show-dont-code.vercel.app")
+    steps = [s for s in r["steps"] if s.get("action") != "skipped"]
+    based = ({"@id": f"https://doi.org/{source['doi']}"} if source and source.get("doi") else
+             None if source else {"@id": "https://zenodo.org/records/21495188"})
+    out = {
+        "@context": {"@vocab": "https://schema.org/", "dct": "http://purl.org/dc/terms/"},
+        "@type": "LabProtocol", "@id": f"{site}/app?run={name}", "url": f"{site}/app?run={name}",
+        "dct:conformsTo": {"@id": "https://bioschemas.org/profiles/LabProtocol/0.8-DRAFT"},
+        "name": f"Opentrons Flex protocol: {name}",
+        "description": ("Steps recovered " + ("from a protocol document" if source else "from a first-person video of the "
+                        "protocol done by hand") + ", turned into an Opentrons Flex protocol by Show, Don't Code."),
+        "license": "https://creativecommons.org/licenses/by/4.0/",
+        "labEquipment": ["Opentrons Flex"] + (["thermal cycler"] if any(s["action"] == "thermocycle" for s in steps) else []),
+        "reagentUsed": sorted({s["reagent"] for s in steps if s.get("reagent")}),
+        "step": [{"@type": "HowToStep", "position": i + 1, "text": " ".join(str(x) for x in (
+            s.get("description") or s["action"], f"{s['volume_ul']} µL" if s.get("volume_ul") else "") if x)}
+            for i, s in enumerate(steps)],
+        "isPartOf": {"@id": "https://github.com/PugarHuda/show-dont-code"},
+    }
+    if based:
+        out["isBasedOn"] = based
+    return out
+
+
 @app.get("/app")
-def index():
+def index(run: str = ""):
     api = os.getenv("API_BASE", "")
     uploads = "true" if api or os.getenv("UPLOADS") == "1" else "false"  # only the Modal backend can take uploads
     pre = f'<link rel="preconnect" href="{api}" crossorigin>\n' if api else ""  # the run's data comes from there first
+    ld = lab_protocol(run)
+    if ld:  # data, not a script: CSP doesn't run it. "</" is escaped so no text in it can close the tag
+        pre += '<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>\n"
     return _page(ROOT / "web" / "index.html", pre + f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n')
 
 

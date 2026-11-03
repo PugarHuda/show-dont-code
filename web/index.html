@@ -6,6 +6,9 @@
 <meta name="description" content="Review a robot protocol recovered from a lab video: the human video next to the Opentrons deck, step by step, with the simulator's checks.">
 <title>Show, Don't Code</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='black'/><path d='M10 8h12l-3 9v6a3 3 0 0 1-6 0v-6z' fill='white'/></svg>">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- display=optional: if the font isn't there in time the page keeps the system font, so headings never jump -->
 <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@900&display=optional" rel="stylesheet">
@@ -524,6 +527,9 @@ async function crosscheck(n) {
     if (n === name) $("xline").textContent = `The volume cross-check didn't finish: ${e.message}`;
   }
 }
+
+// installable, and the steps and bench card stay readable offline at the bench (web/sw.js)
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 const COPY = "your edited copy (private link)";
 
