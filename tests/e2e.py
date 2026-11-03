@@ -711,6 +711,13 @@ def main():
         for body, want in ((b"not a picture at all", 422), (b"", 413), (b"%PDF-1.7 truncated", 422)):
             st, _ = fetch(f"{api}/api/import/document", "POST", body, {"Content-Type": "application/pdf"})
             check(f"document import: refuses {body[:12]!r} before any model call", st == want, st)
+        # ---- ARC (nfdi4plants): ISA investigation + assay table, with the run's files ----------------------
+        st, arcz = fetch(f"{api}/api/runs/pcr_1-gt/run.arc.zip")
+        an = zipfile.ZipFile(io.BytesIO(arcz)).namelist() if st == 200 else []
+        check("ARC: ISA investigation and assay, protocol.py in the assay's protocols, the receipt in its dataset",
+              "show-dont-code-pcr_1-gt/isa.investigation.xlsx" in an and "show-dont-code-pcr_1-gt/assays/liquid_handling/isa.assay.xlsx" in an
+              and zipfile.ZipFile(io.BytesIO(arcz)).read("show-dont-code-pcr_1-gt/assays/liquid_handling/protocols/protocol.py") == proto
+              and "show-dont-code-pcr_1-gt/assays/liquid_handling/dataset/receipt.json" in an, (st, an[:4]))
         # ---- bench card: Muse Image redraws each step's frame, Muse Spark checks it -------------------------
         card = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/bench-card")[1])
         st, img = fetch(f"{api}/api/runs/pcr_1-gt/bench-card/{card['steps'][0]['step']}.jpg")

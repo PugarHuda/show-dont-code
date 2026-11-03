@@ -791,6 +791,29 @@ def ro_crate(name: str, request: Request):
                     headers={"Content-Disposition": f'attachment; filename="{name}-ro-crate.zip"'})
 
 
+@app.get("/api/runs/{name}/run.arc.zip")
+def arc_file(name: str, request: Request):
+    """The run as an ARC (Annotated Research Context, nfdi4plants): an ISA investigation whose assay table has a row
+    per robot step, with protocol.py and the methods as the assay's protocols and the checks as its dataset. Opens in
+    ARCitect and the DataHUB."""
+    from fastapi.responses import Response
+
+    from sdc import arc
+
+    def build(gen, rec, d, steps, r):
+        src = d / "source.json"
+        source = json.loads(src.read_text(encoding="utf-8")) if src.exists() else None
+        own = name.startswith(("u-", "c-"))  # a visitor's upload or edited copy: not the repo author's work
+        free = not name.startswith("u-") and not (source and source.get("kind") == "document" and not source.get("license"))
+        keep = ("protocol.py", "methods.md", "protocol-designer.json", "autoprotocol.json", "receipt.json", "analysis.json")
+        return arc.build(name, f"Show, Don't Code run {name}", steps, {f: b for f, b in gen.items() if f in keep},
+                         author=not own, licence="CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)" if free else None)
+
+    body = _export(name, request, "arc", build)
+    return Response(body, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="show-dont-code-{name}.arc.zip"'})
+
+
 @app.get("/api/runs/{name}/run.eln")
 def eln_file(name: str, request: Request):
     """The run as one experiment in the ELN Consortium's .eln format (RO-Crate 1.2): import it into eLabFTW, RSpace,

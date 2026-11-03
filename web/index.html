@@ -326,6 +326,7 @@
         <a id="f-pd" title="Open designer.opentrons.com, choose Import, and pick this file">Protocol Designer, no code (.json)</a>
         <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-evo">tecan-evo.py (Tecan Freedom EVO)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
         <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-ots" hidden>Bitcoin timestamp proof (.ots)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a>
+        <a id="f-arc" title="Annotated Research Context (nfdi4plants): opens in ARCitect and the DataHUB">ARC (.zip)</a>
         <a id="f-eln" title="ELN Consortium format: import it into eLabFTW, RSpace, Kadi4Mat, SampleDB and other lab notebooks">Lab notebook entry (.eln)</a></p>
       <p class="hint" id="otsline" hidden></p>
       <p class="hint" id="pdline" hidden>To change a volume or the cycling program without code, open
@@ -647,7 +648,7 @@ function render() {
     $("f-proto").href = `${base}/protocol.py`;
     $("f-analysis").href = `${base}/analysis.json`; $("f-analysis").hidden = !an;
     $("f-pd").href = `${base}/protocol-designer.json`; $("f-pd").hidden = $("pdline").hidden = !an;
-    $("f-receipt").href = `${base}/receipt.json`; $("f-crate").href = `${base}/ro-crate.zip`; $("f-eln").href = `${base}/run.eln`; $("f-ots").href = `${base}/receipt.ots`;
+    $("f-receipt").href = `${base}/receipt.json`; $("f-crate").href = `${base}/ro-crate.zip`; $("f-eln").href = `${base}/run.eln`; $("f-arc").href = `${base}/run.arc.zip`; $("f-ots").href = `${base}/receipt.ots`;
     stampLine(base);
     $("f-plr").href = `${base}/pylabrobot.py`; $("f-evo").href = `${base}/tecan-evo.py`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
     // the same steps on two other vendors' robots, each run in PyLabRobot's simulator with volume tracking on

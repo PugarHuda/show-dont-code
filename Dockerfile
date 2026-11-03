@@ -7,7 +7,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt PyLabRobot==0.2.2
 # own step, as on Modal: mcp lifts jsonschema past opentrons' pin, and app.py imports it only if present
-RUN pip install --no-cache-dir mcp==2.3.0 pypdfium2==4.30.0
+RUN pip install --no-cache-dir mcp==2.3.0 pypdfium2==4.30.0 arctrl==3.2.3
 COPY app.py ./
 COPY sdc sdc
 COPY web web

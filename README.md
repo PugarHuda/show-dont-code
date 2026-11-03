@@ -201,6 +201,11 @@ Then:
   The sample `pdf_colony_pcr` is protocols.io's own 3-page PDF of a public Colony PCR protocol (CC BY 4.0); on Nov 3 the
   same PDF and a single page photo ran live on production in about 2 minutes each. A visitor's document gets no licence,
   like a video upload; the RO-Crate and .eln cite it by the SHA-256 of its pages.
+- **An ARC** (`run.arc.zip`, Annotated Research Context, nfdi4plants/DataPLANT), written with the official `arctrl`
+  library: an ISA investigation whose assay table has a row per robot step (source tube -> Opentrons Flex action ->
+  reagent, volume in µL with its unit ontology, cycles -> destination), with protocol.py and the methods as the assay's
+  protocols and the receipt and Opentrons' analysis as its dataset. Opens in ARCitect and the DataHUB; `python -m
+  sdc.arc` writes one and reads it back.
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
   analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_related_protocols`, `crosscheck_volumes` (this run's volumes next to published ones, with quotes), `get_bench_card` (the illustrated steps with the checker's verdict), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a
