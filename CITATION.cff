@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use Show, Don't Code, please cite it as below."
+title: "Show, Don't Code: lab protocols filmed once by hand, turned into Opentrons Flex robot protocols"
+type: software
+authors:
+  - family-names: Mantoro
+    given-names: Pugar Huda
+repository-code: "https://github.com/PugarHuda/show-dont-code"
+url: "https://show-dont-code.vercel.app"
+license: MIT
+date-released: "2026-11-03"
+keywords:
+  - lab automation
+  - Opentrons Flex
+  - liquid handling
+  - video understanding
+  - reproducibility
+  - RO-Crate
+references:
+  - type: data
+    title: "Show, Don't Code run pcr_1-gt: an Opentrons Flex protocol recovered from a first-person lab video"
+    authors:
+      - family-names: Mantoro
+        given-names: Pugar Huda
+    doi: "10.5281/zenodo.23876762"
+  - type: data
+    title: "BioVL2: an egocentric biochemical video-and-language dataset"
+    authors:
+      - name: "Nishimura et al., Kyoto University"
+    url: "https://zenodo.org/records/21495188"
+    license: CC-BY-4.0

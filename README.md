@@ -1,5 +1,8 @@
 # Show, Don't Code
 
+[![checks](https://github.com/PugarHuda/show-dont-code/actions/workflows/checks.yml/badge.svg)](https://github.com/PugarHuda/show-dont-code/actions/workflows/checks.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23876762.svg)](https://doi.org/10.5281/zenodo.23876762)
+
 Film yourself doing a lab protocol once by hand, and get an Opentrons robot protocol that runs it.
 
 Built for the Meta Global AI Developer Hackathon (Oct 26 – Nov 4, 2026), Push the Frontier theme. All code in
@@ -13,6 +16,10 @@ this repository was written during the hackathon. The git history starts on Oct 
   its protocol on protocols.io: https://www.protocols.io/view/pcr-setup-recovered-from-a-first-person-video-pcr-krdncv25f
   (submitted for publication Nov 2, in protocols.io's review)
 - **MCP server:** https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp
+- **REST API (OpenAPI):** https://pugarhuda--show-dont-code-web.us-east.modal.run/docs, every endpoint the app uses,
+  with its schema at `/openapi.json`, so a lab's own tools can call it directly (runs, protocol.py, exports, receipt,
+  RO-Crate, .eln, robot-server runs, imports)
+- **Cite it:** `CITATION.cff` (GitHub's "Cite this repository"); the pcr_1-gt run is a dataset with its own DOI
 
 ## Why
 

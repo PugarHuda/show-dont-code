@@ -32,7 +32,10 @@ if os.getenv("VERCEL") == "1":  # opentrons writes its config under $HOME at imp
 from sdc import pipeline, protocol  # noqa: E402  (must follow the env setup above)
 
 ROOT = Path(__file__).resolve().parent
-app = FastAPI(title="Show, Don't Code")
+app = FastAPI(title="Show, Don't Code", version="1.0.0", description=(
+    "Lab protocols filmed once by hand (or read from protocols.io, a photo or a PDF) turned into Opentrons Flex robot "
+    "protocols. Read endpoints are open; uploads need the access code; live model calls have a daily budget. "
+    "Code: https://github.com/PugarHuda/show-dont-code · MCP server at /mcp."))
 log = logging.getLogger("show-dont-code")
 
 ON_VERCEL = os.getenv("VERCEL") == "1"
