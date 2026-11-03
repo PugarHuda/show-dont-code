@@ -1,5 +1,11 @@
 [
  {
+  "id": "problem",
+  "kind": "problem",
+  "callouts": [],
+  "say": "Thirty-five hundred PCR protocols are published on protocols.io. About a hundred are ready to run on an Opentrons Flex. Everything else has to be programmed."
+ },
+ {
   "id": "intro",
   "kind": "rec",
   "say": "A scientist did this PCR setup by hand, on camera. On the right, the robot replays the protocol our app wrote from that video, step for step. This is Show, Don't Code.",
@@ -80,15 +86,19 @@
  {
   "id": "robot",
   "kind": "rec",
-  "say": "Then the strongest check. One click runs it on Opentrons' own robot software, the robot server inside a Flex, and every one of the two hundred and forty commands it ran matches its own analysis. The same steps also run on Hamilton and Tecan simulators.",
+  "say": "Then the strongest check. One click runs it on Opentrons' own robot software, the robot server inside a Flex, and all two hundred and forty commands it ran match its own analysis.",
   "callouts": [
    {
-    "at": 0.45,
+    "at": 0.4,
     "text": "Opentrons robot-server v10.1.0: succeeded"
    },
    {
-    "at": 0.75,
+    "at": 0.68,
     "text": "240 of 240 commands match its analysis"
+   },
+   {
+    "at": 0.9,
+    "text": "Same steps pass Hamilton + Tecan simulators"
    }
   ]
  },

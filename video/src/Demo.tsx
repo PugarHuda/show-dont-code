@@ -4,6 +4,7 @@ import {
 } from "remotion";
 import scenesJson from "../public/scenes.json";
 import clipsJson from "../public/clips.json";
+import cutsJson from "../public/cuts.json";
 
 export const { fontFamily } = loadFont("normal", { weights: ["400", "700", "900"] });
 
@@ -14,9 +15,10 @@ export const RED = "#d4231b";
 type Word = { t: number; d: number; w: string };
 type Callout = { at: number; text: string };
 type Line = { from: number; to: number; text: string };
-type Scene = { id: string; kind: "card" | "rec"; say: string; words: Word[]; lines: Line[]; voice_s: number; callouts: Callout[] };
+type Scene = { id: string; kind: "card" | "rec" | "problem"; say: string; words: Word[]; lines: Line[]; voice_s: number; callouts: Callout[] };
 const scenes = scenesJson as Scene[];
 const clips = clipsJson as Record<string, number>;
+const cuts = cutsJson as Record<string, number>;  // seconds of pure waiting dropped from each recording
 
 const sceneSeconds = (s: Scene) => s.voice_s + PAD;
 export const totalFrames = () => Math.round(scenes.reduce((a, s) => a + sceneSeconds(s), 0) * FPS);
@@ -75,6 +77,7 @@ const Recording = ({ scene, index }: { scene: Scene; index: number }) => {
           ? <Chip style={{ background: "#fff", color: "#000", fontWeight: 900, fontSize: 28 }}>Show, Don't Code · pipette it once, get the robot protocol</Chip>
           : <Chip>{index - 1} / {scenes.filter((s) => s.kind === "rec").length - 1} · live at show-dont-code.vercel.app</Chip>}
         {rate > 1.25 && <Chip style={{ background: RED }}>sped up ×{rate.toFixed(1)}</Chip>}
+        {(cuts[scene.id] || 0) >= 1 && <Chip style={{ background: RED }}>{Math.round(cuts[scene.id])} s of waiting cut</Chip>}
       </div>
       {["intro", "sync", "tubes"].includes(scene.id) && (  // the lab footage is on screen: credit it, under the stage
         <div style={{ position: "absolute", left: 24, top: STAGE.y + STAGE.h + 6, color: "#9a9a9a", fontFamily, fontSize: 17, width: 120, lineHeight: 1.2 }}>
@@ -104,6 +107,26 @@ export const Deck = ({ lit }: { lit: number }) => {
         );
       })}
     </svg>
+  );
+};
+
+// the problem, in numbers anyone can check: what is published vs what a Flex can run without code
+const Problem = ({ scene }: { scene: Scene }) => {
+  const frame = useCurrentFrame();
+  const a = spring({ frame, fps: FPS, config: { damping: 18 } });
+  const b = spring({ frame: frame - 1.6 * FPS, fps: FPS, config: { damping: 18 } });
+  const big = { fontFamily, fontWeight: 900, fontSize: 150, lineHeight: 1, letterSpacing: "-0.04em" } as const;
+  const small = { fontFamily, fontWeight: 700, fontSize: 38, color: "#d9d9d9", marginTop: 10 } as const;
+  return (
+    <AbsoluteFill style={{ background: "#000", color: "#fff", justifyContent: "center", paddingLeft: 200 }}>
+      <div style={{ opacity: a, transform: `translateY(${(1 - a) * 30}px)` }}>
+        <div style={big}>3,522</div><div style={small}>public PCR protocols on protocols.io</div></div>
+      <div style={{ opacity: b, transform: `translateY(${(1 - b) * 30}px)`, marginTop: 60 }}>
+        <div style={{ ...big, color: RED }}>~100</div><div style={small}>ready-to-run protocols for an Opentrons Flex, after 18 months</div></div>
+      <div style={{ position: "absolute", left: 200, bottom: 150, fontFamily, fontSize: 22, color: "#8a8a8a" }}>
+        protocols.io API search "PCR", Nov 3 2026 · Opentrons press release, Jan 28 2025</div>
+      <Subtitles scene={scene} />
+    </AbsoluteFill>
   );
 };
 
@@ -140,7 +163,7 @@ export const Demo = () => {
         const frames = Math.round(sceneSeconds(s) * FPS);
         const seq = (
           <Sequence key={s.id} from={from} durationInFrames={frames} name={s.id}>
-            {s.kind === "card" ? <Card scene={s} /> : <Recording scene={s} index={++n} />}
+            {s.kind === "card" ? <Card scene={s} /> : s.kind === "problem" ? <Problem scene={s} /> : <Recording scene={s} index={++n} />}
             <Audio src={staticFile(`voice/${s.id}.mp3`)} />
           </Sequence>
         );

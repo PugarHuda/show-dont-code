@@ -456,11 +456,23 @@ def bench_card(name: str):
 
 
 @app.get("/api/runs/{name}/bench-card/{i}.jpg")
-def bench_card_image(name: str, i: int):
+def bench_card_image(name: str, i: int, w: int = 0):
+    """A drawing at full size (1280 px, for print) or w=640 for screens: phones show it about 330 px wide."""
     d = _run_dir(name)
     f = pipeline.asset(d, "card") / f"step_{i}.jpg"
     if not f.exists() or not pipeline.asset(d, "card.json").exists():  # only a finished card is served
         raise HTTPException(404, "no drawing for this step")
+    if w == 640:  # one fixed size, made once next to the drawing (or into the copy reading its sample's card)
+        small = d / "card_640" / f.name
+        if not small.exists():
+            from PIL import Image
+
+            small.parent.mkdir(exist_ok=True)
+            img = Image.open(f).convert("RGB")
+            img.resize((640, round(img.height * 640 / img.width))).save(small, "JPEG", quality=82)
+        f = small
+    elif w:
+        raise HTTPException(422, "w is 640 or left out")
     return FileResponse(f, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
 

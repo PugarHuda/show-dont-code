@@ -50,6 +50,17 @@ OVERLAY = """
 class Scene:
     def __init__(self, page):
         self.page = page
+        self.cuts = []  # (start, end) wall-clock spans of pure waiting, dropped from the clip and said on screen
+
+    def _cut(self, t1, t2):
+        if t2 - t1 > 1.2:  # keep a beat on each side so the change is visible
+            self.cuts.append((t1 + 0.4, t2 - 0.3))
+
+    def nav(self, url, **kw):
+        """A later page in the same scene: its loading time is cut."""
+        t1 = time.time()
+        self.page.goto(url, **kw)
+        self._cut(t1, time.time())
 
     def go(self, url, ready):
         self.page.goto(url, wait_until="domcontentloaded")
@@ -74,7 +85,9 @@ class Scene:
             loc.click()
 
     def wait(self, js, timeout=240000):
+        t1 = time.time()
         self.page.wait_for_function(js, timeout=timeout)
+        self._cut(t1, time.time())
 
 
 def intro(s):
@@ -125,15 +138,15 @@ def tubes(s):
     s.page.evaluate(f"() => new Promise(r => {{ const v = document.getElementById('video'); v.addEventListener('seeked', r, {{once: true}}); v.currentTime = {t}; }})")
     s.show("#pick", "start")
     s.point("#pick")
-    time.sleep(1.5)
+    time.sleep(1)
     s.page.evaluate("() => { window.scrollTo({top: 0, behavior: 'smooth'}); }")
     time.sleep(1)
     s.page.evaluate("() => __spot('#video')")
     s.page.evaluate("() => document.getElementById('video').play()")
-    time.sleep(5)
+    time.sleep(4)
     s.page.evaluate("() => document.getElementById('video').pause()")
     s.show("#tubes", "start")
-    time.sleep(4)
+    time.sleep(3)
 
 
 def reviewer(s):
@@ -158,11 +171,11 @@ def confirm(s):
     s.page.evaluate("() => scrollTo({top: 0, behavior: 'smooth'})")
     time.sleep(0.8)
     s.page.evaluate("() => __spot('#status')")
-    time.sleep(3)
+    time.sleep(2.5)
     s.show("#analysisline")
-    time.sleep(3)
+    time.sleep(2.5)
     s.show("#setup")
-    time.sleep(3)
+    time.sleep(2.5)
 
 
 def robot(s):
@@ -173,7 +186,7 @@ def robot(s):
     s.wait("() => /ran it to the end|did not finish|didn't complete/.test(document.getElementById('flexline').textContent)", 400000)
     time.sleep(0.5)
     s.show("#flexline")
-    time.sleep(7)
+    time.sleep(5)
 
 
 def browser(s):
@@ -194,24 +207,24 @@ def labels(s):
     s.page.dispatch_event("#rx", "input")
     s.wait("() => /passed|failed|Couldn't/.test(document.getElementById('rxline').textContent)")
     s.page.evaluate("() => __spot('#rxline')")
-    time.sleep(3)
+    time.sleep(2.2)
     s.point("#zplbtn", click=True)
     s.wait("() => document.querySelectorAll('#zplview img').length > 0", 120000)
-    time.sleep(1)
+    time.sleep(0.6)
     s.show("#zplview")
-    time.sleep(4)
+    time.sleep(3)
 
 
 def receipt(s):
     s.go(SITE + "/app?run=pcr_1-gt", "() => !document.getElementById('otsline').hidden || document.getElementById('f-receipt').href")
     s.show("#otsline")
     time.sleep(3)
-    s.page.goto("https://zenodo.org/records/23876762", wait_until="domcontentloaded")
+    s.nav("https://zenodo.org/records/23876762", wait_until="domcontentloaded")
     time.sleep(1.5)
     s.page.evaluate("() => { const b = [...document.querySelectorAll('button')].find(x => /Accept all cookies|Accept only essential/.test(x.textContent)); b && b.click(); }")
     time.sleep(2)
     # the run's .eln as eLabFTW showed it after import (scripts/elabftw_roundtrip.py on demo.elabftw.net, Nov 2)
-    s.page.goto((HERE / "public" / "elab.html").resolve().as_uri())
+    s.nav((HERE / "public" / "elab.html").resolve().as_uri())
     time.sleep(1.2)
     time.sleep(1.5)
     s.page.evaluate("() => scrollTo({top: document.body.scrollHeight * 0.4, behavior: 'smooth'})")
@@ -245,7 +258,7 @@ def ecosystem(s):
     time.sleep(2.5)
     s.show("#steps", "start")
     time.sleep(2.5)
-    s.page.goto((HERE / "public" / "mcp.html").resolve().as_uri())
+    s.nav((HERE / "public" / "mcp.html").resolve().as_uri())
     time.sleep(4.5)
 
 
@@ -324,7 +337,9 @@ def record(name, min_s):
         SCENES[name](s)
         if t0 is None:
             mark()
-        left = min_s - (time.time() - t0)
+        s.cuts = [(max(a, t0), b) for a, b in s.cuts if b > t0]  # waiting before the clip starts is not in it anyway
+        cut_s = sum(b - a for a, b in s.cuts)
+        left = min_s - (time.time() - t0 - cut_s)
         if left > 0:
             time.sleep(left)  # hold the last frame long enough for the narration
         video = page.video
@@ -332,7 +347,14 @@ def record(name, min_s):
         b.close()
         src = video.path()
     lead = t0 - t_rec
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{lead:.2f}", "-i", str(src), "-an", "-vf", f"scale={W}:{H}:flags=lanczos", "-c:v", "libx264", "-crf", "18",
+    keep = f"scale={W}:{H}:flags=lanczos"
+    if s.cuts:  # times relative to the clip start (the -ss below)
+        drop = "+".join(f"between(t,{a - t0:.2f},{b - t0:.2f})" for a, b in s.cuts)
+        keep = f"fps=30,select='not({drop})',setpts=N/30/TB," + keep  # constant rate first: the recording's varies
+    cuts = json.loads((out.parent / "cuts.json").read_text()) if (out.parent / "cuts.json").exists() else {}
+    cuts[name] = round(cut_s, 1)
+    (out.parent / "cuts.json").write_text(json.dumps(cuts, indent=1))
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{lead:.2f}", "-i", str(src), "-an", "-vf", keep, "-c:v", "libx264", "-crf", "18",
                     "-preset", "veryfast", "-pix_fmt", "yuv420p", "-r", "30", "-movflags", "+faststart", str(out / f"{name}.mp4")], check=True)
     shutil.rmtree(raw, ignore_errors=True)
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(out / f"{name}.mp4")],

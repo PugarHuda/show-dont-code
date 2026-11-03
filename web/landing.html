@@ -135,6 +135,8 @@
   table.runs td.n { font-variant-numeric: tabular-nums; }
   .note { color: var(--muted); max-width: 38em; margin: 26px 0 0; font-size: 16.5px; }
 
+  #gap .scores > div { max-width: 21em; }
+  #gap .scores > div:nth-child(2) b { color: var(--red); }
   .pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin: 0 0 20px; }
   .pair figure, .strip figure { margin: 0; }
   .pair img, .strip img { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 22px; border: 1px solid var(--rule); background: #fff; }
@@ -222,6 +224,17 @@
     </figure>
   </div>
 
+  <section id="gap">
+    <div class="wrap">
+      <h2>Labs publish thousands of protocols. Robots run a hundred.</h2>
+      <div class="scores">
+        <div><b>3,522</b><span>public PCR protocols on protocols.io (API search, Nov 3 2026)</span></div>
+        <div><b>~100</b><span>ready-to-run protocols for the Opentrons Flex, 18 months after launch (<a href="https://www.businesswire.com/news/home/20250128131412/en">Opentrons, Jan 2025</a>)</span></div>
+      </div>
+      <p class="note">Everything else has to be programmed, and scripting liquid handlers "remains a persistent bottleneck requiring substantial programming expertise" (<a href="https://www.biorxiv.org/content/10.1101/2025.09.30.679666v1.full">bioRxiv, 2025</a>). Opentrons robots are in labs at thousands of institutions. Show, Don't Code starts from what a lab already has: the protocol they do by hand, or the one they already published.</p>
+    </div>
+  </section>
+
   <section id="how">
     <div class="wrap">
       <h2>What happens to your video</h2>
@@ -290,6 +303,7 @@ requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}
           <li><b>Runs on Opentrons' own robot software</b><span>The pcr_1-gt protocol passes Opentrons' simulator and <code>opentrons analyze</code> (134 commands), and runs to the end on Opentrons' robot-server, the software inside a Flex, in Flex simulation: 240 robot commands with two reactions, one fresh tip per transfer.</span></li>
           <li><b>Every line points back to the video</b><span>Each step carries the seconds it happened in your footage, so you can replay the moment before you trust it.</span></li>
           <li><b>Hand-offs where a robot can't help</b><span>Spinning down or inverting a tube becomes a pause that hands the run back to you.</span></li>
+          <li><b>Three minutes from upload to a protocol draft</b><span>A live upload of a 100-second BioVL2 video ran every stage on production in 3 min 11 s, from the bench sheet to the reviewer agent; its bench card was drawn in 105 s more.</span></li>
           <li><b>Checked against published protocols</b><span>Muse Spark reads protocols.io protocols that use the same kit and quotes the volumes they use; pcr_1-gt's premix is the same share of the reaction as a published PrimeSTAR protocol's 25 µL in 50 µL.</span></li>
           <li><b>Into your lab notebook</b><span>One <code>.eln</code> file brings the whole run into eLabFTW, RSpace or Kadi4Mat as an experiment: steps, checks, bench card and every file.</span></li>
           <li><b>Citable</b><span>The whole run, every model output and its hashes, is on Zenodo as <a href="https://doi.org/10.5281/zenodo.23876762">doi:10.5281/zenodo.23876762</a>.</span></li>

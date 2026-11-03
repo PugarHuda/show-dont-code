@@ -446,7 +446,7 @@ function showCard(c, base) {
   $("card").innerHTML = shown.map((s) => {
     const st = R.steps[s.step], title = esc(st.description || st.action), what = st.action === "transfer" && st.volume_ul
       ? `${st.volume_ul} µL ${esc(st.reagent || "")}${st.destination ? ` into ${esc(st.destination)}` : ""}` : "";
-    return `<li><figure><button type="button" class="seek" data-t="${s.t}" aria-label="Play step ${s.step + 1} in the video, at ${fmt(s.t)}"><img loading="lazy" src="${base}/${s.step}.jpg" alt="Illustration of step ${s.step + 1}: ${title}"></button>
+    return `<li><figure><button type="button" class="seek" data-t="${s.t}" aria-label="Play step ${s.step + 1} in the video, at ${fmt(s.t)}"><img loading="lazy" src="${base}/${s.step}.jpg?w=640" srcset="${base}/${s.step}.jpg?w=640 640w, ${base}/${s.step}.jpg 1280w" sizes="(max-width: 600px) 90vw, 330px" alt="Illustration of step ${s.step + 1}: ${title}"></button>
       <figcaption><b>${s.step + 1}. ${title}</b>${what && what !== title ? ` · ${what}` : ""}
       <span>video ${fmt(s.t)} · ${s.faithful ? "✓ Muse Spark: same scene" : `⚠ Muse Spark: ${esc(s.differences.join("; "))}`}</span></figcaption></figure></li>`;
   }).join("");

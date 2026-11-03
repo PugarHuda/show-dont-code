@@ -9,8 +9,9 @@ Numbers below come from `README.md` → Evaluation. Re-check them before submitt
 **Problem statement:** Push the Frontier
 
 **Project description**
-> Thousands of labs own liquid-handling robots that sit idle, because programming them means writing Python and
-> most scientists don't. Show, Don't Code turns one first-person video of a scientist doing a protocol by hand into
+> Labs publish thousands of protocols (3,522 public PCR protocols on protocols.io alone), but the Opentrons Flex had
+> about 100 ready-to-run protocols 18 months after launch: everything else has to be programmed in Python, and most
+> scientists don't. Show, Don't Code turns one first-person video of a scientist doing a protocol by hand into
 > an Opentrons Flex protocol that passes the official simulator. Muse Spark watches the video and finds every step;
 > a second pass looks closely at each aspiration moment to tell which tube the liquid came from. SAM 3.1 tracks
 > tubes the scientist clicks, and Muse Spark rejects the tracker's jumps. Muse Voice Transcribe turns narration into

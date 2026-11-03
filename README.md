@@ -14,6 +14,14 @@ this repository was written during the hackathon. The git history starts on Oct 
   (submitted for publication Nov 2, in protocols.io's review)
 - **MCP server:** https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp
 
+## Why
+
+There are 3,522 public PCR protocols on protocols.io (API search, Nov 3 2026), and about 100 ready-to-run protocols for
+the Opentrons Flex 18 months after its launch ([Opentrons, Jan 2025](https://www.businesswire.com/news/home/20250128131412/en)).
+Everything else has to be programmed, and scripting liquid handlers "remains a persistent bottleneck requiring
+substantial programming expertise" ([bioRxiv, 2025](https://www.biorxiv.org/content/10.1101/2025.09.30.679666v1.full)).
+Show, Don't Code starts from what a lab already has: the protocol they do by hand (a video), or the one they published.
+
 ## How it works
 
 Five Meta models, each doing the part it is best at:
