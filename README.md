@@ -318,6 +318,9 @@ Every model call is cached as JSON in `out/<run>/`, so re-runs and UI edits neve
 
 ## Data and attribution
 
+The code is open source under the [MIT License](LICENSE). The lab videos and everything derived from them (sample
+runs, bench card drawings, the Zenodo RO-Crate) keep BioVL2's CC BY 4.0 licence, as below.
+
 Videos and step annotations come from the **BioVL2 dataset** (Nishimura et al., Kyoto University),
 licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/),
 [zenodo.org/records/21495188](https://zenodo.org/records/21495188). The data is not redistributed here.
