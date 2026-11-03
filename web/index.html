@@ -328,6 +328,10 @@
         <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-ots" hidden>Bitcoin timestamp proof (.ots)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a>
         <a id="f-arc" title="Annotated Research Context (nfdi4plants): opens in ARCitect and the DataHUB">ARC (.zip)</a>
         <a id="f-eln" title="ELN Consortium format: import it into eLabFTW, RSpace, Kadi4Mat, SampleDB and other lab notebooks">Lab notebook entry (.eln)</a></p>
+      <form class="improw" id="elabform"><input type="url" id="elaburl" placeholder="https://your-elabftw.example.org" aria-label="Your eLabFTW address" required>
+        <input type="password" id="elabkey" placeholder="API key with write access" aria-label="eLabFTW API key" autocomplete="off" required>
+        <button type="submit" class="ghost" id="elabgo">Send to my eLabFTW</button></form>
+      <p class="hint" id="elabline" aria-live="polite">Imports this run into your own eLabFTW as an experiment only you can see, with every file attached. The key is passed on for this one import and never stored.</p>
       <p class="hint" id="otsline" hidden></p>
       <p class="hint" id="pdline" hidden>To change a volume or the cycling program without code, open
         <a href="https://designer.opentrons.com/" target="_blank" rel="noopener">Opentrons Protocol Designer</a>, choose Import
@@ -1204,6 +1208,18 @@ $("upform").onsubmit = (ev) => {
   };
   xhr.onerror = () => { $("upmsg").textContent = "Upload failed: check your connection and try again."; $("upgo").disabled = false; };
   xhr.send(f);  // raw body: the server caps the size while streaming
+};
+$("elabform").onsubmit = async (ev) => {
+  ev.preventDefault();
+  $("elabgo").disabled = true; $("elabline").textContent = "Sending to your eLabFTW…";
+  try {
+    const j = await api(`/api/runs/${encodeURIComponent(R.run)}/elabftw`, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: $("elaburl").value.trim(), key: $("elabkey").value.trim() }) });
+    $("elabkey").value = "";
+    $("elabline").replaceChildren("Imported as experiment ", Object.assign(document.createElement("a"),
+      { href: j.url, target: "_blank", rel: "noopener", textContent: `#${j.id}` }), " in your eLabFTW.");
+  } catch (e) { $("elabline").textContent = e.message; }
+  $("elabgo").disabled = false;
 };
 // a published protocol instead of a video: same pipeline, text in
 $("impgo").onclick = async () => {

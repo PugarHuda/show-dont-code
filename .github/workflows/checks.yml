@@ -36,6 +36,8 @@ jobs:
         run: python -m sdc.sila --self-check
       - name: Ontology terms still resolve in EBI OLS (label, not obsolete)
         run: python -m sdc.terms
+      - name: eLabFTW push refuses non-public addresses and malformed keys
+        run: python -m sdc.elab
       - name: Cross-check reaction totals and quote matching
         run: python -m sdc.crosscheck --self-check
       - name: protocols.io link parsing and related-protocol terms

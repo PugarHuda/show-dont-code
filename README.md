@@ -194,6 +194,18 @@ Then:
   (`sdc/eln.py`). It passes `rocrate-validator`'s RO-Crate 1.2 profile, and `python scripts/elabftw_roundtrip.py`
   imports it into the public eLabFTW demo (6.0.9) and checks the entry: on Nov 2 pcr_1-gt arrived as experiment with
   its steps table, checks, licence, tags and all 16 files, the bench card drawings shown as images.
+- **Send to my eLabFTW** (below the downloads; `POST /api/runs/{run}/elabftw`, `sdc/elab.py`): paste your eLabFTW
+  address and an API key, and the run arrives in your own notebook through eLabFTW's API v2 import, as an experiment
+  only you can read or edit. eLabFTW doesn't allow cross-site calls from the browser, so the app's server forwards the
+  file:
+  - the key is used for that one request and never stored or logged;
+  - the address must be https and resolve only to public IPs, so localhost, private networks and cloud-metadata
+    addresses are refused;
+  - the connection is pinned to the checked IP, and redirects are refused.
+
+  Tested on Nov 3 against the public eLabFTW demo: imported as an experiment with a real API key, a wrong key refused
+  with a clear message, and a localhost address and 169.254.169.254 refused. `python -m sdc.elab`, also in CI, checks
+  that 11 bad addresses and 5 malformed keys are refused before any request is sent.
 - **A photo or PDF of a protocol instead of a video** (`POST /api/import/document`, the upload dialog): a printed
   sheet, a notebook page or a paper's methods, up to 6 pages. The file's type is checked by its bytes, PDF pages are
   rendered and every page is re-encoded as a plain JPEG before Muse Spark transcribes them (illegible parts are marked,

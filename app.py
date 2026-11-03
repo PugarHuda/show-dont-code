@@ -842,6 +842,28 @@ def eln_file(name: str, request: Request):
                     headers={"Content-Disposition": f'attachment; filename="show-dont-code-{name}.eln"'})
 
 
+_elab_slots = threading.BoundedSemaphore(2)
+
+
+@app.post("/api/runs/{name}/elabftw")
+def send_to_elabftw(name: str, request: Request, url: str = Body(...), key: str = Body(...)):
+    """Import the run's .eln into the user's own eLabFTW, as an experiment only its owner can read or edit. eLabFTW has
+    no CORS, so this server forwards it; the key is used for this request only and never stored or logged."""
+    from sdc import elab
+
+    eln = eln_file(name, request).body
+    if not _elab_slots.acquire(timeout=30):
+        raise HTTPException(429, "busy: try again in a minute")
+    try:
+        return elab.push(eln, f"show-dont-code-{name}.eln", f"Show, Don't Code run {name}", url, key)
+    except elab.Refused as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001 - the eLabFTW couldn't be reached or answered oddly: say so, without the key
+        raise HTTPException(502, f"couldn't import into that eLabFTW: {type(e).__name__}: {str(e)[:200]}")
+    finally:
+        _elab_slots.release()
+
+
 @app.post("/api/runs/{name}/voice")
 async def voice(name: str, request: Request):
     """Spoken answers: Muse Voice Transcribe hears them, Muse Spark maps them to the open questions.

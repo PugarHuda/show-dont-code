@@ -734,6 +734,13 @@ def main():
         check("PWA: offline, a run already seen still shows its steps and every bench-card drawing",
               pp.evaluate("() => document.querySelectorAll('#steps li').length") == 6 and shown == 6, shown)
         pctx.close()
+        # ---- send to my eLabFTW: the form is there, and the server refuses addresses that aren't public -----
+        check("eLabFTW: the run page offers 'Send to my eLabFTW' with a password field for the key",
+              page.locator("#elabform #elabkey[type=password]").count() == 1 and page.locator("#elabgo").count() == 1)
+        st, body = fetch(f"{api}/api/runs/pcr_1-gt/elabftw", method="POST",
+                         data=json.dumps({"url": "https://169.254.169.254", "key": "0123456789abcdef0123"}).encode(),
+                         headers={"Content-Type": "application/json"})
+        check("eLabFTW: a cloud-metadata address is refused before any request", st == 400 and b"public internet" in body, (st, body[:120]))
         # ---- ARC (nfdi4plants): ISA investigation + assay table, with the run's files ----------------------
         st, arcz = fetch(f"{api}/api/runs/pcr_1-gt/run.arc.zip")
         an = zipfile.ZipFile(io.BytesIO(arcz)).namelist() if st == 200 else []
