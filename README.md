@@ -13,8 +13,10 @@ this repository was written during the hackathon. The git history starts on Oct 
 - **Demo video (2:58):** https://youtu.be/s_g8SAHBRDU, recorded live from production with Playwright, narrated and
   assembled in Remotion (`video/`); a 53 s square cut for X is the `Ad` composition (`npm run render:ad --prefix video`)
 - **Dataset:** the pcr_1-gt run as an RO-Crate on Zenodo, [doi:10.5281/zenodo.23876762](https://doi.org/10.5281/zenodo.23876762);
-  its protocol on protocols.io: https://www.protocols.io/view/pcr-setup-recovered-from-a-first-person-video-pcr-krdncv25f
-  (submitted for publication Nov 2, in protocols.io's review)
+  its protocol on protocols.io: https://www.protocols.io/view/pcr-setup-on-the-opentrons-flex-recovered-from-a-f-krdncv25f
+  (the first submission, on Nov 2, was declined by protocols.io's editors on Nov 3 for thin content. It was rewritten
+  as a full protocol on Nov 3, with reaction composition, materials, tube setup, warnings and 11 sectioned steps, by
+  `scripts/protocolsio_publish.py`, and is not public yet)
 - **MCP server:** https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp
 - **REST API (OpenAPI):** https://pugarhuda--show-dont-code-web.us-east.modal.run/docs, every endpoint the app uses,
   with its schema at `/openapi.json`, so a lab's own tools can call it directly (runs, protocol.py, exports, receipt,
