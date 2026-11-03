@@ -1,0 +1,16 @@
+.git
+.venv
+.env
+.env.*
+out
+demo
+data
+public
+video
+docs
+tests
+scripts
+.vercel
+.playwright-mcp
+__pycache__
+*.pyc

@@ -341,6 +341,20 @@ printf 'MODEL_API_KEY=...\nBASETEN_API_KEY=...\n' > .env
 Every model call is cached as JSON in `out/<run>/`, so re-runs and UI edits never re-bill the API.
 `--from-gt <csv>` replays the human annotations through the same pipeline without calling any model.
 
+**With Docker, on the lab's own machine** (footage never leaves it; the reviewer agent can run on open weights):
+
+```bash
+docker build -t show-dont-code .
+# process a video with your own keys, into ./out
+docker run --rm --env-file .env -v "$PWD/out:/app/out" -v "$PWD/my_video.mp4:/in.mp4" show-dont-code   python -m sdc.pipeline /in.mp4 --name my-run
+# review it, download protocol.py and every export: http://localhost:8000/app?run=my-run
+docker run --rm -p 8000:8000 -v "$PWD/out:/app/out" show-dont-code
+```
+
+The image runs Opentrons' simulator and analyzer, PyLabRobot and the MCP server; `docker run --rm show-dont-code python
+-m sdc.protocol` is its self-check (passes, with every Reactions count analysed). The hosted demo's upload and
+protocols.io-import endpoints live in `modal_app.py`; locally the pipeline runs from the command line as above.
+
 
 ## Data and attribution
 
