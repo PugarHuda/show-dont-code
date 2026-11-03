@@ -8,6 +8,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import time
@@ -177,6 +178,25 @@ def tip_evidence(tracks, steps, fps=SAM_FPS):
     return steps
 
 
+def _published(steps):
+    """The published_volumes tool for the reviewer, cached for the run: protocols.io is asked at most once per call
+    of build. None when there are no kit words to search for or no protocols.io token."""
+    from . import related
+
+    if not os.getenv("PROTOCOLSIO_TOKEN") or not related.terms(steps)[0]:
+        return None
+    memo = {}
+
+    def tool():
+        if "out" not in memo:
+            try:
+                memo["out"] = related.published_volumes(steps)
+            except Exception as e:  # noqa: BLE001 - protocols.io down: the agent hears why and carries on
+                memo["out"] = {"error": f"protocols.io unavailable: {type(e).__name__}"}
+        return memo["out"]
+    return tool
+
+
 def build(run_dir, steps, answers=None, review=True):
     """Apply scientist answers, generate the protocol, simulate. Returns the result dict (also saved).
 
@@ -235,7 +255,8 @@ def build(run_dir, steps, answers=None, review=True):
             frames = asset(run_dir, "sam_frames")
             out = agent.review(steps, sheet, sim, review_video if review_video.exists() else None,
                                simulate=(lambda vols: simulate_with(steps, vols)) if result["questions"] else None,
-                               frames_dir=frames if frames.exists() else None, fps=SAM_FPS)
+                               frames_dir=frames if frames.exists() else None, fps=SAM_FPS,
+                               published=_published(steps) if result["questions"] else None)
             result["review"], result["suggested_volumes"], result["agent_log"] = (
                 out["issues"], out["suggested_volumes"], out["tool_log"])
             result["review_model"], result["review_host_failures"] = out["model"], out["host_failures"]

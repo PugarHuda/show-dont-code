@@ -92,3 +92,30 @@ if __name__ == "__main__":  # python -m sdc.related: term extraction offline; a 
         assert r["protocols"] and all(p["doi"] for p in r["protocols"]), r
         print(json.dumps(r, indent=1)[:800])
     print("related self-check OK")
+
+
+VOL = re.compile(r"\d+(?:[.,]\d+)?\s*(?:µl|μl|ul|microlit)", re.I)
+
+
+def published_volumes(steps, top=3, token=None):
+    """For the reviewer agent: the lines that state volumes in up to `top` public protocols.io protocols using this
+    run's kit words, verbatim, with title and DOI. A deterministic search and grep, no model call: the agent reads
+    what other labs wrote, and must still prove any plan it bases on it in the simulator."""
+    from . import pio
+
+    rel = related(steps, token=token)
+    words = rel["reagent_words"]
+    out = []
+    for p in [p for p in rel["protocols"] if p["matched"] and p.get("doi")][:top]:
+        try:
+            text = pio.fetch(p["doi"], token=token)["text"]
+        except Exception as e:  # noqa: BLE001 - unpublished since the search, protocols.io down
+            out.append({"title": p["title"], "doi": p["doi"], "error": str(e)[:120]})
+            continue
+        raw = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        # a table cell that is only a volume ("25 uL") belongs to the cell above it ("PrimeStar Mix (2X)")
+        lines = [(f"{raw[i - 1]}: {ln}" if i and len(ln) < 16 else ln) for i, ln in enumerate(raw) if VOL.search(ln)]
+        kit = [ln for ln in lines if any(w in ln.lower() for w in words)]
+        out.append({"title": p["title"], "doi": p["doi"],
+                    "volume_lines": [ln[:240] for ln in (kit + [ln for ln in lines if ln not in kit])][:12]})
+    return {"kit_words": words, "protocols": out}

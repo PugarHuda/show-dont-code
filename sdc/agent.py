@@ -95,6 +95,15 @@ TOOLS = [{
             "required": ["seconds", "why"],
         },
     },
+}, {
+    "type": "function",
+    "function": {
+        "name": "published_volumes",
+        "description": ("How other labs dose this kit: public protocols.io protocols that use the run's kit words, with "
+                        "each protocol's lines that state volumes, verbatim, plus its title and DOI. Use it before "
+                        "planning missing volumes; cite the DOI in your finding, then prove the plan in the simulator."),
+        "parameters": {"type": "object", "properties": {}},
+    },
 }]
 MAX_LOOKS = 6
 
@@ -110,8 +119,8 @@ When the video is attached, it is the ground truth: check the steps against it (
 from the start). Flag a step you cannot see happen, an action you see that is missing from the steps, and
 a wrong tube or reagent. Say what you saw and at what time.
 
-If volumes are missing, work out a plan: use the sheet's per-reaction total and standard recipes for the kit
-you see, call simulate_with_volumes, read the per-tube totals, and adjust until the simulator passes and every
+If volumes are missing, work out a plan: use the sheet's per-reaction total, standard recipes for the kit you see
+and, when available, published_volumes (how published protocols dose the same kit; cite the DOI), call simulate_with_volumes, read the per-tube totals, and adjust until the simulator passes and every
 tube reaches the sheet's total. Only suggest volumes you verified this way, and then list EVERY reagent whose
 volume is missing in suggested_volumes, not just the ones you changed. Your suggestions are shown to the
 scientist as editable defaults; they decide.
@@ -203,7 +212,7 @@ class Chat:
                 self.hosts.pop(0)
 
 
-def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, fps=2):
+def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, fps=2, published=None):
     """simulator: status string. simulate: callable(volumes_ul) -> dict, exposed to the model as a tool.
     frames_dir: <index>.jpg stills of the video at `fps`, exposed as the look_at_moment tool.
 
@@ -220,7 +229,8 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": content}]
     log, looks = [], 0
     tools = [t for t in TOOLS if (t["function"]["name"] == "simulate_with_volumes" and simulate)
-             or (t["function"]["name"] == "look_at_moment" and frames_dir)]
+             or (t["function"]["name"] == "look_at_moment" and frames_dir)
+             or (t["function"]["name"] == "published_volumes" and published)]
     chat = Chat()
     for _ in range(MAX_TOOL_TURNS if tools else 0):
         m = chat(messages=messages, tools=tools, max_tokens=16000).choices[0].message
@@ -245,6 +255,8 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
                         looks += 1
                         images.append((sec, frame))
                         out = {"ok": f"frame at {sec:g} s attached in the next message"}
+                elif tc.function.name == "published_volumes" and published:
+                    out = published()
                 else:
                     out = {"error": f"unknown tool {tc.function.name}"}
             except (ValueError, TypeError, KeyError) as e:  # malformed arguments from the model

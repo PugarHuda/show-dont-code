@@ -32,7 +32,7 @@ Five Meta models, each doing the part it is best at:
 | **SAM 3.1** (Meta Model API) | Tracks the pipette tip. **Click-to-track**: the scientist clicks a tube in the video, and a point prompt follows it through the whole recording. |
 | **Muse Voice Transcribe** (Meta Model API) | Turns anything said aloud ("fifty microlitres of primer") into timestamped evidence for Muse Spark, with reagent names as keyword bias. |
 | **Muse Image** (Meta Model API) | Draws the **bench card**: each filmed step's own video frame redrawn as a clean training-manual illustration (an edit of the real frame, told to keep every object and draw no text), which Muse Spark then compares with the frame and sends back if anything was added, removed or moved. |
-| **Muse Spark Open** (open weights, served by Baseten) | Reviewer agent. Watches the video, checks the steps against it and the bench sheet, and **runs the Opentrons simulator as a tool** to work out a volume plan that hits the sheet's per-reaction total. |
+| **Muse Spark Open** (open weights, served by Baseten) | Reviewer agent. Watches the video, checks the steps against it and the bench sheet, and **runs the Opentrons simulator as a tool** to work out a volume plan that hits the sheet's per-reaction total. Its third tool, `published_volumes`, reads how public protocols.io protocols with the same kit dose it (the volume lines, verbatim, with DOIs); on pcr_3 it cited "PrimeStar Mix (2X): 25 uL in 50 uL" (doi:10.17504/protocols.io.81wgbrknnlpk/v2) before its plan passed the simulator. |
 
 Then:
 

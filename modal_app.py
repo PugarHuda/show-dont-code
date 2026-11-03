@@ -122,7 +122,7 @@ def try_flex(run: str = "pcr_1-gt", reactions: int = 0):
     print(json.dumps(flex_run.remote(src, {"reactions": reactions} if reactions else {}), indent=1))
 
 
-@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup], timeout=PROCESS_TIMEOUT, cpu=2.0,
+@app.function(image=image, volumes={RUNS: vol}, secrets=[secret, baseten, backup, protocolsio], timeout=PROCESS_TIMEOUT, cpu=2.0,
               memory=4096)
 def process(run_id: str):
     """Run the whole pipeline on an uploaded video. Progress events are committed as they happen."""
