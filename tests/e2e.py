@@ -743,6 +743,12 @@ def main():
         # ---- Opentrons' own robot-server (Flex simulation, on Modal) runs the protocol end to end ----------
         page.goto(BASE + "/app?run=pcr_1-gt")
         page.wait_for_selector("#flexrun", state="visible", timeout=60000)
+        sent = []
+        page.on("request", lambda r: "/flex-run/" in r.url and sent.append(r.url))
+        page.fill("#rx", "5")
+        page.click("#flexrun")
+        check("robot-server: a count a shared sample doesn't run says which counts it takes, without a request",
+              "takes 1, 2, 8, 24" in page.inner_text("#flexline") and not sent, (page.inner_text("#flexline"), sent))
         page.fill("#rx", "2")
         page.click("#flexrun")
         page.wait_for_function("() => /ran it to the end|did not finish|didn't complete/.test(document.getElementById('flexline').textContent)",

@@ -66,6 +66,9 @@ def build(name, title, steps, files, rec, source=None, card=None, card_images=No
           created=None, modified=None):
     """files: {filename: bytes} of the run (protocol.py, methods.md, receipt.json, ...). card_images: {step: jpeg}.
     review: the reviewer agent's findings. Returns the .eln zip bytes."""
+    if card:  # a step the scientist marked as never done doesn't belong on the training card
+        card = {**card, "steps": [c for c in card["steps"] if c["step"] < len(steps) and steps[c["step"]].get("action") != "skipped"]}
+        card_images = {i: b for i, b in (card_images or {}).items() if any(c["step"] == i for c in card["steps"])}
     root = f"show-dont-code-{name}"
     exp = f"./{name}/"
     files = dict(files)
@@ -81,7 +84,7 @@ def build(name, title, steps, files, rec, source=None, card=None, card_images=No
     upload = name.startswith("u-")
     licence = {"@id": "#no-license"} if upload else {"@id": CC_BY}
     experiment = {
-        "@id": exp, "@type": "Dataset", "genre": "experiment", "name": title, "author": {"@id": AUTHOR},
+        "@id": exp, "@type": "Dataset", "genre": "experiment", "name": title,
         "dateCreated": created or _iso(), "dateModified": modified or _iso(),
         "keywords": ", ".join(["Opentrons Flex", "lab automation", "liquid handling", "Show Don't Code"] +
                               (["PCR"] if any(s.get("action") == "thermocycle" or "PCR" in (s.get("description") or "")
@@ -89,8 +92,10 @@ def build(name, title, steps, files, rec, source=None, card=None, card_images=No
         "text": _body(name, steps, rec, source, card, app_url), "url": app_url, "license": licence,
         "hasPart": [{"@id": e["@id"]} for e in entities], "comment": [{"@id": c["@id"]} for c in comments],
     }
-    if source and source.get("doi"):
-        experiment["isBasedOn"] = {"@id": f"https://doi.org/{source['doi']}"}
+    if not name.startswith(("u-", "c-")):  # a visitor's upload or edited copy is their work, not the repo author's
+        experiment["author"] = {"@id": AUTHOR}
+    if source:  # read from a published protocol: that protocol, by DOI when it has one
+        experiment["isBasedOn"] = {"@id": f"https://doi.org/{source['doi']}" if source.get("doi") else source["url"]}
     elif not upload:
         experiment["isBasedOn"] = {"@id": BIOVL2}
     graph = [

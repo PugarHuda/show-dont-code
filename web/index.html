@@ -82,6 +82,11 @@
   .scan { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
   .xcheck .ok { color: var(--accent); font-weight: 700; } .xcheck .warn { color: var(--warn); font-weight: 700; }
   .xcheck q { color: var(--muted); font-size: 12px; }
+  .xcheck td { white-space: nowrap; } .xcheck td:last-child { white-space: normal; min-width: 14em; }
+  @media (max-width: 600px) {  /* thumbs: primary actions and inputs at least 44 px tall */
+    button, .files a, input[type=number], #rx { min-height: 44px; }
+    .files a { display: inline-flex; align-items: center; }
+  }
   .tablewrap { overflow-x: auto; }
   #srcline a, .xcheck a { color: var(--accent); }  /* default link blue is unreadable on the dark panel */
   .card { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
@@ -251,7 +256,7 @@
       <div class="scan" id="scanbox" hidden>
         <button id="scanbtn" type="button" class="ghost">Check the tube rack with your camera</button>
         <p id="rxbox" class="rx" hidden><label for="rx">Reactions</label>
-          <input id="rx" type="number" min="1" value="1" inputmode="numeric">
+          <input id="rx" type="number" min="1" step="1" value="1" inputmode="numeric">
           <span class="hint" id="rxnote"></span></p>
         <p class="hint" id="rxline" aria-live="polite"></p>
         <a id="f-labels" target="_blank" rel="noopener">Print the tube labels (QR, Avery L7160)</a>
@@ -400,6 +405,9 @@ async function load(n) {
   // captions of the speech in the video (Muse Voice Transcribe); a fresh <track> per run, none when nobody spoke
   $("video").querySelectorAll("track").forEach((t) => t.remove());
   if (R.captions) $("video").insertAdjacentHTML("beforeend", `<track kind="captions" default label="Speech (Muse Voice Transcribe)" src="${API}/api/runs/${encodeURIComponent(n)}/captions.vtt">`);
+  // the spoken example names one of this run's own reagents, not another run's
+  const q0 = (R.questions || []).map((q) => R.steps[q.step]).find((st) => st && st.reagent && !/^unknown/.test(st.reagent));
+  $("voicemsg").textContent = `Say the volumes and the cycle count, e.g. “${q0 ? q0.reagent : "water"} two point five, thirty five cycles”.`;
   render();
   related(n);
   benchCard(n);
@@ -499,9 +507,9 @@ async function crosscheck(n) {
     $("xline").textContent = rows.length
       ? `One filmed reaction is ${x.reaction_ul} µL. ${rows.length} published volume${rows.length > 1 ? "s" : ""} for the same reagents, as a share of each protocol's own reaction: ${same} agree within 20 %.`
       : "Muse Spark found no volume for these reagents in the published protocols.";
-    const pct = (v) => v == null ? "?" : `${Math.round(v * 100)} %`;
+    const pct = (v) => v == null ? "?" : `${Math.round(v * 100)} %`;
     $("xcheck").innerHTML = rows.map(({ p, w }) => `<tr><th scope="row">${esc(w.reagent)}</th><td>${w.ours_ul} µL (${pct(w.share_ours)})</td>
-      <td>${w.theirs_ul} µL (${pct(w.share_theirs)}) <span class="${w.agree ? "ok" : "warn"}">${w.agree == null ? "" : w.agree ? "✓ same share" : "differs"}</span></td>
+      <td>${w.theirs_ul} µL (${pct(w.share_theirs)}) <span class="${w.agree ? "ok" : "warn"}">${w.agree == null ? "" : w.agree ? "✓ same share" : "different share"}</span></td>
       <td><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a><br><q>${esc(w.quote)}</q></td></tr>`).join("");
     $("xbox").hidden = !rows.length;
   } catch (e) {
@@ -533,7 +541,12 @@ function pyodide() {
   return pyReady;
 }
 async function flexRun(base) {
-  const n = $("rxbox").hidden ? 1 : +$("rx").value || 1, line = $("flexline"), btn = $("flexrun");
+  const n = $("rxbox").hidden ? 1 : Math.max(1, Math.round(+$("rx").value) || 1), line = $("flexline"), btn = $("flexrun");
+  const top = R.max_reactions || 1, offered = [...new Set([1, 2, 8, 24, top])].filter((k) => k <= top);
+  if (!/^[ucp]-/.test(name) && !offered.includes(n)) {  // the server keeps a shared sample's receipt to these counts
+    line.textContent = `On this shared sample the robot-server run takes ${offered.join(", ")} reactions; ${n} is checked by Opentrons' analysis above.`;
+    return;
+  }
   btn.disabled = true;
   line.textContent = `Running on Opentrons' robot-server with ${n} reaction${n > 1 ? "s" : ""}: uploading, robot analysis, deck setup, play…`;
   try {
@@ -753,7 +766,12 @@ function render() {
 async function submitAnswers(ev) {
   ev.preventDefault();
   const answers = Object.fromEntries([...new FormData(ev.target)].flatMap(([k, v]) => k.split(",").map((i) => [i, Number(v)])));
-  try { R = await api(`/api/runs/${encodeURIComponent(name)}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answers) }); render(); }
+  try {
+    const had = !!R.protocol;
+    R = await api(`/api/runs/${encodeURIComponent(name)}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(answers) });
+    render();
+    if (R.protocol && !had) { related(name); benchCard(name); }  // the volume cross-check needs the finished protocol
+  }
   catch (e) { alert(e.message); }
 }
 
@@ -900,7 +918,7 @@ function labelLinks() {
   $("f-labels").href = `${base}/labels.svg${q}`;
   $("f-zpl").href = `${base}/labels.zpl${q}`;
   $("rxnote").textContent = `of up to ${top}: pick the same number under "Reactions" when you start the run on the robot. ` +
-    `Copy ${n > 1 ? `2–${n} go` : "2 onwards goes"} into the next PCR plate wells.`;
+    (n > 1 ? `Copies 2–${n} go into the next PCR plate wells.` : "");
   $("zplview").hidden = true; $("zplview").replaceChildren();
 }
 // the chosen number, checked the way the Opentrons App will: its own analysis with Reactions set, on the server
@@ -1192,7 +1210,11 @@ async function follow(run, note = "") {
     $("upsteps").innerHTML = Object.entries(last).filter(([k]) => k !== "finished")
       .map(([k, st]) => `<li class="${st === "running" ? "" : st === "error" ? "error" : "done"}">${esc(k)}${st === "running" ? " …" : st === "error" ? ": failed" : ""}</li>`).join("");
     if (p.ready) { location.search = `?run=${encodeURIComponent(run)}`; return; }
-    if (Object.values(last).includes("error")) { $("upmsg").textContent = "The analysis failed. Try a shorter or brighter video, or open one of the sample runs."; return; }
+    if (Object.values(last).includes("error")) {
+      const bad = Object.keys(last).find((k) => last[k] === "error" && k !== "failed");
+      $("upmsg").textContent = `The analysis failed${bad ? ` at "${bad}"` : ""}. If the video is long or dark, try a shorter or brighter one; otherwise a model service may be down, so try again later, or open one of the sample runs.`;
+      return;
+    }
     await new Promise((r) => setTimeout(r, 4000));
   }
 }

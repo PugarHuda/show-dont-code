@@ -544,6 +544,9 @@ def related_crosscheck(name: str):
         if c.get("key") == key:
             return c
     with _rx_locks[f"crosscheck-{d.name}"]:
+        cache = d / "crosscheck.json"  # another request may have finished it while this one waited
+        if cache.exists() and json.loads(cache.read_text(encoding="utf-8")).get("key") == key:
+            return json.loads(cache.read_text(encoding="utf-8"))
         rel = related_protocols(name)
         spend_live_call(min(3, len([p for p in rel["protocols"] if p.get("doi")])) or 1)
         try:

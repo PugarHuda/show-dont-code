@@ -52,7 +52,12 @@ def _cached(path, fn, label=None):
         return json.loads(path.read_text(encoding="utf-8"))
     if label:
         progress(path.parent, label, "running")
-    value = fn()
+    try:
+        value = fn()
+    except BaseException:
+        if label:
+            progress(path.parent, label, "error")  # the progress list shows which stage failed, not a stuck "running"
+        raise
     path.write_text(json.dumps(value, indent=1), encoding="utf-8")
     if label:
         progress(path.parent, label, "done")
