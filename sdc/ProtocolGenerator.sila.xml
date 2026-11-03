@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Feature SiLA2Version="1.0" FeatureVersion="1.0" Originator="io.github.pugarhuda" Category="protocols"
+         xmlns="http://www.sila-standard.org"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.sila-standard.org https://gitlab.com/SiLA2/sila_base/raw/master/schema/FeatureDefinition.xsd">
+    <Identifier>ProtocolGenerator</Identifier>
+    <DisplayName>Protocol Generator</DisplayName>
+    <Description>Opentrons Flex protocols that Show, Don't Code made from a filmed (or published) bench protocol, with the checks Opentrons' own analyzer runs on them.</Description>
+    <Property>
+        <Identifier>Runs</Identifier>
+        <DisplayName>Runs</DisplayName>
+        <Description>The public runs on this server, by name.</Description>
+        <Observable>No</Observable>
+        <DataType><List><DataType><Basic>String</Basic></DataType></List></DataType>
+    </Property>
+    <Command>
+        <Identifier>GetSteps</Identifier>
+        <DisplayName>Get Steps</DisplayName>
+        <Description>The confirmed bench steps of a run as JSON: action, reagent, volume in microlitres, source, destination, cycles.</Description>
+        <Observable>No</Observable>
+        <Parameter>
+            <Identifier>RunName</Identifier>
+            <DisplayName>Run Name</DisplayName>
+            <Description>A run name, as listed by Runs.</Description>
+            <DataType><Basic>String</Basic></DataType>
+        </Parameter>
+        <Response>
+            <Identifier>Steps</Identifier>
+            <DisplayName>Steps</DisplayName>
+            <Description>The steps as a JSON array.</Description>
+            <DataType><Basic>String</Basic></DataType>
+        </Response>
+        <DefinedExecutionErrors><Identifier>UnknownRun</Identifier><Identifier>NotReady</Identifier></DefinedExecutionErrors>
+    </Command>
+    <Command>
+        <Identifier>GetProtocol</Identifier>
+        <DisplayName>Get Protocol</DisplayName>
+        <Description>The run's Opentrons Flex protocol (Python, API 2.24), which passed the Opentrons simulator.</Description>
+        <Observable>No</Observable>
+        <Parameter>
+            <Identifier>RunName</Identifier>
+            <DisplayName>Run Name</DisplayName>
+            <Description>A run name, as listed by Runs.</Description>
+            <DataType><Basic>String</Basic></DataType>
+        </Parameter>
+        <Response>
+            <Identifier>Protocol</Identifier>
+            <DisplayName>Protocol</DisplayName>
+            <Description>protocol.py</Description>
+            <DataType><Basic>String</Basic></DataType>
+        </Response>
+        <DefinedExecutionErrors><Identifier>UnknownRun</Identifier><Identifier>NotReady</Identifier></DefinedExecutionErrors>
+    </Command>
+    <Command>
+        <Identifier>AnalyzeProtocol</Identifier>
+        <DisplayName>Analyze Protocol</DisplayName>
+        <Description>Runs Opentrons' analyzer on the run's protocol with its Reactions parameter set, as the Opentrons App does after run setup.</Description>
+        <Observable>Yes</Observable>
+        <Parameter>
+            <Identifier>RunName</Identifier>
+            <DisplayName>Run Name</DisplayName>
+            <Description>A run name, as listed by Runs.</Description>
+            <DataType><Basic>String</Basic></DataType>
+        </Parameter>
+        <Parameter>
+            <Identifier>Reactions</Identifier>
+            <DisplayName>Reactions</DisplayName>
+            <Description>How many reactions to set up, 1 to the protocol's maximum.</Description>
+            <DataType><Basic>Integer</Basic></DataType>
+        </Parameter>
+        <Response>
+            <Identifier>Passed</Identifier>
+            <DisplayName>Passed</DisplayName>
+            <Description>Whether Opentrons' analyzer found no errors.</Description>
+            <DataType><Basic>Boolean</Basic></DataType>
+        </Response>
+        <Response>
+            <Identifier>Commands</Identifier>
+            <DisplayName>Commands</DisplayName>
+            <Description>How many robot commands the protocol runs.</Description>
+            <DataType><Basic>Integer</Basic></DataType>
+        </Response>
+        <Response>
+            <Identifier>LiquidSetup</Identifier>
+            <DisplayName>Liquid Setup</DisplayName>
+            <Description>What to load into each tube before the run, as JSON.</Description>
+            <DataType><Basic>String</Basic></DataType>
+        </Response>
+        <DefinedExecutionErrors><Identifier>UnknownRun</Identifier><Identifier>NotReady</Identifier><Identifier>InvalidReactions</Identifier></DefinedExecutionErrors>
+    </Command>
+    <DefinedExecutionError>
+        <Identifier>UnknownRun</Identifier>
+        <DisplayName>Unknown Run</DisplayName>
+        <Description>No public run has this name.</Description>
+    </DefinedExecutionError>
+    <DefinedExecutionError>
+        <Identifier>NotReady</Identifier>
+        <DisplayName>Not Ready</DisplayName>
+        <Description>The run has no protocol yet (open questions unanswered) or its protocol failed the simulator.</Description>
+    </DefinedExecutionError>
+    <DefinedExecutionError>
+        <Identifier>InvalidReactions</Identifier>
+        <DisplayName>Invalid Reactions</DisplayName>
+        <Description>Reactions is outside 1 to the protocol's maximum.</Description>
+    </DefinedExecutionError>
+</Feature>

@@ -7,11 +7,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt PyLabRobot==0.2.2
 # own step, as on Modal: mcp lifts jsonschema past opentrons' pin, and app.py imports it only if present
-RUN pip install --no-cache-dir mcp==2.3.0 pypdfium2==4.30.0 arctrl==3.2.3
+RUN pip install --no-cache-dir mcp==2.3.0 pypdfium2==4.30.0 arctrl==3.2.3 sila2==0.14.0
 COPY app.py ./
 COPY sdc sdc
 COPY web web
 ENV OT_API_CONFIG_DIR=/tmp/opentrons PYTHONIOENCODING=utf-8 PYTHONUNBUFFERED=1
 VOLUME /app/out
-EXPOSE 8000
+EXPOSE 8000 50052
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

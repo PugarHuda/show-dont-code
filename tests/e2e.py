@@ -741,6 +741,15 @@ def main():
               "show-dont-code-pcr_1-gt/isa.investigation.xlsx" in an and "show-dont-code-pcr_1-gt/assays/liquid_handling/isa.assay.xlsx" in an
               and zipfile.ZipFile(io.BytesIO(arcz)).read("show-dont-code-pcr_1-gt/assays/liquid_handling/protocols/protocol.py") == proto
               and "show-dont-code-pcr_1-gt/assays/liquid_handling/dataset/receipt.json" in an, (st, an[:4]))
+        if an:  # the assay table's device column carries OBI terms (xlsx is a zip; arctrl writes strings inline)
+            sheet = zipfile.ZipFile(io.BytesIO(zipfile.ZipFile(io.BytesIO(arcz)).read(
+                "show-dont-code-pcr_1-gt/assays/liquid_handling/isa.assay.xlsx")))
+            strings = "".join(sheet.read(n).decode("utf-8", "replace") for n in sheet.namelist() if n.endswith(".xml"))
+            check("ARC: the assay table names its devices with OBI terms (liquid handler, thermal cycler)",
+                  "liquid handler" in strings and "OBI:0400112" in strings and "OBI:0400116" in strings, strings[:200])
+        page_ld = page.evaluate("""() => fetch('/app?run=pcr_1-gt').then(r => r.text())""")
+        check("Bioschemas: the run page's LabProtocol names its equipment with OBI DefinedTerms",
+              '"termCode": "OBI:0400112"' in page_ld and '"@type": "LabProtocol"' in page_ld)
         # ---- bench card: Muse Image redraws each step's frame, Muse Spark checks it -------------------------
         card = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/bench-card")[1])
         st, img = fetch(f"{api}/api/runs/pcr_1-gt/bench-card/{card['steps'][0]['step']}.jpg")

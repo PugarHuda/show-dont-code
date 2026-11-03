@@ -201,6 +201,24 @@ Then:
   The sample `pdf_colony_pcr` is protocols.io's own 3-page PDF of a public Colony PCR protocol (CC BY 4.0); on Nov 3 the
   same PDF and a single page photo ran live on production in about 2 minutes each. A visitor's document gets no licence,
   like a video upload; the RO-Crate and .eln cite it by the SHA-256 of its pages.
+- **Ontology terms** (`sdc/terms.py`): the ARC's assay table and the run page's Bioschemas JSON-LD name the
+  equipment and step types with OBI and CHMO terms: liquid handler, thermal cycler, centrifuge, vortexer, mixing and
+  centrifugation. A term is used only where it matches exactly. A pipetted transfer has no exact OBI process term, so
+  it stays plain text rather than get a near miss. `python -m sdc.terms`, also in CI, checks every IRI in EBI OLS:
+  label unchanged, not obsolete.
+- **A SiLA 2 server** (`python -m sdc.sila`), so a lab's SiLA scheduler or orchestrator can drive it next to its other
+  instruments. It is built on the official `sila2` library, with its own feature definition
+  (`sdc/ProtocolGenerator.sila.xml`):
+  - **Runs:** the public runs on this machine.
+  - **GetSteps:** a run's steps.
+  - **GetProtocol:** a run's `protocol.py`.
+  - **AnalyzeProtocol:** an observable command that runs Opentrons' analyzer at a given reaction count and returns
+    whether it passed, the command count and the liquid setup.
+  - **Defined errors:** `UnknownRun` (uploads stay private), `NotReady` and `InvalidReactions`.
+
+  The server is announced over mDNS. Tested with a SiLA client: discovered on the LAN, and every property and command
+  called. `--self-check`, also in CI, does the same against a run of its own. It runs on the lab's machine (Docker,
+  below) rather than on the hosted demo, because SiLA is a lab-network gRPC protocol.
 - **An ARC** (`run.arc.zip`, Annotated Research Context, nfdi4plants/DataPLANT), written with the official `arctrl`
   library: an ISA investigation whose assay table has a row per robot step (source tube -> Opentrons Flex action ->
   reagent, volume in µL with its unit ontology, cycles -> destination), with protocol.py and the methods as the assay's
@@ -354,6 +372,8 @@ docker build -t show-dont-code .
 docker run --rm --env-file .env -v "$PWD/out:/app/out" -v "$PWD/my_video.mp4:/in.mp4" show-dont-code   python -m sdc.pipeline /in.mp4 --name my-run
 # review it, download protocol.py and every export: http://localhost:8000/app?run=my-run
 docker run --rm -p 8000:8000 -v "$PWD/out:/app/out" show-dont-code
+# the same runs as a SiLA 2 server for the lab's scheduler (host network, so SiLA clients find it over mDNS)
+docker run --rm --network host -v "$PWD/out:/app/out" show-dont-code python -m sdc.sila --port 50052
 ```
 
 The image runs Opentrons' simulator and analyzer, PyLabRobot and the MCP server; `docker run --rm show-dont-code python

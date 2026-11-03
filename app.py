@@ -29,7 +29,7 @@ if os.getenv("VERCEL") == "1":  # opentrons writes its config under $HOME at imp
     os.environ.setdefault("OT_API_CONFIG_DIR", "/tmp/opentrons")
     os.environ["HOME"] = "/tmp"
 
-from sdc import pipeline, protocol  # noqa: E402  (must follow the env setup above)
+from sdc import pipeline, protocol, terms  # noqa: E402  (must follow the env setup above)
 
 ROOT = Path(__file__).resolve().parent
 app = FastAPI(title="Show, Don't Code", version="1.0.0", description=(
@@ -217,10 +217,12 @@ def lab_protocol(name):
         "description": ("Steps recovered " + ("from a protocol document" if source else "from a first-person video of the "
                         "protocol done by hand") + ", turned into an Opentrons Flex protocol by Show, Don't Code."),
         "license": "https://creativecommons.org/licenses/by/4.0/",
-        "labEquipment": ["Opentrons Flex"] + (["thermal cycler"] if any(s["action"] == "thermocycle" for s in steps) else []),
+        "labEquipment": ["Opentrons Flex"] + [{"@type": "DefinedTerm", "name": t[0], "termCode": t[2].replace("_", ":"),
+                                               "url": terms.iri(t)} for t in terms.equipment(steps)],
         "reagentUsed": sorted({s["reagent"] for s in steps if s.get("reagent")}),
         "step": [{"@type": "HowToStep", "position": i + 1, "text": " ".join(str(x) for x in (
-            s.get("description") or s["action"], f"{s['volume_ul']} µL" if s.get("volume_ul") else "") if x)}
+            s.get("description") or s["action"], f"{s['volume_ul']} µL" if s.get("volume_ul") else "") if x),
+            **({"additionalType": terms.iri(terms.ACTION[s["action"]])} if s["action"] in terms.ACTION else {})}
             for i, s in enumerate(steps)],
         "isPartOf": {"@id": "https://github.com/PugarHuda/show-dont-code"},
     }

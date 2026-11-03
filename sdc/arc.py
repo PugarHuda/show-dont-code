@@ -10,6 +10,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from sdc import terms
+
 VOLUME = ("volume", "PATO", "http://purl.obolibrary.org/obo/PATO_0000918")
 MICROLITRE = ("microliter", "UO", "http://purl.obolibrary.org/obo/UO_0000101")
 CYCLES = ("number of cycles", "", "")
@@ -32,6 +34,13 @@ def investigation(name, title, steps, author=True, description=""):
                 [CompositeCell.create_free_text(s.get("source") or s.get("reagent") or "") for s in rows])
     t.AddColumn(CompositeHeader.protocol_ref(),
                 [CompositeCell.create_free_text(f"Opentrons Flex {s['action']}") for s in rows])
+
+    def term(t):  # an ontology term from sdc.terms, or an empty term where no exact one exists
+        return OntologyAnnotation(t[0], t[1], terms.iri(t)) if t else OntologyAnnotation("")
+
+    t.AddColumn(CompositeHeader.protocol_type(), [CompositeCell.create_term(term(terms.ACTION.get(s["action"]))) for s in rows])
+    t.AddColumn(CompositeHeader.component(term(terms.DEVICE)),
+                [CompositeCell.create_term(term(terms.EQUIPMENT.get(s["action"]))) for s in rows])
     t.AddColumn(CompositeHeader.parameter(OntologyAnnotation("reagent")),
                 [CompositeCell.create_term(OntologyAnnotation(s.get("reagent") or "")) for s in rows])  # terms, by ISA rules
     t.AddColumn(CompositeHeader.parameter(vol),
@@ -44,7 +53,7 @@ def investigation(name, title, steps, author=True, description=""):
                                                                         "thermocycle" else "")) for s in rows])
     assay = ArcAssay.init("liquid_handling")
     assay.MeasurementType = OntologyAnnotation("liquid handling")
-    assay.TechnologyPlatform = OntologyAnnotation("Opentrons Flex")
+    assay.TechnologyPlatform = OntologyAnnotation("Opentrons Flex")  # a product: no ontology term; its type is the column above
     assay.AddTable(t)
     inv.AddAssay(assay)
     return inv
@@ -91,5 +100,7 @@ if __name__ == "__main__":  # write, read back with arctrl, compare
         assert t.RowCount == 3, t.RowCount  # the centrifuge is a hand-off, not a robot step
         heads = [str(h) for h in t.Headers]
         assert heads[0] == "Input [Source Name]" and heads[-1] == "Output [Sample Name]", heads
-        assert str(t.GetCellAt(0, 0)).find("source tube 1") >= 0 and "20" in str(t.GetCellAt(3, 0)), (t.GetCellAt(0, 0), t.GetCellAt(3, 0))
+        kinds = [str(t.GetCellAt(heads.index("Component [device]"), r)) for r in range(3)]
+        assert "liquid handler" in kinds[0] and "thermal cycler" in kinds[2], kinds
+        assert str(t.GetCellAt(0, 0)).find("source tube 1") >= 0 and "20" in str(t.GetCellAt(heads.index("Parameter [volume]"), 0)), heads
     print("arc self-check OK")
