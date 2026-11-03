@@ -68,7 +68,8 @@ def fetch(url, method="GET", data=None, headers=None):
 def main():
     with sync_playwright() as p:
         b = p.chromium.launch(channel="chrome")
-        page = b.new_page(viewport={"width": 1440, "height": 900})
+        # no service worker here: page.route can't see requests a service worker answers; the PWA has its own check
+        page = b.new_page(viewport={"width": 1440, "height": 900}, service_workers="block")
         errors, bad = [], []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("response", lambda r: r.status >= 400 and "favicon" not in r.url and bad.append(f"{r.status} {r.url}"))
@@ -711,6 +712,28 @@ def main():
         for body, want in ((b"not a picture at all", 422), (b"", 413), (b"%PDF-1.7 truncated", 422)):
             st, _ = fetch(f"{api}/api/import/document", "POST", body, {"Content-Type": "application/pdf"})
             check(f"document import: refuses {body[:12]!r} before any model call", st == want, st)
+        # ---- PWA: installable, and a run already seen stays readable offline at the bench ------------------
+        pctx = b.new_context(viewport={"width": 1280, "height": 900})
+        pp = pctx.new_page()
+        pp.goto(BASE + "/app?run=pcr_1-gt")
+        pp.evaluate("() => navigator.serviceWorker.ready")
+        pp.reload()
+        pp.wait_for_function("() => navigator.serviceWorker.controller !== null", timeout=30000)
+        pp.wait_for_function("() => document.querySelectorAll('#card img').length > 0", timeout=60000)
+        pp.evaluate("() => document.querySelectorAll('#card img').forEach(i => i.loading = 'eager')")
+        pp.wait_for_function("() => [...document.querySelectorAll('#card img')].every(i => i.complete && i.naturalWidth > 0)", timeout=90000)
+        pp.wait_for_timeout(1500)
+        pctx.set_offline(True)
+        pp.reload()
+        pp.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=30000)
+        pp.evaluate("() => document.querySelectorAll('#card img').forEach(i => i.loading = 'eager')")
+        pp.wait_for_timeout(2500)
+        shown = pp.evaluate("() => [...document.querySelectorAll('#card img')].filter(i => i.complete && i.naturalWidth > 0).length")
+        check("PWA: offline, a run already seen still shows its steps and every bench-card drawing",
+              pp.evaluate("() => document.querySelectorAll('#steps li').length") == 6 and shown == 6, shown)
+        mf = pctx.new_cdp_session(pp).send("Page.getAppManifest")
+        check("PWA: the web app manifest parses with no errors", not mf.get("errors") and mf.get("url", "").endswith("/manifest.webmanifest"), mf.get("errors"))
+        pctx.close()
         # ---- ARC (nfdi4plants): ISA investigation + assay table, with the run's files ----------------------
         st, arcz = fetch(f"{api}/api/runs/pcr_1-gt/run.arc.zip")
         an = zipfile.ZipFile(io.BytesIO(arcz)).namelist() if st == 200 else []
