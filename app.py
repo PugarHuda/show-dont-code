@@ -13,6 +13,7 @@ import threading
 import time
 from collections import defaultdict
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -244,6 +245,27 @@ def lab_protocol(name):
     }
     if based:
         out["isBasedOn"] = based
+    # what F-UJI (FAIRsFAIR's evaluator, metric v0.8) looks for, from what the run already records: who made and
+    # published it and when (as in the RO-Crate), the same keywords as the .eln entry, open access, the files with
+    # their media types, and PROV terms for where it came from and what made it
+    if source and source.get("kind") == "document" and not source.get("license"):
+        del out["license"]  # a document's own licence is unknown: claim none
+    out["@context"]["prov"] = "http://www.w3.org/ns/prov#"
+    out["creator"] = {"@type": "Person", "@id": AUTHOR_ID, "name": "Pugar Huda Mantoro"}
+    out["publisher"] = {"@type": "Organization", "@id": site, "name": "Show, Don't Code", "url": site}
+    out["datePublished"] = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
+    out["keywords"] = ["Opentrons Flex", "lab automation", "liquid handling", "Show Don't Code"] + (
+        ["PCR"] if any(s.get("action") == "thermocycle" for s in steps) or "pcr" in name else [])
+    out["isAccessibleForFree"] = True
+    out["conditionsOfAccess"] = "Open: anyone with the link can read the run and download its files; no account."
+    if r.get("protocol") and r.get("sim_ok"):
+        api = os.getenv("API_BASE") or site
+        out["distribution"] = [{"@type": "DataDownload", "contentUrl": f"{api}/api/runs/{name}/{n}", "encodingFormat": t,
+                                **({"contentSize": f"{len(r['protocol'].encode('utf-8'))} B"} if n == "protocol.py" else {})}
+                               for n, t in SIGNPOST_ITEMS]
+    if based:
+        out["prov:wasDerivedFrom"] = based
+    out["prov:wasGeneratedBy"] = {"@id": "https://github.com/PugarHuda/show-dont-code", "@type": "prov:SoftwareAgent"}
     return out
 
 

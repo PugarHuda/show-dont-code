@@ -820,6 +820,13 @@ def main():
         page_ld = page.evaluate("""() => fetch('/app?run=pcr_1-gt').then(r => r.text())""")
         check("Bioschemas: the run page's LabProtocol names its equipment with OBI DefinedTerms",
               '"termCode": "OBI:0400112"' in page_ld and '"@type": "LabProtocol"' in page_ld)
+        ld = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/labprotocol.jsonld")[1])
+        check("FAIR: the LabProtocol carries what F-UJI scores (creator, publisher, date, keywords, open access, the "
+              "files with media types, PROV derivation and generation)",
+              all(ld.get(k) for k in ("creator", "publisher", "datePublished", "keywords", "isAccessibleForFree",
+                                      "conditionsOfAccess", "prov:wasDerivedFrom", "prov:wasGeneratedBy"))
+              and len(ld.get("distribution", [])) == 7 and all(d.get("encodingFormat") for d in ld["distribution"]),
+              sorted(ld))
         # ---- FAIR Signposting, read by its reference parser (github.com/stain/signposting) ---------------------
         from signposting import find_signposting_http, find_signposting_linkset
         sp = find_signposting_http(BASE + "/app?run=pcr_1-gt")

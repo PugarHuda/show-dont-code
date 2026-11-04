@@ -306,6 +306,12 @@ Then:
   `describes`). A run with open questions lists only its metadata, since its files would answer 409, and a private
   upload announces nothing. There is no `cite-as`: a run has no persistent identifier of its own that resolves to its
   page. The e2e suite reads it all with the reference parser (`signposting`) and fetches every target.
+  Scored by [F-UJI](https://www.f-uji.net) (FAIRsFAIR's automated FAIR assessment, 4.0.1, metric v0.8) on pcr_1-gt's
+  page, Nov 4: 20/26 and "moderate" at first; the page's JSON-LD then gained what the run already records (creator,
+  publisher and publication date as in the RO-Crate, the `.eln` keywords, open access, each file as a DataDownload
+  with its media type, PROV `wasDerivedFrom`/`wasGeneratedBy`), and it scored 25/26, "advanced" (Findable 6/7,
+  Accessible 7/7, Interoperable 6/6, Reusable 6/6). The missing point is a persistent identifier per run (FsF-F1-02MD),
+  which needs a DOI minted for each run.
 - **A SiLA 2 server** (`python -m sdc.sila`), so a lab's SiLA scheduler or orchestrator can drive it next to its other
   instruments. It is built on the official `sila2` library, with its own feature definition
   (`sdc/ProtocolGenerator.sila.xml`):
@@ -387,7 +393,7 @@ inline script is hash-listed, nothing the pages need is blocked, the landing pag
 (`get_protocol` must be byte for byte the downloaded file), the bench card (every drawing served, the receipt hashes
 `card.json`, a shared sample can't be redrawn, Enter on a drawing seeks the video), the `.eln` (one root folder, ELN
 1.2+20260923, every file attached and hashed, the body's steps and checks) and the volume cross-check (quotes present,
-the premix share agrees, a half-confirmed run is refused), and the landing page and a finished run again in Firefox, WebKit and an emulated iPhone 13 (no script error, no CSP block, bench mode hidden where the browser has no speech synthesis), and FAIR Signposting through its reference parser: 209/209 against production on Nov 4. A live upload, the way a judge would
+the premix share agrees, a half-confirmed run is refused), and the landing page and a finished run again in Firefox, WebKit and an emulated iPhone 13 (no script error, no CSP block, bench mode hidden where the browser has no speech synthesis), and FAIR Signposting through its reference parser: 210/210 against production on Nov 4. A live upload, the way a judge would
 try it (Nov 3: the first 100 s of a BioVL2 PCR video with the access code), ran every stage on production in 3 min 11 s,
 from the bench sheet to the reviewer agent, and its bench card was drawn live in 105 s. That upload also exposed an agent gap: with no legible bench sheet and
 unnamed tubes, the reviewer returned an empty review without calling a tool. It is now told, and reminded in its final
