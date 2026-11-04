@@ -24,6 +24,45 @@ this repository was written during the hackathon. The git history starts on Oct 
   RO-Crate, .eln, robot-server runs, imports)
 - **Cite it:** `CITATION.cff` (GitHub's "Cite this repository"); the pcr_1-gt run is a dataset with its own DOI
 
+## Bonus prizes: the evidence
+
+Every number below is recomputed from files in the runs, with the script named, not taken from a log line.
+
+**Best Build on Meta Open Weight Models: Muse Spark Open on Baseten** (`meta-models/muse-spark-open-1026`,
+`sdc/agent.py`; Fireworks hosts the same open weights as the backup).
+- It is the reviewer agent: it watches the video and runs the Opentrons simulator itself (table below).
+- It can also watch the video to find the steps (stage 1) instead of the API model: on the held-out PCR videos it
+  finds 0.54 of the steps (Muse Spark 1.3: 0.62) with a fifth of the frames, and beats Spark on `pcr_3`
+  (`scripts/open_bench.py`, table under Evaluation). An all-open-weights tier is realistic for a lab that can't send
+  footage to an API.
+
+**Best Agentic Use-Case: what the agent actually did** (`python scripts/agent_stats.py`, from each run's
+`agent_log`). It chooses which video moments to look at, writes volume plans, runs them through the simulator,
+revises the ones that fail, and turns what it can't settle into one question each. It never edits steps or runs
+a robot: its volumes are pre-filled suggestions the scientist confirms.
+
+| Run | Host | Saw video | Frames looked at | Simulator tries (passed) | Findings: block / check / info | One-click fixes | Simulator-checked volumes |
+|---|---|---|---|---|---|---|---|
+| miniprep_7 | – | no | 6 | 1 (1) | 0 / 0 / 0 | 0 | 0 |
+| pcr_1 | baseten | yes | 6 | 4 (3) | 2 / 0 / 2 | 0 | 5 |
+| pcr_2 | – | yes | 6 | 2 (1) | 7 / 0 / 0 | 4 | 0 |
+| pcr_3 | baseten | yes | 6 | 2 (1) | 4 / 0 / 1 | 0 | 3 |
+| pcr_4 | baseten | yes | 6 | 2 (1) | 6 / 0 / 2 | 2 | 5 |
+| pcr_5 | – | yes | 6 | 1 (1) | 1 / 0 / 0 | 0 | 0 |
+| pdf_colony_pcr | baseten | no | 0 | 4 (2) | 1 / 0 / 0 | 0 | 5 |
+| protocolsio_q5 | baseten | no | 0 | 1 (1) | 1 / 0 / 0 | 0 | 2 |
+| **All 8 runs** | | | 36 | 17 (11) | | 6 | 20 |
+
+Six of the 17 simulator calls failed (five plans with a volume under the pipette's 1 µL minimum, one with no reason
+logged) and the agent changed its plan after each. On `pcr_3` it worked out that the polymerase volume was under the minimum and
+suggested a 10× dilution with a volume that passes. Host "–": runs reviewed before the host was recorded. Runs
+without video are the PDF and protocols.io imports.
+
+**Best Creative Build: the bench card** (Muse Image edits of the real frames, Muse Spark checks each one). Across the
+7 video samples: 108 step drawings, 141 images including redraws, 33 first drafts sent back for adding, removing or
+moving something, 100 of 108 passed the check (each `card.json`: `attempts`, `faithful`, `differences`). Every word
+and volume on the card comes from the protocol, not the image model.
+
 ## Why
 
 There are 3,522 public PCR protocols on protocols.io (API search, Nov 3 2026), and about 100 ready-to-run protocols for
@@ -31,6 +70,14 @@ the Opentrons Flex 18 months after its launch ([Opentrons, Jan 2025](https://www
 Everything else has to be programmed, and scripting liquid handlers "remains a persistent bottleneck requiring
 substantial programming expertise" ([bioRxiv, 2025](https://www.biorxiv.org/content/10.1101/2025.09.30.679666v1.full)).
 Show, Don't Code starts from what a lab already has: the protocol they do by hand (a video), or the one they published.
+
+One video targets every robot it writes for, more than 16,000 installed liquid handlers counted conservatively:
+over 11,000 Opentrons robots (Flex and OT-2, company figure,
+[GEN, Oct 2026](https://www.genengnews.com/topics/artificial-intelligence/opentrons-raises-40m-in-series-e-to-expand-its-robotics-software-data-infrastructure/)),
+5,000 Hamilton STAR-line units already by 2013
+([Hamilton, May 2013](https://www.mynewsdesk.com/se/hamilton-robotics/pressreleases/unit-number-5000-of-ml-starline-shipped-to-uppsala-biobank-864258)),
+and "thousands" of Tecan Freedom EVOs, whose sales ended in 2025 while Tecan supports them to 2033
+([Tecan](https://lifesciences.tecan.com/freedom-evo-packages)).
 
 ## How it works
 
@@ -366,6 +413,27 @@ on the bench sheet or a textbook PCR rather than from the tube in hand (on `pcr_
 evenly spaced 7-second slots; without the sheet hint it put the premix second, where the primers really go: 0.33).
 It did beat Spark on `pcr_4`, the video Spark handles worst. One run per video, prompts tuned on Spark, so this
 favours Spark; it is why the pipeline keeps Spark for watching.
+
+**Can open weights watch too?** On Nov 4 the same stage 1 ran on **Muse Spark Open** (open weights, Baseten,
+`meta-models/muse-spark-open-1026`): same prompt, hints, strict step schema and scorer, on the video the reviewer
+agent already sends it (`review.mp4`, 2 fps, 480 px; Baseten samples at most 96 frames and takes at most 300 s, so
+`miniprep_7` lost its last 7 s). `python scripts/open_bench.py pcr_1 pcr_2 pcr_3 pcr_4 pcr_5 miniprep_7`; every
+video answered on the first try, in 36 to 120 s.
+
+| Video | Muse Spark 1.3 (API), stage 1 | **Muse Spark Open (open weights)**, stage 1 |
+|---|---|---|
+| pcr_1 (dev) | 1.00 / 1.00 / 0.87 | 0.33 / 0.40 / 0.51 |
+| pcr_2 | 0.83 / 0.50 / 0.51 | 0.67 / 0.50 / 0.62 |
+| pcr_3 | 0.67 / 0.67 / 0.65 | **0.83 / 0.71** / 0.50 |
+| pcr_4 | 0.33 / 0.25 / 0.52 | 0.00 / 0.00 / 0.00 |
+| pcr_5 | 0.67 / 0.50 / 0.57 | 0.67 / 0.40 / 0.59 |
+| **PCR test mean (n=4)** | 0.62 / 0.48 | **0.54 / 0.40** |
+| miniprep_7 | 0.28 / 0.42 / 0.82 | 0.22 / 0.27 / 0.56 |
+
+With a fifth of the frames and a prompt tuned on Spark, the open model finds 87 % of what Spark finds on the held-out
+PCR videos and beats it on `pcr_3`. It fails on `pcr_4` (one step for the whole video). That makes an all-open-weights
+tier realistic for a lab that can't send footage to an API: watching, reviewing and the simulator loop all on a model
+it can host itself, with the same codegen and checks after it. It is not the default because Spark is still ahead.
 
 Known failures:
 - `pcr_4`: stage 1 invents a "master mix" preparation that never happens. Stage 2 renames events but cannot
