@@ -16,7 +16,8 @@ this repository was written during the hackathon. The git history starts on Oct 
   its protocol on protocols.io: https://www.protocols.io/view/pcr-setup-on-the-opentrons-flex-recovered-from-a-f-krdncv25f
   (the first submission, on Nov 2, was declined by protocols.io's editors on Nov 3 for thin content. It was rewritten
   as a full protocol on Nov 3, with reaction composition, materials, tube setup, warnings and 11 sectioned steps, by
-  `scripts/protocolsio_publish.py`, and is not public yet)
+  `scripts/protocolsio_publish.py`, and resubmitted for publication on Nov 4; it is in protocols.io's editorial
+  review and not public yet)
 - **MCP server:** https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp
 - **REST API (OpenAPI):** https://pugarhuda--show-dont-code-web.us-east.modal.run/docs, every endpoint the app uses,
   with its schema at `/openapi.json`, so a lab's own tools can call it directly (runs, protocol.py, exports, receipt,
