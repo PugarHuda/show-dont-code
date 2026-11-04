@@ -282,7 +282,9 @@ Then:
   - the connection is pinned to the checked IP, and redirects are refused.
 
   Tested on Nov 3 against the public eLabFTW demo: imported as an experiment with a real API key, a wrong key refused
-  with a clear message, and a localhost address and 169.254.169.254 refused. `python -m sdc.elab`, also in CI, checks
+  with a clear message, and a localhost address and 169.254.169.254 refused. Again on Nov 4 from production (experiment
+  #30, 19 s): all 19 files, the Tecan worklist and transfer CSV included, arrived with the same SHA-256 as in the `.eln`,
+  visible and writable by the owner only. `python -m sdc.elab`, also in CI, checks
   that 17 bad addresses (including IPv6 forms that wrap a private IPv4: NAT64 `64:ff9b::a9fe:a9fe` is 169.254.169.254) and 5 malformed keys are refused before any request is sent; replies over 1 MB are cut off.
 - **A photo or PDF of a protocol instead of a video** (`POST /api/import/document`, the upload dialog): a printed
   sheet, a notebook page or a paper's methods, up to 6 pages. The file's type is checked by its bytes, PDF pages are
