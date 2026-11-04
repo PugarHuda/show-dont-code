@@ -681,6 +681,14 @@ def main():
         page.wait_for_function("() => /expired/.test(document.getElementById('status').textContent)", timeout=60000)
         check("app: an expired copy link says so instead of 'analysing your video'",
               not page.evaluate("() => document.getElementById('updlg').open"), page.inner_text("#status"))
+        try:  # a held-open GET stream blocks the backend's volume reloads and its deploys; it must answer at once
+            with urllib.request.urlopen(urllib.request.Request(api + "/mcp", headers={"Accept": "text/event-stream"}), timeout=10) as r:
+                st = r.status
+        except urllib.error.HTTPError as e:
+            st = e.code
+        except Exception as e:
+            st = type(e).__name__
+        check("mcp: GET /mcp is a 405 at once, not an SSE stream held open", st == 405, st)
         tools, mproto, mrun, (err, msg), mpd, (mlab, mlab8), mflex, mcard = ThreadPoolExecutor(1).submit(asyncio.run, mcp_session(api + "/mcp")).result()  # Playwright owns this thread's loop
         check("mcp: read-only tools listed", tools == ["list_runs", "get_run", "get_protocol", "get_protocol_designer",
                                                      "get_tube_labels", "run_on_flex_robot_server", "get_related_protocols",
