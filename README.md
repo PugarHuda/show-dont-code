@@ -361,7 +361,7 @@ can film the protocol in the upload dialog: the back camera is recorded in the b
 the browser records it, else WebM) and sent as the upload; a codec MP4 can't hold as is (VP8) is re-encoded to
 H.264 on the server. The e2e records with Chromium's fake camera, runs the server's ffmpeg step on the clip, and
 sends it to the real endpoint with a wrong code. Pages are served under a strict
-Content-Security-Policy (scripts run only with a per-response nonce, plus the pinned Pyodide release and WebAssembly for the in-browser re-run, the pinned QR reader and the pinned ZPL renderer; no inline handlers, no `eval`, no framing),
+Content-Security-Policy (only the inline scripts whose SHA-256 the policy lists run, so the pages can sit on the CDN; plus the pinned Pyodide release and WebAssembly for the in-browser re-run, the pinned QR reader and the pinned ZPL renderer; no inline handlers, no `eval`, no framing),
 with `nosniff`, a referrer policy, and a permissions policy that allows only the page's own microphone (voice answers)
 and camera (recording, label scanning). The Vercel front end holds only a read-only demo bundle, so its `/api/*` and
 `/mcp` redirect (307) to the Modal backend: one source of truth for receipts, timestamp proofs and edits.
@@ -373,7 +373,7 @@ replay, every download (the receipt hash must equal the SHA-256 of `protocol.py`
 (bad answers, path traversal, script in the URL, wrong upload code, non-audio voice), edit copies (answers
 and fixes on a sample land in a private copy, the sample is unchanged, the copy's link reopens it), the
 Protocol Designer round trip on designer.opentrons.com (import, then its own export through `opentrons analyze`), the CSP (headers, every
-script carries the nonce, nothing the pages need is blocked), and the MCP server through the official MCP client
+inline script is hash-listed, nothing the pages need is blocked, the landing page comes from the CDN cache), and the MCP server through the official MCP client
 (`get_protocol` must be byte for byte the downloaded file), the bench card (every drawing served, the receipt hashes
 `card.json`, a shared sample can't be redrawn, Enter on a drawing seeks the video), the `.eln` (one root folder, ELN
 1.2+20260923, every file attached and hashed, the body's steps and checks) and the volume cross-check (quotes present,

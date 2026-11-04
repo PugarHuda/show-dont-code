@@ -87,16 +87,22 @@ def main():
               page.inner_text("#what") == "Primer2" and page.evaluate("() => document.querySelector('.deck .tube.on')?.dataset.tube") == "C1"
               and "Step 3 of 6" in page.inner_text("#count"), page.inner_text("#shot"))
         csp_seen += page.evaluate("() => window.__csp || []")
-        for path in ("/", "/app"):
+        for path in ("/", "/app", "/app?run=pcr_1-gt"):
             with urllib.request.urlopen(BASE + path, timeout=60) as r:
-                h = r.headers
+                h, html = r.headers, r.read().decode()
             csp = h.get("Content-Security-Policy", "")
-            check(f"security: {path} has a nonce-only script CSP and nosniff",
-                  "script-src 'nonce-" in csp and "unsafe-inline" not in csp.split("script-src")[1].split(";")[0]
-                  and "frame-ancestors 'none'" in csp and h.get("X-Content-Type-Options") == "nosniff", csp)
-        with urllib.request.urlopen(BASE + "/app", timeout=60) as r:
-            html = r.read().decode()
-        check("security: no script runs without the nonce", html.count("<script") == html.count("<script nonce="), html.count("<script"))
+            src = csp.split("script-src")[1].split(";")[0] if "script-src" in csp else ""
+            inline = re.findall(r"<script([^>]*)>(.*?)</script>", html, re.S)
+            want = ["'sha256-%s'" % base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
+                    for attrs, body in inline if "application/ld+json" not in attrs]
+            check(f"security: {path} runs only inline scripts whose hash the CSP lists, and sends nosniff",
+                  want and all(x in src for x in want) and src.count("'sha256-") == len(want) and "unsafe-inline" not in src
+                  and "frame-ancestors 'none'" in csp and h.get("X-Content-Type-Options") == "nosniff", (len(want), src[:120]))
+        if BASE.startswith("https://"):  # the CDN keeps the page: a crowd opening the link doesn't each wake a function
+            for _ in range(2):
+                with urllib.request.urlopen(BASE + "/", timeout=60) as r:
+                    hit = r.headers.get("X-Vercel-Cache", "")
+            check("perf: the landing page is served from the CDN cache", hit in ("HIT", "STALE", "PRERENDER"), hit)
         # the video sits below the deck since the redesign; Chrome pauses muted autoplay while it is off screen
         page.locator("#hero").scroll_into_view_if_needed()
         page.wait_for_function("() => { const v = document.getElementById('hero'); return !v.paused && v.readyState >= 2; }", timeout=20000)

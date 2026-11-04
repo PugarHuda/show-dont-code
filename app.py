@@ -1,5 +1,7 @@
 """Review UI server: human video next to the generated robot protocol.  Run: python app.py"""
 import asyncio
+import base64
+import hashlib
 import json
 import logging
 import math
@@ -151,20 +153,25 @@ def media(name: str):  # local preview only; on Vercel public/media is served by
 
 
 def _page(path, head=""):
-    """An HTML page under a strict CSP: only scripts carrying this response's nonce run, so injected markup can't."""
+    """An HTML page under a strict CSP: only the inline scripts whose SHA-256 is listed run, so injected markup can't.
+    Hashes, not a per-response nonce: the pages hold no visitor input, so the same bytes can sit on the CDN and twenty
+    judges opening the link at once don't each wake a function (a nonce made every response unique: p50 9.7 s at 20)."""
     api = os.getenv("API_BASE", "")  # hosted: the API lives on Modal; empty = same origin (local, Modal itself)
     if not re.fullmatch(r"(https://[\w.-]+)?", api):
         raise HTTPException(500, "API_BASE must be an https origin")
-    nonce = secrets.token_urlsafe(16)
-    html = path.read_text(encoding="utf-8").replace("</head>", head + "</head>", 1).replace("<script>", f'<script nonce="{nonce}">')
+    html = path.read_text(encoding="utf-8").replace("</head>", head + "</head>", 1)
+    # every bare <script> is ours (the JSON-LD block is typed data and never runs); each gets its hash in script-src
+    hashes = " ".join("'sha256-%s'" % base64.b64encode(hashlib.sha256(m.encode()).digest()).decode()
+                      for m in re.findall(r"<script>(.*?)</script>", html, re.S))
     # Pyodide (CPython in WebAssembly, pinned release) re-runs the PyLabRobot simulations in the visitor's browser
     pyo = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/"
     jsqr = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"  # reads tube labels from the camera (pinned + SRI)
     zplr = "https://cdn.jsdelivr.net/npm/zpl-renderer-js@4.0.0/dist/"  # draws the Zebra labels in the browser (zebrash)
-    csp = (f"default-src 'self'; script-src 'nonce-{nonce}' 'wasm-unsafe-eval' {pyo} {jsqr} {zplr}index.external.esm.js; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    csp = (f"default-src 'self'; script-src {hashes} 'wasm-unsafe-eval' {pyo} {jsqr} {zplr}index.external.esm.js; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
            f"font-src https://fonts.gstatic.com; img-src 'self' data: blob: {api}; media-src 'self' blob: {api}; "
            f"connect-src 'self' {api} {pyo} {zplr}zebrash.wasm https://pypi.org https://files.pythonhosted.org; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
-    return HTMLResponse(html, headers={"Content-Security-Policy": " ".join(csp.split())})
+    return HTMLResponse(html, headers={"Content-Security-Policy": " ".join(csp.split()),
+                                       "Cache-Control": "public, max-age=0, s-maxage=300, stale-while-revalidate=3600"})
 
 
 @app.middleware("http")
@@ -1296,6 +1303,13 @@ if MCPServer:
         """Reproducibility receipt: SHA-256 of the protocol, the video and every model output, and which models ran,
         anchored in Bitcoin with OpenTimestamps ('timestamp': pending calendars, or the confirming block)."""
         return _http(receipt, name)
+
+    @app.get("/mcp")
+    def mcp_no_stream():
+        # the spec lets a server answer GET with 405 when it offers no server-to-client stream, and these tools never
+        # push anything. The SDK's stateless mode still held every GET open for the full 900 s timeout: with one web
+        # container that blocked each volume reload (stale progress for uploads) and held a deploy back ~8 min
+        raise HTTPException(405, "this MCP server takes POST only (no server-sent stream)", headers={"Allow": "POST"})
 
     app.mount("/", mcp.streamable_http_app(  # mounted last, so every route above matches first
         streamable_http_path="/mcp", stateless_http=True, json_response=True,
