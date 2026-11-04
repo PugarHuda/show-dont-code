@@ -130,9 +130,11 @@ def protocol_designer(analysis, title):
             z = loc.get("offset", {}).get("z", 0) + (depth if loc.get("origin", "top") == "top" else 0)
             tip["at"] = (lw_ids[p["labwareId"]], p["wellName"], round(max(z, 0.5), 1))
             if kind != "moveToWell":
-                tip["moves"].append((kind, tip["at"], p["volume"]))
+                tip["moves"].append([kind, tip["at"], p["volume"], p.get("flowRate"), None])
         elif tip and kind in ("aspirateInPlace", "dispenseInPlace"):
-            tip["moves"].append((kind.replace("InPlace", ""), tip["at"], p["volume"]))
+            tip["moves"].append([kind.replace("InPlace", ""), tip["at"], p["volume"], p.get("flowRate"), None])
+        elif tip and kind == "waitForDuration" and tip["moves"]:  # the liquid class's pause after a draw or dispense
+            tip["moves"][-1][4] = p["seconds"]
         elif kind == "dropTipInPlace" and tip:
             asps = [m for m in tip["moves"] if m[0] == "aspirate"]
             disps = [m for m in tip["moves"] if m[0] == "dispense"]
@@ -146,7 +148,11 @@ def protocol_designer(analysis, title):
                 add({**LIQUID_FORM, **name, "pipette": tip["pipette"], "tipRack": tip["rack"], "volume": _num(asp[2]),
                      "aspirate_labware": asp[1][0], "aspirate_wells": [asp[1][1]], "aspirate_mmFromBottom": asp[1][2],
                      "dispense_labware": disp[1][0], "dispense_wells": [disp[1][1]], "dispense_mmFromBottom": disp[1][2],
-                     "dropTip_location": trash})
+                     "dropTip_location": trash,
+                     # the Opentrons liquid class's rates and pauses, so an edit in the designer keeps the premix slow
+                     "aspirate_flowRate": asp[3] and round(asp[3], 2), "dispense_flowRate": disp[3] and round(disp[3], 2),
+                     "aspirate_delay_checkbox": bool(asp[4]), "aspirate_delay_seconds": _num(asp[4] or 1),
+                     "dispense_delay_checkbox": bool(disp[4]), "dispense_delay_seconds": _num(disp[4] or 1)})
             tip = None
         elif kind == "thermocycler/setTargetLidTemperature":
             tc = p["celsius"]
@@ -255,6 +261,8 @@ if __name__ == "__main__":
     cycle = next(prof["profileItemsById"][i] for i in prof["orderedProfileItems"] if prof["profileItemsById"][i]["type"] == "profileCycle")
     assert cycle["repetitions"] == "35" and prof["blockTargetTempHold"] == "4" and forms[5]["lidOpen"], prof
     assert all(pd["designerApplication"]["data"]["pipetteTiprackAssignments"].values())
+    rates = [c["params"]["flowRate"] for c in a["commands"] if c["commandType"] in ("aspirate", "aspirateInPlace")]
+    assert forms[1]["aspirate_flowRate"] in [round(r, 2) for r in rates] and forms[1]["dispense_flowRate"] and forms[1]["aspirate_delay_checkbox"] in (True, False), forms[1]
     # Opentrons runs the file itself: same liquid handling and the same thermocycler time as protocol.py
     (tmp / "pd.json").write_text(json.dumps(pd), encoding="utf-8")
     ok2, an2 = protocol.analyze(json.dumps(pd), tmp / "b.json", "protocol.json")

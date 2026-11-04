@@ -402,6 +402,31 @@ def tecan_file(name: str):
                              headers={"Content-Disposition": f'attachment; filename="{name}-tecan-evo.py"'})
 
 
+@app.get("/api/runs/{name}/tecan.gwl")
+def tecan_worklist_file(name: str, robot: str = "evo", aqueous: str = "", viscous: str = "", volatile: str = ""):
+    """Tecan worklist for EVOware / FluentControl (robotools, volume-tracked). Liquid class names per installation."""
+    from sdc import export
+
+    if robot not in ("evo", "fluent"):
+        raise HTTPException(422, "robot must be evo or fluent")
+    classes = {"water": aqueous[:64], "glycerol_50": viscous[:64], "ethanol_80": volatile[:64]}
+    try:
+        gwl = export.tecan_worklist(_confirmed_steps(name), robot, classes)
+    except Exception as e:  # robotools' volume tracking: an over-filled well is refused, not written
+        if "Volume" not in type(e).__name__:
+            raise
+        raise HTTPException(409, f"robotools refused the worklist: {e}")
+    return PlainTextResponse(gwl, headers={"Content-Disposition": f'attachment; filename="{name}-{robot}.gwl"'})
+
+
+@app.get("/api/runs/{name}/transfers.csv")
+def transfers_csv_file(name: str):
+    from sdc import export
+
+    return PlainTextResponse(export.transfer_csv(_confirmed_steps(name)), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{name}-transfers.csv"'})
+
+
 def _ot2(name):
     """The same confirmed steps for an OT-2 (P20/P300 GEN2, Thermocycler GEN2), and Opentrons' analysis of that file
     with opentrons 9.0.0 (10.x refuses OT-2 protocols), cached per file hash: at the default and at the most reactions."""
@@ -445,8 +470,8 @@ def ot2_check(name: str):
 
 @app.get("/api/runs/{name}/analysis.json")
 def analysis_file(name: str):
-    f = _run_dir(name) / "analysis.json"
-    if not f.exists():
+    f = _analysis(_run_dir(name))
+    if not f:
         raise HTTPException(409, "no analysis yet: the protocol has to pass the simulator first")
     return FileResponse(f, media_type="application/json", filename=f"{name}-opentrons-analysis.json")
 
@@ -581,7 +606,9 @@ def bench_card_image(name: str, i: int, w: int = 0):
 
             small.parent.mkdir(exist_ok=True)
             img = Image.open(f).convert("RGB")
-            img.resize((640, round(img.height * 640 / img.width))).save(small, "JPEG", quality=82)
+            tmp = small.with_name(f"{small.name}.{secrets.token_hex(4)}.tmp")  # a reader never sees half a JPEG
+            img.resize((640, round(img.height * 640 / img.width))).save(tmp, "JPEG", quality=82)
+            os.replace(tmp, small)
         f = small
     elif w:
         raise HTTPException(422, "w is 640 or left out")
@@ -625,6 +652,14 @@ def draw_bench_card(name: str):
 _card_locks = defaultdict(threading.Lock)
 
 
+def _run_title(d):
+    """What names the protocol: a sample's BioVL2 name (miniprep_7) via its copy_of, or an import's title."""
+    src = pipeline.asset(d, "source.json")
+    title = json.loads(src.read_text(encoding="utf-8")).get("title") or "" if src.exists() else ""
+    sample = (d / "copy_of").read_text().strip() if (d / "copy_of").exists() else d.name
+    return f"{title} {'' if sample.startswith('u-') else sample}".strip()
+
+
 @app.get("/api/runs/{name}/related")
 def related_protocols(name: str):
     """Published protocols on protocols.io that use this run's reagents (brand and kit names), with their DOIs.
@@ -633,14 +668,15 @@ def related_protocols(name: str):
 
     d = _run_dir(name)
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
-    words, kind = related.terms(steps)
+    title = _run_title(d)
+    words, kind = related.terms(steps, title)
     cache = d / "related.json"
     if cache.exists():
         c = json.loads(cache.read_text(encoding="utf-8"))
         if c.get("reagent_words") == words and c.get("kind") == kind:
             return c
     try:
-        out = related.related(steps)
+        out = related.related(steps, title=title)
     except Exception:  # noqa: BLE001 - token missing, protocols.io down or changed
         log.exception("protocols.io search failed for %s", name)
         raise HTTPException(503, "protocols.io search is unavailable right now")
@@ -683,11 +719,19 @@ def related_crosscheck(name: str):
     return c
 
 
+def _analysis(d):
+    """analysis.json of the run's current protocol, or None: a protocol that failed the simulator or still needs answers
+    has none, and an edit copy that never rebuilt reads its sample's (same protocol)."""
+    r = json.loads((d / "result.json").read_text(encoding="utf-8"))
+    f = pipeline.asset(d, "analysis.json")
+    return f if r.get("protocol") and r.get("sim_ok") and r.get("analysis_ok") and f.exists() else None
+
+
 def _designer(d, name):
     from sdc import designer
 
-    f = d / "analysis.json"
-    if not f.exists():
+    f = _analysis(d)
+    if not f:
         raise HTTPException(409, "no analysis yet: the protocol has to pass the simulator first")
     return designer.protocol_designer(json.loads(f.read_text(encoding="utf-8")), f"Show, Don't Code: {name}")
 
@@ -719,7 +763,9 @@ def receipt(name: str):
     # every model output the protocol depends on: steps, bench sheet and cycling program, speech, tip and tube tracks
     files = {f: _sha256(pipeline.asset(d, f).read_bytes()) for f in (
         "video.mp4", "source.json", "steps_raw.json", "steps_stage2.json", "sheet.json", "profile.json", "speech.json",
-        "tracks_tip.json", "tubes.json", "card.json", "analysis.json") if pipeline.asset(d, f).exists()}
+        "tracks_tip.json", "tubes.json", "card.json") if pipeline.asset(d, f).exists()}
+    if _analysis(d):  # Opentrons' analysis only of the protocol this receipt is for
+        files["analysis.json"] = _sha256(_analysis(d).read_bytes())
     psha = _sha256(r["protocol"].encode("utf-8"))
     flex = [json.loads(f.read_text(encoding="utf-8")) for f in sorted((d / "flex_runs").glob(f"{psha[:16]}-*.json"))]
     answers = json.loads((d / "answers.json").read_text()) if (d / "answers.json").exists() else {}
@@ -789,17 +835,25 @@ def _run_files(name, request):
     title = f"Show, Don't Code run {name}"
     gen = {"protocol.py": r["protocol"].encode("utf-8"), "methods.md": export.methods_markdown(steps, title).encode("utf-8"),
            "autoprotocol.json": json.dumps(export.autoprotocol(steps), indent=1).encode("utf-8"),
-           "pylabrobot.py": export.pylabrobot_script(steps).encode("utf-8"),
-           "tecan-evo.py": export.pylabrobot_script(steps, "evo150").encode("utf-8"),
+           "transfers.csv": export.transfer_csv(steps).encode("utf-8"),
            "receipt.json": json.dumps(rec, indent=1).encode("utf-8"),
            "labels.svg": export.tube_labels(steps, _app_link(name, request))[0].encode("utf-8"),
            "labels.zpl": export.tube_labels_zpl(steps, _app_link(name, request))[0].encode("utf-8")}
+    for f, make in (("pylabrobot.py", lambda: export.pylabrobot_script(steps)),
+                    ("tecan-evo.py", lambda: export.pylabrobot_script(steps, "evo150")),
+                    ("tecan-evo.gwl", lambda: export.tecan_worklist(steps))):
+        try:  # a run bigger than one tip carrier, or a well robotools refuses, has no such file; the rest still ships
+            gen[f] = make().encode("utf-8")
+        except Exception as e:  # noqa: BLE001 - ValueError, or robotools' VolumeOverflowError
+            if not isinstance(e, ValueError) and "Volume" not in type(e).__name__:
+                raise
+            log.info("%s: no %s (%s)", name, f, e)
     if "error" not in rec["timestamp"]:
         gen["receipt.ots"] = (d / "stamps" / f"{rec['timestamp']['stamped_sha256']}.ots").read_bytes()
     psha = rec["protocol_sha256"][:16]
     for f in sorted((d / "flex_runs").glob(f"{psha}-*.json")):  # robot-server runs of this exact protocol.py
         gen[f"opentrons-robot-server-run-{f.stem.split('-')[-1]}-reactions.json"] = f.read_bytes()
-    if (d / "analysis.json").exists():
+    if _analysis(d):
         gen["protocol-designer.json"] = json.dumps(_designer(d, name), indent=1).encode("utf-8")
     if "review" in r and "note" not in rec["models"]:
         gen["review.json"] = json.dumps({k: r.get(k) for k in ("review", "agent_log", "review_model", "review_saw_video",
@@ -937,7 +991,6 @@ async def voice(name: str, request: Request):
             raise HTTPException(413, "keep voice answers under a minute")
     if len(body) < 1000:
         raise HTTPException(422, "no audio arrived; check the microphone permission")
-    spend_live_call()
     r = json.loads((d / "result.json").read_text(encoding="utf-8"))
     groups = {}
     for q in r["questions"]:
@@ -961,6 +1014,7 @@ async def voice(name: str, request: Request):
         fmt = "wav"
     else:
         raise HTTPException(415, "send WebM, Ogg, MP4 or WAV audio")
+    spend_live_call()  # only now: junk bytes or a run with nothing to ask cost no model call
     keywords = sorted({s.get("reagent") for s in r["steps"] if s.get("reagent")})[:20]
     with tempfile.TemporaryDirectory() as tmp:
         clip, wav = Path(tmp) / "voice.in", Path(tmp) / "voice.wav"
@@ -1124,7 +1178,8 @@ def _name_tube(d, tube_id, label):
 
 # ---- MCP: other agents (Claude, Llama, any MCP client) read runs over Streamable HTTP at /mcp -----------------
 if MCPServer:
-    # Read-only on purpose: no tool runs code an agent sends (an Opentrons protocol is Python) or spends model credits.
+    # Read-only on purpose: no tool runs code an agent sends (an Opentrons protocol is Python) Only crosscheck_volumes can spend model
+    # calls: at most 3 per run and set of volumes, cached, inside the daily cap (spend_live_call).
     mcp = MCPServer("show-dont-code", instructions=(
         "Robot protocols recovered from first-person lab videos. list_runs, then get_run for the steps found in the video "
         "and the checks they passed, get_protocol for the Opentrons Flex Python file, get_protocol_designer for the same "

@@ -222,6 +222,7 @@ def build(run_dir, steps, answers=None, review=True):
             if not s.get("cycles") and isinstance(reps, int) and 1 <= reps <= 99:
                 s["cycles"], s["cycles_evidence"] = reps, "bench sheet"
     result = {"steps": steps, "questions": [], "protocol": None, "layout": {}, "sim_ok": False, "sim_log": []}
+    (run_dir / "analysis.json").unlink(missing_ok=True)  # it belongs to the previous protocol; rewritten below if it passes
     try:
         if not any(s["action"] in ("transfer", "mix", "thermocycle") for s in steps):
             raise ValueError("Muse Spark found no pipetting or thermocycling step in this video, so there is nothing "

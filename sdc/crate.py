@@ -32,7 +32,13 @@ NAMES = {"card.json": "Bench card: each step drawn by Muse Image from its video 
          "protocol-designer.json": "The protocol as editable steps for Opentrons Protocol Designer (no code)",
          "receipt.ots": "OpenTimestamps proof anchoring the receipt in Bitcoin",
          "labels.svg": "Tube labels with QR codes for an Avery L7160 sheet: deck slot, well and fill volume per tube",
-         "labels.zpl": "The same tube labels for a Zebra thermal printer (ZPL II, 2 x 1 inch, 203 dpi)"}
+         "labels.zpl": "The same tube labels for a Zebra thermal printer (ZPL II, 2 x 1 inch, 203 dpi)",
+         "tecan-evo.gwl": "Tecan EVOware worklist, volume-tracked by robotools", "transfers.csv": "Transfer pick list (CSV)"}
+
+
+def _iso(stamp):
+    """The robot's '2026-11-04T04:38:32.761240Z' as the validator's ISO form, '2026-11-04T04:38:32+00:00'; None if absent."""
+    return datetime.fromisoformat(stamp.replace("Z", "+00:00")).isoformat(timespec="seconds") if stamp else None
 
 
 def _when(path):
@@ -121,7 +127,7 @@ def build(run_dir, name, generated, models):
                     "instrument": {"@id": REPO},
                     "object": ([{"@id": "#source-video"}] if from_gt and not text else have(*MODEL_OUTPUTS)) + have("answers.json"),
                     "result": have("protocol.py", "methods.md", "autoprotocol.json", "pylabrobot.py", "tecan-evo.py",
-                                   "labels.svg", "labels.zpl"),
+                                   "tecan-evo.gwl", "transfers.csv", "labels.svg", "labels.zpl"),
                     "endTime": _when(d / "result.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
     if "card.json" in files:  # drawn from the video for people, never read back by the code generator
         card = json.loads(files["card.json"])
@@ -147,18 +153,22 @@ def build(run_dir, name, generated, models):
                         "name": "Run on Opentrons' robot-server (Flex simulation): robot analysis, deck setup, play to the end",
                         "description": "Uploaded over the robot's HTTP API as the Opentrons App does (scripts/send_to_flex.py)",
                         "instrument": {"@id": OPENTRONS + "/tree/edge/robot-server"}, "object": have("protocol.py"),
-                        "result": have(*runs), "actionStatus": "http://schema.org/CompletedActionStatus"})
+                        "result": have(*runs), "endTime": _iso(max(json.loads(files[f]).get("completed_at") or "" for f in runs)),
+                        "actionStatus": "http://schema.org/CompletedActionStatus"})
     if "protocol-designer.json" in files:
         actions.append({"@id": "#designer", "@type": "CreateAction", "name": "Analysed commands to Protocol Designer steps",
                         "description": "Every transfer, mix and thermocycler step read off Opentrons' own analysis",
                         "instrument": {"@id": REPO}, "object": have("analysis.json"), "result": have("protocol-designer.json"),
+                        "endTime": datetime.now(timezone.utc).isoformat(timespec="seconds"),  # built for this download
                         "actionStatus": "http://schema.org/CompletedActionStatus"})
     if "receipt.ots" in files:
-        tools.append(app(OTS, "OpenTimestamps (Bitcoin-anchored timestamp)", OTS))
+        from importlib.metadata import version as _version
+        tools.append(app(OTS, "OpenTimestamps (Bitcoin-anchored timestamp)", OTS, f"opentimestamps {_version('opentimestamps')}"))
         actions.append({"@id": "#timestamp", "@type": "CreateAction", "name": "Timestamp the receipt in Bitcoin",
                         "description": "sha256 of the receipt (without its 'timestamp' field) sent to public "
                                        "OpenTimestamps calendars; their Bitcoin transactions anchor it to a block",
                         "instrument": {"@id": OTS}, "object": have("receipt.json"), "result": have("receipt.ots"),
+                        "endTime": _when(max((d / "stamps").glob("*.ots"), key=lambda f: f.stat().st_mtime)),  # sent to the calendars
                         "actionStatus": "http://schema.org/CompletedActionStatus"})
     rv = models.get("reviewer")
     if rv and "review.json" in files:  # which host ran the reviewer: Baseten, or Fireworks after a failover
@@ -168,7 +178,8 @@ def build(run_dir, name, generated, models):
                         "description": "Watches the video, may look at single moments, runs the Opentrons simulator as a tool",
                         "instrument": {"@id": host + "#muse-spark-open"},
                         "object": [{"@id": src["@id"]}] + have("steps_raw.json", "steps_stage2.json", "sheet.json"),
-                        "result": have("review.json"), "actionStatus": "http://schema.org/CompletedActionStatus"})
+                        "result": have("review.json"), "endTime": _when(d / "result.json"),  # saved when the review ended
+                        "actionStatus": "http://schema.org/CompletedActionStatus"})
     if not edited:  # the sample runs were run by the author; uploads and edits stay anonymous
         graph += [{"@id": AUTHOR, "@type": "Person", "name": "Pugar Huda Mantoro", "affiliation": {"@id": "https://www.uii.ac.id"}},
                   {"@id": "https://www.uii.ac.id", "@type": "Organization", "name": "Universitas Islam Indonesia",

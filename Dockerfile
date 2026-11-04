@@ -5,7 +5,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt PyLabRobot==0.2.2
+RUN pip install --no-cache-dir -r requirements.txt PyLabRobot==0.2.2 robotools==1.14.0
 # own step, as on Modal: mcp lifts jsonschema past opentrons' pin, and app.py imports it only if present
 RUN pip install --no-cache-dir mcp==2.3.0 pypdfium2==4.30.0 arctrl==3.2.3 sila2==0.14.0
 COPY app.py ./

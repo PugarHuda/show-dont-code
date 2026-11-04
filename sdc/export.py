@@ -84,7 +84,8 @@ def methods_markdown(steps, title="Protocol"):
 
 
 def autoprotocol(steps):
-    """Autoprotocol JSON: refs for the reagent tubes and the reaction plate, one pipette instruction per transfer."""
+    """Autoprotocol JSON: refs for the reagent tubes and the reaction plate, one pipette instruction per transfer or mix.
+    Autoprotocol has no instruction for a person's hand-off (spin, vortex), so those are in methods.md only."""
     sources, dests, uses_tc = _plan(steps)
     refs = {"reagents": {"new": "96-deep", "discard": True}, "reactions": {"new": "96-pcr", "store": {"where": "cold_4"}}}
     # Autoprotocol addresses wells by container/index; reagent tubes become wells of a deep-well plate here
@@ -98,6 +99,10 @@ def autoprotocol(steps):
             dst = dst_idx[s.get("destination") or "sample tube"]
             instructions.append({"op": "pipette", "groups": [{"transfer": [
                 {"from": src, "to": dst, "volume": f"{float(s['volume_ul']):g}:microliter"}]}]})
+        elif s["action"] == "mix":  # pipette up and down 3 times, as protocol.py does
+            instructions.append({"op": "pipette", "groups": [{"mix": [
+                {"well": dst_idx[s.get("destination") or "sample tube"], "volume": f"{float(s['volume_ul']):g}:microliter",
+                 "repetitions": 3}]}]})
         elif s["action"] == "thermocycle":
             instructions.append({"op": "seal", "object": "reactions", "type": "ultra-clear"})
             p = thermal(s)  # the same program protocol.py runs, so every export agrees
@@ -310,10 +315,77 @@ def run_pylabrobot(source, timeout=120):
     return p.returncode == 0, {"actions": actions, "tail": out[-6:]}
 
 
+# Tecan liquid class names differ per installation: these are only defaults, renamed per request (?aqueous= etc.).
+# EVOware/FluentControl stop on a class name they don't have instead of pipetting with a guessed one.
+TECAN_CLASSES = {"water": "Water Free Single", "glycerol_50": "Glycerol Free Single", "ethanol_80": "Ethanol Free Single"}
+
+
+def tecan_worklist(steps, robot="evo", classes=None):
+    """A Tecan worklist (.gwl) for EVOware's or FluentControl's Worklist command, written by robotools, which tracks
+    every well's volume: drawing more than a tube holds raises instead of writing the line. Labware labels on the
+    worksheet must be 'reagents' (tubes, filled as the labels say) and 'reactions' (the 96-well PCR plate)."""
+    import robotools
+
+    cls_names = {**TECAN_CLASSES, **{k: v for k, v in (classes or {}).items() if v}}
+    sources, dests, _ = _plan(steps)
+    need = _needs(steps)
+    src_well = {k: f"{w[0]}{int(w[1:]):02d}" for k, w in zip(sources, WELLS_96)}  # robotools names wells A01
+    dst_well = {k: f"{w[0]}{int(w[1:]):02d}" for k, w in zip(dests, WELLS_96)}
+    reagents = robotools.Labware("reagents", 8, 12, min_volume=DEAD_UL, max_volume=2000)
+    reactions = robotools.Labware("reactions", 8, 12, min_volume=0, max_volume=200)
+    for key, (_, total, _) in need.items():  # what the labels and protocol.py fill: drawn + 10 % + dead volume
+        reagents.add(src_well[key], round(total * 1.1 + DEAD_UL, 1))
+    wl = (robotools.FluentWorklist if robot == "fluent" else robotools.EvoWorklist)(auto_split=True)
+    wl.comment("Show, Don't Code: labware labels 'reagents' and 'reactions', liquid classes: " +
+               ", ".join(sorted(set(cls_names.values()))))
+    def note(text):  # a semicolon would end the GWL record early, so model text never carries one
+        wl.comment(_clean(text, 120).replace(";", ","))
+
+    for i, s in enumerate(steps):
+        note(f"step {i + 1} [{float(s['start']):.0f}-{float(s['end']):.0f} s]: {s['description']}")
+        if s["action"] == "transfer":
+            cls, _ = liquid_class(s.get("reagent") or s.get("source"))
+            wl.transfer(reagents, src_well[s.get("source") or s.get("reagent") or "reagent"], reactions,
+                        dst_well[s.get("destination") or "sample tube"], float(s["volume_ul"]),
+                        liquid_class=_clean(cls_names[cls], 32).replace(";", ""), label=_clean(s.get("reagent"), 40))
+        elif s["action"] == "mix":
+            w, v = dst_well[s.get("destination") or "sample tube"], float(s["volume_ul"])
+            for _ in range(3):
+                wl.aspirate(reactions, w, v, liquid_class=cls_names["water"])
+                wl.dispense(reactions, w, v, liquid_class=cls_names["water"])
+            wl.wash()
+        else:
+            note("by hand: " + s["description"])
+    return "\n".join(wl) + "\n"
+
+
+def transfer_csv(steps):
+    """One row per transfer: a generic pick list for Biomek, Hamilton or a spreadsheet; same wells as the worklist."""
+    import csv
+    import io
+
+    sources, dests, _ = _plan(steps)
+    src_well = {k: WELLS_96[i] for i, k in enumerate(sources)}
+    dst_well = {k: WELLS_96[i] for i, k in enumerate(dests)}
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+    w.writerow(["step", "video_start_s", "video_end_s", "reagent", "source_labware", "source_well", "destination_labware",
+                "destination_well", "volume_ul", "liquid_class"])
+    for i, s in enumerate(steps):
+        if s["action"] != "transfer":
+            continue
+        name = _clean(s.get("reagent"))
+        w.writerow([i + 1, f"{float(s['start']):g}", f"{float(s['end']):g}", "'" + name if name[:1] in "=+-@" else name,
+                    "reagents", src_well[s.get("source") or s.get("reagent") or "reagent"], "reactions",
+                    dst_well[s.get("destination") or "sample tube"], f"{float(s['volume_ul']):g}",
+                    liquid_class(s.get("reagent") or s.get("source"))[0]])
+    return out.getvalue()
+
+
 if __name__ == "__main__":
     demo = [
         {"start": 30, "end": 45, "action": "transfer", "description": "Add water", "reagent": "water", "volume_ul": 20, "destination": "tube 1"},
-        {"start": 50, "end": 60, "action": "transfer", "description": "Add primer", "reagent": "Primer \"1\"\nimport os", "volume_ul": 1.5, "destination": "tube 1"},
+        {"start": 50, "end": 60, "action": "transfer", "description": "Add primer; then; mix", "reagent": "Primer \"1\"\nimport os", "volume_ul": 1.5, "destination": "tube 1"},
         {"start": 61, "end": 70, "action": "centrifuge", "description": "Spin down"},
         {"start": 80, "end": 90, "action": "thermocycle", "description": "Set in DNA engine", "cycles": 35},
     ]
@@ -321,6 +393,8 @@ if __name__ == "__main__":
     assert "35 cycles" in md and "| water |" in md and "aqueous (water) |" in md, md
     ap = autoprotocol(demo)
     assert [i["op"] for i in ap["instructions"]] == ["pipette", "pipette", "seal", "thermocycle"], ap
+    mx = autoprotocol(demo[:1] + [{**demo[0], "action": "mix", "volume_ul": 15}])["instructions"][1]
+    assert mx["groups"][0]["mix"][0] == {"well": "reactions/0", "volume": "15:microliter", "repetitions": 3}, mx
     src = pylabrobot_script(demo)
     assert "\nimport os" not in src
     assert flow_rates("glycerol_50", 25) != flow_rates("water", 25), "viscous must move slower than water"
@@ -352,4 +426,17 @@ if __name__ == "__main__":
     write = "".join(nb["cells"][2]["source"])
     assert write == "%%writefile protocol.py\n" + flex, write[:80]  # the file the simulator cell runs, byte for byte
     assert simulate(write.split("\n", 1)[1])[0] and "35 cycles" in "".join(nb["cells"][0]["source"])
+    gwl = tecan_worklist(demo)
+    lines = gwl.splitlines()
+    assert sum(x.startswith("A;") for x in lines) == 2 and sum(x.startswith("D;") for x in lines) == 2, gwl
+    assert "A;reagents;;;1;;20.00;Water Free Single" in gwl and "\nimport os" not in gwl, gwl
+    assert all(x.split(";")[0] in ("A", "D", "W", "W1", "C", "B", "F") for x in lines), gwl  # EVOware record types
+    assert "C;" in tecan_worklist(demo, "fluent")
+    try:  # 300 µL into one 200 µL PCR well must not become a worklist
+        tecan_worklist([{**demo[0], "volume_ul": 150}] * 2)
+        raise AssertionError("robotools must refuse overfilling a well")
+    except Exception as e:
+        assert type(e).__name__ == "VolumeOverflowError", e
+    csv_ = transfer_csv(demo + [{**demo[0], "reagent": "=HYPERLINK(1)", "destination": "tube 2"}])
+    assert csv_.count("\n") == 4 and ",'=HYPERLINK(1)," in csv_, csv_
     print("export self-check OK:", json.dumps(log))

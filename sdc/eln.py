@@ -18,7 +18,7 @@ from .crate import AUTHOR, BIOVL2, FORMATS, REPO
 
 CC_BY = "https://creativecommons.org/licenses/by/4.0/"
 RO12 = "https://w3id.org/ro/crate/1.2"
-ELN_SPEC = "https://purl.archive.org/purl/elnconsortium/eln-spec/1.2+20260923"  # the newest ELN version
+ELN_SPEC = "https://purl.org/elnconsortium/eln-spec/1.2+20260923"  # the newest ELN version
 FORMATS = {**FORMATS, ".jpg": "image/jpeg", ".zip": "application/zip"}
 
 

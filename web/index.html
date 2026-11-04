@@ -324,7 +324,7 @@
       <p class="hint" id="flexline" aria-live="polite">Sends protocol.py to Opentrons' own robot-server (the software inside a Flex, v10.1.0) running in Flex simulation, exactly as the Opentrons App would: the robot analyses it, the thermocycler goes into its deck configuration, and the run plays to the end with the number of reactions chosen above. About a minute.</p>
       <p class="files"><a id="f-proto">protocol.py (Opentrons Flex)</a> <a id="f-analysis">Opentrons analysis (.json)</a>
         <a id="f-pd" title="Open designer.opentrons.com, choose Import, and pick this file">Protocol Designer, no code (.json)</a>
-        <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-evo">tecan-evo.py (Tecan Freedom EVO)</a> <a id="f-ot2">ot2.py (Opentrons OT-2)</a> <a id="f-nb">Jupyter notebook (.ipynb)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
+        <a id="f-plr">pylabrobot.py (Hamilton STARlet)</a> <a id="f-evo">tecan-evo.py (Tecan Freedom EVO)</a> <a id="f-gwl">Tecan worklist (.gwl, EVOware/Fluent)</a> <a id="f-csv">Transfer list (.csv)</a> <a id="f-ot2">ot2.py (Opentrons OT-2)</a> <a id="f-nb">Jupyter notebook (.ipynb)</a> <a id="f-methods">Methods (.md)</a> <a id="f-ap">Autoprotocol (.json)</a>
         <a id="f-receipt">Reproducibility receipt (.json)</a> <a id="f-ots" hidden>Bitcoin timestamp proof (.ots)</a> <a id="f-crate">Everything as an RO-Crate (.zip)</a>
         <a id="f-arc" title="Annotated Research Context (nfdi4plants): opens in ARCitect and the DataHUB">ARC (.zip)</a>
         <a id="f-eln" title="ELN Consortium format: import it into eLabFTW, RSpace, Kadi4Mat, SampleDB and other lab notebooks">Lab notebook entry (.eln)</a></p>
@@ -499,10 +499,11 @@ async function related(n) {
   try {
     const x = await api(`/api/runs/${encodeURIComponent(n)}/related`);
     if (n !== name) return;  // another run was opened meanwhile
-    const by = x.reagent_words.length ? `the reagent name${x.reagent_words.length > 1 ? "s" : ""} ${x.reagent_words.map((w) => `“${w}”`).join(", ")} and ` : "";
+    const names = x.reagent_words.length ? `the reagent name${x.reagent_words.length > 1 ? "s" : ""} ${x.reagent_words.map((w) => `“${w}”`).join(", ")}` : "";
+    const by = [names, x.kind ? `the protocol type (${x.kind})` : ""].filter(Boolean).join(" and ") || "nothing distinctive in this run";
     $("relline").textContent = x.protocols.length
-      ? `Public protocols on protocols.io found by ${by}the protocol type (${x.kind}). Compare their volumes and steps with what was filmed.`
-      : `No public protocol on protocols.io matches ${by}${x.kind}.`;
+      ? `Public protocols on protocols.io found by ${by}. Compare their volumes and steps with what was filmed.`
+      : `No public protocol on protocols.io matches ${by}.`;
     if (R.protocol && x.protocols.length) crosscheck(n);
     $("rel").innerHTML = x.protocols.map((p) => `<li class="info"><b><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.title)}</a></b><span>${p.matched.length ? `mentions ${esc(p.matched.join(", "))} · ` : ""}${p.doi ? `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener">doi:${esc(p.doi)}</a>` : ""}</span></li>`).join("");
   } catch (e) {
@@ -654,7 +655,7 @@ function render() {
     $("f-pd").href = `${base}/protocol-designer.json`; $("f-pd").hidden = $("pdline").hidden = !an;
     $("f-receipt").href = `${base}/receipt.json`; $("f-crate").href = `${base}/ro-crate.zip`; $("f-eln").href = `${base}/run.eln`; $("f-arc").href = `${base}/run.arc.zip`; $("f-ots").href = `${base}/receipt.ots`;
     stampLine(base);
-    $("f-plr").href = `${base}/pylabrobot.py`; $("f-evo").href = `${base}/tecan-evo.py`; $("f-ot2").href = `${base}/ot2.py`; $("f-nb").href = `${base}/protocol.ipynb`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
+    $("f-plr").href = `${base}/pylabrobot.py`; $("f-evo").href = `${base}/tecan-evo.py`; $("f-gwl").href = `${base}/tecan.gwl`; $("f-csv").href = `${base}/transfers.csv`; $("f-ot2").href = `${base}/ot2.py`; $("f-nb").href = `${base}/protocol.ipynb`; $("f-methods").href = `${base}/methods.md`; $("f-ap").href = `${base}/autoprotocol.json`;
     // the same steps on two other vendors' robots, each run in PyLabRobot's simulator with volume tracking on
     const robots = [["Hamilton STARlet", R.plr_ok, R.plr], ["Tecan Freedom EVO 150", R.evo_ok, R.evo]].filter(([, ok]) => ok != null);
     const passed = robots.filter(([, ok]) => ok).map(([n, , log]) => `${n} (${log.actions} aspirate/dispense actions)`);

@@ -275,6 +275,17 @@ def main():
         check("download: tecan-evo.py runs in PyLabRobot here, EVO deck and LiHa tips, as many pipetting actions as the STARlet",
               ok and ok2 and b"EVO150Deck()" in evo and b"_LiHa" in evo and elog["actions"] == plog["actions"] > 0, (elog, plog.get("actions")))
         check("RO-Crate: carries the Tecan EVO translation", crate and "tecan-evo.py" in crate.namelist())
+        st, gwl = fetch(f"{api}/api/runs/pcr_1-gt/tecan.gwl?viscous=MyGlycerol")
+        recs = [x.split(";") for x in gwl.decode("utf-8").splitlines()] if st == 200 else []
+        asp = [r for r in recs if r[0] == "A"]
+        check("download: tecan.gwl, one aspirate and dispense per transfer, the renamed liquid class on the premix",
+              st == 200 and len(asp) == plog["actions"] // 2 == sum(r[0] == "D" for r in recs) and
+              any(r[1] == "reagents" and r[7] == "MyGlycerol" for r in asp), (st, gwl[:120]))
+        st, csvb = fetch(f"{api}/api/runs/pcr_1-gt/transfers.csv")
+        check("download: transfers.csv has a row per worklist aspirate", st == 200 and
+              len(csvb.decode("utf-8").strip().splitlines()) == len(asp) + 1, (st, csvb[:80]))
+        st, _ = fetch(f"{api}/api/runs/pcr_1-gt/tecan.gwl?robot=biomek")
+        check("download: tecan.gwl refuses an unknown robot", st == 422, st)
         st, nb = fetch(f"{api}/api/runs/pcr_1-gt/protocol.ipynb")
         st3, flex = fetch(f"{api}/api/runs/pcr_1-gt/protocol.py")
         cells = json.loads(nb)["cells"] if st == 200 else []
@@ -701,7 +712,7 @@ def main():
         exp = g.get("./pcr_1-gt/", {})
         check(".eln: one root folder, RO-Crate 1.2 + ELN 1.2+20260923, one experiment with every file attached and hashed",
               names and all(n.startswith("show-dont-code-pcr_1-gt/") for n in names)
-              and {"@id": "https://purl.archive.org/purl/elnconsortium/eln-spec/1.2+20260923"} in g["./"]["conformsTo"]
+              and {"@id": "https://purl.org/elnconsortium/eln-spec/1.2+20260923"} in g["./"]["conformsTo"]
               and exp.get("@type") == "Dataset" and "show-dont-code-pcr_1-gt/pcr_1-gt/protocol.py" in names
               and all(len(g[p["@id"]]["sha256"]) == 64 and f"show-dont-code-pcr_1-gt/{p['@id'][2:]}" in names for p in exp["hasPart"])
               and z.read("show-dont-code-pcr_1-gt/pcr_1-gt/protocol.py") == proto, (st, names[:3]))

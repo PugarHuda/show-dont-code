@@ -31,7 +31,7 @@ image = (
     modal.Image.debian_slim(python_version="3.12")
     .apt_install("ffmpeg")
     .pip_install_from_requirements("requirements.txt")
-    .pip_install("PyLabRobot==0.2.2")  # second-robot check; kept out of requirements.txt so Vercel stays small
+    .pip_install("PyLabRobot==0.2.2", "robotools==1.14.0")  # second-robot check, Tecan worklists (1.16 needs numpy 2; opentrons pins <2); kept out of requirements.txt so Vercel stays small
     .pip_install("mcp==2.3.0")  # /mcp for other agents; own step: it lifts jsonschema past opentrons' pin (see app.py)
     .pip_install("pypdfium2==4.30.0", "arctrl==3.2.3")  # ARC export (nfdi4plants)  # PDF pages -> images for a photographed/scanned protocol import
     # OT-2 files: opentrons 10.x refuses them, so 9.0.0 analyses them from its own venv (/api/runs/{name}/ot2.py)

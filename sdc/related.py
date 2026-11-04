@@ -39,11 +39,21 @@ def _words(s):
     return {w.lower() for w in re.findall(r"[A-Za-z]{4,}", s)}
 
 
-def terms(steps):
-    """The run's distinctive reagent words (brands, kits), and the kind of protocol to search for."""
+KINDS = (("qpcr", "qPCR"), ("miniprep", "plasmid miniprep"), ("elisa", "ELISA"), ("western", "western blot"),
+         ("transformation", "bacterial transformation"), ("ligation", "ligation"), ("digest", "restriction digest"),
+         ("extraction", "DNA extraction"), ("dilution", "serial dilution"), ("gel", "agarose gel electrophoresis"))
+
+
+def terms(steps, title=""):
+    """The run's distinctive reagent words (brands, kits), and the kind of protocol to search for: PCR when it
+    thermocycles, else a kind named in the title (a BioVL2 sample's name, a protocol's title) or the steps, else None
+    rather than a guess."""
     reagents = {s.get("reagent") for s in steps if s.get("reagent")}
     words = set().union(*(_words(r) for r in reagents)) - GENERIC if reagents else set()
-    kind = "PCR" if any(s["action"] == "thermocycle" for s in steps) else "plasmid miniprep"
+    text = " ".join([title] + [str(s.get("description") or "") for s in steps]).lower()
+    kind = next((k for w, k in KINDS if w in text), None)
+    if any(s["action"] == "thermocycle" for s in steps) and kind != "qPCR":
+        kind = "PCR"
     return sorted(words), kind
 
 
@@ -54,14 +64,14 @@ def _search(key, token, n=10):
         return json.load(r).get("items", [])
 
 
-def related(steps, token=None, top=5):
+def related(steps, token=None, top=5, title=""):
     """Up to `top` public protocols.io protocols, most shared reagent words first:
     {"query": [...], "protocols": [{"title", "doi", "url", "matched", "published"}]}."""
     token = token or os.getenv("PROTOCOLSIO_TOKEN")
     if not token:
         raise RuntimeError("PROTOCOLSIO_TOKEN is not set")
-    words, kind = terms(steps)
-    queries = [w for w in words][:4] + [kind]
+    words, kind = terms(steps, title)
+    queries = [w for w in words][:4] + ([kind] if kind else [])
     seen = {}
     for q in queries:
         for it in _search(q, token):
@@ -70,7 +80,7 @@ def related(steps, token=None, top=5):
             body = " ".join((it.get("title") or "", _text(it.get("description")), _text(it.get("materials_text"))))
             have = _words(body)
             matched = sorted(w for w in words if w in have)
-            on_kind = all(k in have for k in _words(kind))
+            on_kind = bool(kind) and all(k in have for k in _words(kind))
             doi = re.sub(r"^(https?://)?(dx\.)?doi\.org/", "", it.get("doi") or "") or None  # bare 10.xxxx/...
             seen[it["uri"]] = {"title": html.unescape(it.get("title") or ""), "doi": doi, "url": it.get("url"),
                                "matched": matched, "kind_match": on_kind, "published": it.get("published_on")}
@@ -84,7 +94,9 @@ if __name__ == "__main__":  # python -m sdc.related: term extraction offline; a 
            {"action": "transfer", "reagent": "Sterile distilled water"}, {"action": "thermocycle"}]
     assert terms(pcr) == (["primestar"], "PCR"), terms(pcr)
     mp = [{"action": "transfer", "reagent": "unidentified clear liquid in hand-held tube marked W/N"}]
-    assert terms(mp) == ([], "plasmid miniprep"), terms(mp)
+    assert terms(mp) == ([], None), terms(mp)  # no thermocycler and nothing names the kind: no guess
+    assert terms(mp, "miniprep_7") == ([], "plasmid miniprep") and terms(pcr, "qPCR assay")[1] == "qPCR"
+    assert terms([{"action": "transfer", "description": "Serial dilution of the standard"}])[1] == "serial dilution"
     assert terms([{"action": "transfer", "reagent": "DNA polymerase (Prime STAR MAX)"}])[0] == ["primestar"]
     assert _text('{"blocks":[{"text":"a"},{"text":"b"}]}') == "a b"
     if os.getenv("PROTOCOLSIO_TOKEN"):

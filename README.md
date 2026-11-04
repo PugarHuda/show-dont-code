@@ -158,6 +158,18 @@ Then:
   PyPI and executes the downloaded `pylabrobot.py` or `tecan-evo.py` on the page, then compares the action count
   with the server's. The e2e suite also serves it a copy with the premix stock cut to 5 µL and requires the browser
   run to fail with PyLabRobot's `TooLittleLiquidError`.
+- **A Tecan worklist** (`tecan.gwl`, `?robot=fluent` for FluentControl): the file a Tecan EVO or Fluent lab actually
+  loads with its Worklist command, rather than a PyLabRobot script. It is written by
+  [robotools](https://github.com/JuBiotech/robotools) 1.14 (JuBiotech), which tracks every well's volume as it writes,
+  so a transfer that would overfill a 200 µL PCR well is refused (409) instead of becoming a line. One aspirate and
+  dispense per transfer and a wash after it, mixes as three up-and-downs, and every step and hand-off as a `C;`
+  comment with its video seconds (model text never carries a `;`, which would end the record early). Liquid class
+  names differ per installation, so `?aqueous=`, `?viscous=` and `?volatile=` rename them; EVOware stops on a name it
+  doesn't have rather than guess. The worksheet's labware labels must be `reagents` and `reactions`. **A transfer list**
+  (`transfers.csv`) has the same wells and volumes, one row per transfer, for Biomek or Hamilton method import or a
+  spreadsheet; a reagent name starting with `=`, `+`, `-` or `@` is quoted so a spreadsheet won't run it as a formula.
+  The e2e suite requires one aspirate and dispense per STARlet transfer and the renamed class on the premix. Both
+  files are in the RO-Crate and `.eln`.
 - `methods.md` (a methods section for a notebook or paper), `autoprotocol.json` (vendor-neutral), `pylabrobot.py`
   (STARlet) and `tecan-evo.py`.
 - **Load the tube rack by scanning labels.** `labels.svg` is a sheet of tube labels sized for Avery L7160 / J8160
@@ -187,7 +199,10 @@ Then:
   the file with the same aspirate/dispense volumes and the same thermocycler time as `protocol.py`; the e2e suite
   imports it into the live Protocol Designer (every step builds a valid robot state); and the Python that Protocol
   Designer exports from it passes `opentrons analyze` with the same volumes. A scientist who never reads Python
-  can change a volume or a temperature there and send it to the robot.
+  can change a volume or a temperature there and send it to the robot. Each transfer form carries the flow rates and
+  pauses Opentrons' liquid class gave it in the analysis (the premix at 25 µL/s with a 1 s pause, water at 26.75 µL/s),
+  so the premix stays slow after an edit. Runtime parameters (Reactions, cycling, liquid class choice, liquid
+  detection) don't exist in Protocol Designer files: the file is the one filmed reaction with the analysed settings.
 - A **reproducibility receipt**: SHA-256 of the protocol, the video and every model output, the model IDs, and the
   scientist's answers. Ground-truth replays say no model read them.
 - A **Bitcoin timestamp** on that receipt ([OpenTimestamps](https://opentimestamps.org), `receipt.ots`): the receipt's
@@ -266,7 +281,7 @@ Then:
 
   Tested on Nov 3 against the public eLabFTW demo: imported as an experiment with a real API key, a wrong key refused
   with a clear message, and a localhost address and 169.254.169.254 refused. `python -m sdc.elab`, also in CI, checks
-  that 11 bad addresses and 5 malformed keys are refused before any request is sent.
+  that 17 bad addresses (including IPv6 forms that wrap a private IPv4: NAT64 `64:ff9b::a9fe:a9fe` is 169.254.169.254) and 5 malformed keys are refused before any request is sent; replies over 1 MB are cut off.
 - **A photo or PDF of a protocol instead of a video** (`POST /api/import/document`, the upload dialog): a printed
   sheet, a notebook page or a paper's methods, up to 6 pages. The file's type is checked by its bytes, PDF pages are
   rendered and every page is re-encoded as a plain JPEG before Muse Spark transcribes them (illegible parts are marked,
@@ -290,7 +305,9 @@ Then:
   - **Defined errors:** `UnknownRun` (uploads stay private), `NotReady` and `InvalidReactions`.
 
   The server is announced over mDNS. Tested with a SiLA client: discovered on the LAN, and every property and command
-  called. `--self-check`, also in CI, does the same against a run of its own. It runs on the lab's machine (Docker,
+  called. `--self-check`, also in CI, calls every property and command against a run of its own; `--self-check
+  --discovery` also starts a second server with mDNS on and finds it with `SilaClient.discover` by its UUID (Nov 4, on a
+  Windows laptop's LAN; CI runners don't carry multicast, so CI skips that part). It runs on the lab's machine (Docker,
   below) rather than on the hosted demo, because SiLA is a lab-network gRPC protocol.
 - **An ARC** (`run.arc.zip`, Annotated Research Context, nfdi4plants/DataPLANT), written with the official `arctrl`
   library: an ISA investigation whose assay table has a row per robot step (source tube -> Opentrons Flex action ->
@@ -300,7 +317,8 @@ Then:
 - **An MCP server** at `https://pugarhuda--show-dont-code-web.us-east.modal.run/mcp` (Streamable HTTP), so another
   agent can use the runs as tools: `list_runs`, `get_run` (steps with video seconds, open questions, simulator and
   analysis results), `get_protocol`, `get_protocol_designer` (the same protocol as no-code editor steps), `get_tube_labels` (what goes where on the tube rack, and how much), `run_on_flex_robot_server` (the protocol run end to end on Opentrons' robot-server, the robot's own report back), `get_related_protocols`, `crosscheck_volumes` (this run's volumes next to published ones, with quotes), `get_bench_card` (the illustrated steps with the checker's verdict), `get_receipt`; `get_run` also reports the STARlet and Tecan EVO simulations. No tool runs code an agent sends (a
-  protocol is Python) or spends model credits; robot-server runs are only of protocols this server generated, cached, and capped per day. Add it to Claude Code with
+  protocol is Python). Only `crosscheck_volumes` can spend model calls (one Muse Spark read per published protocol, at
+  most 3, once per run and set of volumes, then cached, inside the server's daily cap); robot-server runs are only of protocols this server generated, cached, and capped per day. Add it to Claude Code with
   `claude mcp add --transport http show-dont-code <url>/mcp`.
 - **Edits never change a shared sample.** The first answer, tube name or accepted reviewer fix on a sample run
   goes to a private copy (`c-…`, as unguessable as an upload link) that the page switches to and keeps in the URL,

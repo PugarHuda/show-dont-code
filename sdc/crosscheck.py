@@ -61,6 +61,13 @@ def read(ours, text):
     return json.loads(r.output_text)
 
 
+def _states(quote, volume):
+    """The quote itself has the number: 25 in "PrimeStar Mix (2X) 25 uL", not in "2.5 uL" or "125 uL"."""
+    v = f"{float(volume):g}"
+    alts = {v, v.rstrip("0").rstrip(".") if "." in v else v, v.replace(".", ",")}
+    return any(re.search(rf"(?<![\d.,]){re.escape(a)}(?:[.,]0+)?(?![\d])", quote) for a in alts)
+
+
 def crosscheck(steps, related, top=3):
     """Compare with up to `top` related protocols that mention this run's kit words (else the top ones)."""
     mine, total = reaction(steps)
@@ -78,7 +85,7 @@ def crosscheck(steps, related, top=3):
         their_total = got["reaction_ul"] if got["reaction_ul"] and got["reaction_ul"] > 0 else None
         for m in got["matches"]:
             # model output is untrusted: an unknown reagent or a quote that isn't in the protocol is dropped
-            if m["ours"] not in mine or not m["volume_ul"] or m["volume_ul"] <= 0 or not _norm(m["quote"])                     or _norm(m["quote"]) not in body:
+            if m["ours"] not in mine or not m["volume_ul"] or m["volume_ul"] <= 0 or not _norm(m["quote"])                     or _norm(m["quote"]) not in body                     or not _states(m["quote"], m["volume_ul"]):  # a real quote that doesn't say that number proves nothing
                 continue
             share_ours = mine[m["ours"]] / total
             share_theirs = m["volume_ul"] / their_total if their_total else None
@@ -103,6 +110,8 @@ def _selfcheck():  # python -m sdc.crosscheck --self-check: the parts that need 
     assert mine == {"premix": 25.0, "water": 20.0} and total == 45.0, (mine, total)  # the fullest well, transfers only
     body = _norm("Component | Volume\nPrimeStar Mix (2X) | 25 uL\n")
     assert _norm("PrimeStar Mix (2X) | 25 uL") in body and _norm("PrimeStar Mix (2X) | 2.5 uL") not in body
+    assert _states("PrimeStar Mix (2X) 25 uL", 25) and _states("use 1.0 µl", 1) and _states("add 2,5 µl", 2.5)
+    assert not _states("PrimeStar Mix (2X) 2.5 uL", 25) and not _states("125 uL", 25) and not _states("PrimeStar Mix (2X)", 25)
     print("crosscheck self-check OK")
 
 

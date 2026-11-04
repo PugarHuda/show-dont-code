@@ -116,6 +116,15 @@ def _selfcheck():
         a = finished(pg.AnalyzeProtocol("selfcheck", 2))  # observable: runs Opentrons' analyzer in the background
         assert a.Passed and a.Commands > 0 and json.loads(a.LiquidSetup), a
         print(f"sila self-check OK (runs, steps, protocol, 3 defined errors; analyzer at 2 reactions: {a.Commands} commands, passed)")
+        if "--discovery" in sys.argv:  # mDNS needs a network that carries multicast (a LAN, not every CI runner)
+            s2 = server()
+            s2.start_insecure("0.0.0.0", 50198, enable_discovery=True)
+            try:
+                found = SilaClient.discover(server_uuid=s2.server_uuid, timeout=20, insecure=True)
+                assert found.ProtocolGenerator.Runs.get() == ["selfcheck"], "discovered server must answer"
+                print(f"sila discovery OK: found over mDNS at {found.address}:{found.port}")
+            finally:
+                s2.stop()
     finally:
         s.stop()
         tmp.cleanup()

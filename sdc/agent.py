@@ -214,6 +214,11 @@ class Chat:
                 self.hosts.pop(0)
 
 
+
+def _ul(v):
+    """A volume the robot can pipette; model output may put anything (a string, null, a bool) here."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 1000
+
 def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, fps=2, published=None):
     """simulator: status string. simulate: callable(volumes_ul) -> dict, exposed to the model as a tool.
     frames_dir: <index>.jpg stills of the video at `fps`, exposed as the look_at_moment tool.
@@ -292,14 +297,14 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
         it["fix"] = clean_fix(it.get("fix"), steps)
     reagents = {s.get("reagent") for s in steps}
     out["suggested_volumes"] = [v for v in out["suggested_volumes"]
-                                if v["reagent"] in reagents and 0 < v["volume_ul"] <= 1000]
+                                if v["reagent"] in reagents and _ul(v["volume_ul"])]
     # an incomplete final answer falls back to the last plan the simulator actually accepted
     missing = {s.get("reagent") for s in steps if s["action"] == "transfer" and not (s.get("volume_ul") or 0) >= MIN_UL}
     passed = [c for c in log if c["result"].get("ran")]
     if passed and not missing <= {v["reagent"] for v in out["suggested_volumes"]}:
         plan = passed[-1]["args"]["volumes_ul"]
         out["suggested_volumes"] = [{"reagent": k, "volume_ul": float(v), "why": "last simulator-verified plan"}
-                                    for k, v in plan.items() if k in reagents and 0 < v <= 1000]
+                                    for k, v in plan.items() if k in reagents and _ul(v)]
     # the UI says "simulator-checked" only for a volume that is part of a plan the simulator ran
     plans = [c["args"]["volumes_ul"] for c in passed]
     for v in out["suggested_volumes"]:
