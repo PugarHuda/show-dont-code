@@ -327,6 +327,12 @@ Then:
   so one judge's answers don't become the next judge's demo. A copy holds only the run's JSON (~430 KB) and reads
   the footage and SAM frames from its sample; a rejected edit leaves no copy, writes to one run are serialized, and copies expire after 7 days untouched; past 1000 (~430 MB) the least recently edited go first, never one being edited.
 
+**Bench mode, for gloved hands**: "Read the steps aloud at the bench" has the browser's own speech synthesis read one
+step at a time ("Step 3 of 6. Transfer 1.5 microliters of Primer2 into PCR tube"), with a local voice when the OS has
+one, and moves the video to the moment it was filmed. Space, the arrow keys or Page Up/Down move through the steps, so
+a USB foot pedal (they type those keys) works without touching the screen; R repeats, Esc stops. No audio leaves the
+browser and no model is called. The e2e suite presses Space twice and requires step 3, read with its volume.
+
 The scientist can also **answer by voice** (browser recording → Muse Voice Transcribe with reagent-name keyword
 bias → Muse Spark maps the words to the open questions → the form is pre-filled, never submitted), and the reviewer
 agent can **look at any second of the video itself** (`look_at_moment`, up to 6 frames) before it decides. Each

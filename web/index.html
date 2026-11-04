@@ -66,6 +66,7 @@
   .legend { font-size: 12px; color: var(--muted); display: flex; gap: 14px; margin-top: 4px; flex-wrap: wrap; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
   ol.steps { list-style: none; padding: 0; margin: 0; }
+  ol.steps li.said { outline: 3px solid var(--ink); }
   ol.steps li { display: grid; grid-template-columns: 58px 1fr auto; gap: 8px; padding: 7px 8px; border-radius: 6px; cursor: pointer; align-items: baseline; }
   ol.steps li:hover { background: var(--bg); }
   ol.steps li.active { background: var(--accent-soft); }
@@ -247,6 +248,8 @@
     </section>
     <section id="stepsbox" hidden>
       <h2>Steps</h2>
+      <p class="hint" id="benchrow" hidden><button id="speak" type="button" class="ghost">Read the steps aloud at the bench</button>
+        <span id="speakline" aria-live="polite">Gloves on: Space, → or a USB foot pedal for the next step, ← back, R repeat, Esc stop.</span></p>
       <ol class="steps" id="steps"></ol>
     </section>
   </div>
@@ -701,6 +704,8 @@ function render() {
     const text = s.reagent ? `${esc(s.description)}${s.reagent_by ? ` <small class="sam">reagent: ${esc(s.reagent)}</small>` : ""}` : esc(s.description);
     return `<li data-i="${i}" tabindex="0" class="${s.action === "skipped" ? "skipped" : ""}"><span class="t">${R.source ? `#${Math.round(s.start)}` : fmt(s.start)}</span><span>${text}${sam}</span>${tag}</li>`;
   }).join("");
+  benchStop();
+  $("benchrow").hidden = !("speechSynthesis" in window) || !R.steps.length;
   $("steps").querySelectorAll("li").forEach((li) => {
     li.onclick = () => seek(R.steps[li.dataset.i].start);
     li.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); li.click(); } };
@@ -813,6 +818,48 @@ async function submitAnswers(ev) {
 }
 
 const fmt = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+// bench mode: the browser's own speech synthesis reads one step at a time (a local voice when the OS has one), and
+// the keys a gloved hand or a USB foot pedal sends (Space, arrows, Page Up/Down) move through them
+let bench = -1;
+const benchSteps = () => R ? R.steps.map((s, i) => [s, i]).filter(([s]) => s.action !== "skipped") : [];
+function spoken(s) {
+  const ul = (v) => `${+v} microliter${+v === 1 ? "" : "s"}`, into = s.destination ? ` into ${s.destination}` : "";
+  if (s.action === "transfer") return s.volume_ul ? `Transfer ${ul(s.volume_ul)} of ${s.reagent || s.source || "the reagent"}${into}.`
+    : `Transfer ${s.reagent || "the reagent"}${into}. The volume is not confirmed yet.`;
+  if (s.action === "mix") return `Mix${s.destination ? ` ${s.destination}` : ""} by pipetting ${ul(s.volume_ul || 0)} up and down 3 times.`;
+  if (s.action === "thermocycle") return `Put the tubes in the thermal cycler${s.cycles ? ` for ${s.cycles} cycles` : ""}.`;
+  return `${s.description}.`;
+}
+function benchSay(k) {
+  const list = benchSteps();
+  if (!list.length) return;
+  bench = Math.min(Math.max(k, 0), list.length - 1);
+  const [s, i] = list[bench], text = `Step ${bench + 1} of ${list.length}. ${spoken(s)}`;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text), voices = speechSynthesis.getVoices().filter((v) => v.lang.startsWith("en"));
+  u.voice = voices.find((v) => v.localService) || voices[0] || null;
+  u.rate = 0.95;
+  speechSynthesis.speak(u);
+  $("speakline").textContent = `${text} (Space next, ← back, R repeat, Esc stop)`;
+  if (!R.source) $("video").currentTime = s.start;  // the moment it was filmed, paused
+  const li = $("steps").querySelector(`li[data-i="${i}"]`);
+  $("steps").querySelectorAll("li.said").forEach((x) => x.classList.remove("said"));
+  if (li) { li.classList.add("said"); li.scrollIntoView({ block: "center" }); }
+}
+function benchStop() {
+  if (bench < 0) return;
+  bench = -1; speechSynthesis.cancel();
+  $("speak").textContent = "Read the steps aloud at the bench";
+  $("speakline").textContent = "Stopped. Gloves on: Space, → or a USB foot pedal for the next step, ← back, R repeat, Esc stop.";
+  $("steps").querySelectorAll("li.said").forEach((x) => x.classList.remove("said"));
+}
+$("speak").onclick = () => { if (bench >= 0) return benchStop(); $("speak").textContent = "Stop reading"; benchSay(0); };
+document.addEventListener("keydown", (e) => {
+  if (bench < 0 || e.target.closest("input, textarea, select, [contenteditable]") || e.ctrlKey || e.metaKey || e.altKey) return;
+  const go = { " ": 1, ArrowRight: 1, PageDown: 1, ArrowLeft: -1, PageUp: -1, r: 0, R: 0 }[e.key];
+  if (e.key === "Escape") { e.preventDefault(); benchStop(); }
+  else if (go !== undefined) { e.preventDefault(); benchSay(bench + go); }
+});
 const seek = (t) => { $("video").currentTime = t; $("video").play().catch(() => {}); };  // a pause right after is fine
 const dur = () => $("video").duration || Math.max(...R.steps.map((s) => s.end), 1);
 

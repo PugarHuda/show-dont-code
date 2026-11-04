@@ -210,6 +210,15 @@ def main():
         check("app: replay moved the human video to that step", page.evaluate("() => document.getElementById('video').currentTime") > 0)
         page.click("#replay")
         check("app: liquid setup lists what to load", len(page.query_selector_all("#setup tr")) >= 3)
+        page.click("#speak")
+        page.keyboard.press("Space")
+        page.keyboard.press("Space")
+        said = page.inner_text("#speakline")
+        check("bench mode: reads step 3 after two presses of Space (a foot pedal's key), the volume in words",
+              said.startswith("Step 3 of ") and "1.5 microliters of Primer2" in said and
+              page.evaluate("() => document.querySelector('#steps li.said')?.dataset.i") == "2", said)
+        page.keyboard.press("Escape")
+        check("bench mode: Esc stops it", page.inner_text("#speak").startswith("Read"))
         st, proto = fetch(f"{api}/api/runs/pcr_1-gt/protocol.py")
         check("download: protocol.py", st == 200 and b"def run(ctx)" in proto and b"load_liquid" in proto)
         check("protocol: thermal program is Opentrons runtime parameters",
