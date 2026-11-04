@@ -215,8 +215,8 @@ Then:
   protocol, the exports, every model output and the Opentrons analysis, each pinned by SHA-256, plus JSON-LD saying
   which tool (Muse Spark, SAM 3.1, the reviewer on whichever host ran it, the code generator at the hash of its own
   source, Opentrons) made which file from which inputs. WorkflowHub and other RO-Crate readers open it; the e2e suite
-  runs it through `rocrate-validator` (all REQUIRED checks pass; the one RECOMMENDED gap is a `publisher`, which a
-  hackathon entry doesn't have). The video stays out of the zip and is pinned by its hash.
+  runs it through `rocrate-validator` (every REQUIRED and RECOMMENDED check passes; the
+  publisher is this service). The video stays out of the zip and is pinned by its hash.
 - **Thermocycler time**: the minimum the block needs for the program, summed over the `thermocycler/*` commands in
   Opentrons' analysis (every hold, plus every ramp at the Thermocycler GEN2's rated 4.25 °C/s heating and 2.0 °C/s
   cooling, [spec](https://docs.opentrons.com/thermocycler/product-specs/)). 35 cycles of 98/55/72 °C come to 31 min.
