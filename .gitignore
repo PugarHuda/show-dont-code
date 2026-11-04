@@ -1,5 +1,6 @@
 data/
 .venv/
+.venv-ot2/
 .env
 __pycache__/
 out/

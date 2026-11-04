@@ -163,6 +163,17 @@ Then:
   Flex on your network over its HTTP API (as the Opentrons App does), waits for the robot's own analysis with that
   Reactions value and creates the run on its touchscreen; `--start` also presses play, `--configure-deck` writes the
   thermocycler into the robot's deck configuration (cutouts A1+B1).
+- **Or an OT-2** (`ot2.py`, `GET /api/runs/{run}/ot2.py`): Opentrons reports over 11,000 robots deployed in 80+
+  countries ([GEN, Oct 30 2026](https://www.genengnews.com/topics/artificial-intelligence/opentrons-raises-40m-in-series-e-to-expand-its-robotics-software-data-infrastructure/)),
+  counting both models. The OT-2, Opentrons' robot before the Flex, can't run a Flex protocol, and the current
+  opentrons package (10.x) refuses OT-2 files. The same confirmed steps
+  become an OT-2 protocol (API 2.20, P20 and P300 GEN2 pipettes, Thermocycler GEN2 in slots 7–11, the same Reactions
+  and cycling parameters; no liquid classes or liquid sensor, which the OT-2 lacks). The server serves it only after
+  `opentrons analyze` from **opentrons 9.0.0** (its own venv, `OT2_PYTHON`) passes it at 1 reaction and at the most
+  reactions (pcr_1-gt: 53 reactions, 265 tips, no errors). The result is at `ot2-check.json`.
+- **A Jupyter notebook** (`protocol.ipynb`): the methods, a `%%writefile` cell holding protocol.py byte for byte, and a
+  cell that runs the Opentrons simulator on it. Opens in JupyterLab, VS Code or Colab, so a lab can re-check the file
+  without our app.
 - **A run on Opentrons' own robot software**, one click under "Before you run": the backend starts Opentrons'
   robot-server v10.1.0 (the software inside a Flex, built from Opentrons' repo at that tag) in Flex simulation on
   Modal, and sends the protocol through the same script with the chosen number of reactions. The robot analyses it,

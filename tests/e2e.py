@@ -275,6 +275,19 @@ def main():
         check("download: tecan-evo.py runs in PyLabRobot here, EVO deck and LiHa tips, as many pipetting actions as the STARlet",
               ok and ok2 and b"EVO150Deck()" in evo and b"_LiHa" in evo and elog["actions"] == plog["actions"] > 0, (elog, plog.get("actions")))
         check("RO-Crate: carries the Tecan EVO translation", crate and "tecan-evo.py" in crate.namelist())
+        st, nb = fetch(f"{api}/api/runs/pcr_1-gt/protocol.ipynb")
+        st3, flex = fetch(f"{api}/api/runs/pcr_1-gt/protocol.py")
+        cells = json.loads(nb)["cells"] if st == 200 else []
+        check("download: protocol.ipynb writes protocol.py byte for byte and runs the Opentrons simulator on it",
+              st == 200 and st3 == 200 and len(cells) == 4 and all(c.get("id") for c in cells)
+              and "".join(cells[2]["source"]) == "%%writefile protocol.py\n" + flex.decode("utf-8")
+              and "simulate(" in "".join(cells[3]["source"]), (st, len(cells)))
+        st, ot2 = fetch(f"{api}/api/runs/pcr_1-gt/ot2.py")
+        st2, ot2c = fetch(f"{api}/api/runs/pcr_1-gt/ot2-check.json")
+        c2 = json.loads(ot2c) if st2 == 200 else {}
+        check("download: ot2.py for an OT-2 (P20/P300 GEN2), passed by opentrons 9.0.0 analyze at 1 and the most reactions",
+              st == 200 and b"'robotType': 'OT-2'" in ot2 and b"p20_single_gen2" in ot2 and b"liquid_class" not in ot2
+              and c2.get("ok") and len(c2.get("checks", [])) == 2, (st, st2, c2))
         check("RO-Crate: carries the tube labels (Avery SVG and Zebra ZPL), made by the code generator",
               crate and {"labels.svg", "labels.zpl"} <= set(crate.namelist())
               and {"labels.svg", "labels.zpl"} <= {r["@id"] for r in ents.get("#generate", {}).get("result", [])})

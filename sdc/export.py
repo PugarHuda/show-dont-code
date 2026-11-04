@@ -273,6 +273,31 @@ def tube_labels_zpl(steps, link, reactions=1):
     return "\n".join(out) + "\n", len(tubes)
 
 
+def notebook(steps, source, title, link):
+    """A Jupyter notebook (nbformat 4, opens in JupyterLab, VS Code or Colab): the methods, protocol.py written to disk
+    by a cell, and the Opentrons simulator run on it, so a lab re-checks the file without installing our app."""
+    ids = iter(range(10))
+
+    def cell(kind, text, **extra):  # nbformat 4.5: every cell has an id
+        return {"id": f"sdc-{next(ids)}", "cell_type": kind, "metadata": {}, "source": text.splitlines(keepends=True), **extra}
+
+    def code(text):
+        return cell("code", text, execution_count=None, outputs=[])
+
+    return {"nbformat": 4, "nbformat_minor": 5,
+            "metadata": {"kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
+                         "language_info": {"name": "python"}},
+            "cells": [cell("markdown", methods_markdown(steps, title) + f"\n\nSource video, step by step: {link}\n"),
+                      code("%pip install -q opentrons==10.1.0"),
+                      code("%%writefile protocol.py\n" + source),
+                      code("from opentrons.simulate import simulate\n\n"
+                           "with open('protocol.py') as f:\n"
+                           "    log, _ = simulate(f, file_name='protocol.py')\n"
+                           "print(len(log), 'simulator steps')\n"
+                           "for entry in log:\n"
+                           "    print(entry['payload']['text'])")]}
+
+
 def run_pylabrobot(source, timeout=120):
     """Execute the generated script in a separate process with PyLabRobot's simulator. Returns (ok, last log lines)."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -321,4 +346,10 @@ if __name__ == "__main__":
     assert "fill with 52 _C2_B5L" in zpl and "_5EXZ_5EXA_7EJR" in zpl, zpl
     svg, _ = tube_labels(demo, "https://example.org/app?run=demo", reactions=8)
     assert "fill with 206 µL" in svg and "(8 × 20 µL drawn" in svg, svg  # 8 x 20 x 1.1 + 30
+    from sdc.protocol import generate, simulate
+    flex, _ = generate(demo)
+    nb = notebook(demo, flex, "Demo", "https://example.org/app?run=demo")
+    write = "".join(nb["cells"][2]["source"])
+    assert write == "%%writefile protocol.py\n" + flex, write[:80]  # the file the simulator cell runs, byte for byte
+    assert simulate(write.split("\n", 1)[1])[0] and "35 cycles" in "".join(nb["cells"][0]["source"])
     print("export self-check OK:", json.dumps(log))

@@ -367,6 +367,17 @@ def methods_file(name: str):
                              media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="{name}-methods.md"'})
 
 
+@app.get("/api/runs/{name}/protocol.ipynb")
+def notebook_file(name: str, request: Request):
+    """Jupyter notebook: methods, protocol.py and a cell that runs the Opentrons simulator on it."""
+    from sdc import export
+
+    steps = _confirmed_steps(name)
+    src = protocol_file(name).body.decode("utf-8")  # same checks as protocol.py: confirmed and simulator-passing
+    nb = export.notebook(steps, src, f"Show, Don't Code run {name}", _app_link(name, request))
+    return JSONResponse(nb, headers={"Content-Disposition": f'attachment; filename="{name}.ipynb"'})
+
+
 @app.get("/api/runs/{name}/autoprotocol.json")
 def autoprotocol_file(name: str):
     from sdc import export
@@ -389,6 +400,47 @@ def tecan_file(name: str):
 
     return PlainTextResponse(export.pylabrobot_script(_confirmed_steps(name), "evo150"),
                              headers={"Content-Disposition": f'attachment; filename="{name}-tecan-evo.py"'})
+
+
+def _ot2(name):
+    """The same confirmed steps for an OT-2 (P20/P300 GEN2, Thermocycler GEN2), and Opentrons' analysis of that file
+    with opentrons 9.0.0 (10.x refuses OT-2 protocols), cached per file hash: at the default and at the most reactions."""
+    steps = _confirmed_steps(name)
+    src, _ = protocol.generate(steps, robot="OT-2")
+    d = _run_dir(name) / "ot2_checks"
+    f = d / f"{_sha256(src.encode('utf-8'))[:16]}.json"
+    if f.exists():
+        return src, json.loads(f.read_text(encoding="utf-8"))
+    py = os.getenv("OT2_PYTHON")
+    if not py or not Path(py).exists():
+        raise HTTPException(503, "the OT-2 checker (opentrons 9.0.0) is not installed on this server")
+    top = protocol.max_reactions(steps, protocol.OT2)
+    checks = []
+    d.mkdir(exist_ok=True)
+    for rtp in ([None, {"reactions": top}] if top > 1 else [None]):
+        tmp = d / f"{f.stem}.{secrets.token_hex(4)}.tmp"  # two requests at once must not share a file
+        ok, summary = protocol.analyze(src, tmp, rtp=rtp, python=py)
+        tmp.unlink(missing_ok=True)
+        checks.append({"reactions": (rtp or {}).get("reactions", 1), "ok": ok, "errors": summary.get("errors") or
+                       ([summary["error"]] if "error" in summary else []), "commands": summary.get("commands")})
+    res = {"ok": all(c["ok"] for c in checks), "checker": "opentrons 9.0.0 analyze", "checks": checks}
+    f.write_text(json.dumps(res), encoding="utf-8")
+    return src, res
+
+
+@app.get("/api/runs/{name}/ot2.py")
+def ot2_file(name: str):
+    """The protocol for an Opentrons OT-2, served only if Opentrons' own analysis (opentrons 9.0.0) passes it."""
+    src, res = _ot2(name)
+    if not res["ok"]:
+        raise HTTPException(409, f"the OT-2 version failed Opentrons' analysis: {res['checks']}")
+    return PlainTextResponse(src, headers={"Content-Disposition": f'attachment; filename="{name}-ot2.py"'})
+
+
+@app.get("/api/runs/{name}/ot2-check.json")
+def ot2_check(name: str):
+    """What opentrons 9.0.0 analyze said about the OT-2 file."""
+    return _ot2(name)[1]
 
 
 @app.get("/api/runs/{name}/analysis.json")

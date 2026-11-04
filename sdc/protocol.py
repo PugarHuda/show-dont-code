@@ -16,6 +16,15 @@ SPARE_SLOTS = ["B2", "B3", "C3", "D2", "D3", "A2"]  # free deck slots: A1/B1 the
 DEAD_UL, TUBE_UL = 30.0, 1500.0  # 1.5 mL snap-cap tube: unreachable bottom volume, capacity
 # Thermocycler GEN2 block, docs.opentrons.com/thermocycler/product-specs: max 4.25 °C/s heating, 2.0 °C/s cooling
 TC_HEAT, TC_COOL, AMBIENT_C = 4.25, 2.0, 25.0
+# the two robots the same steps can target. OT-2: opentrons 10.x only runs Flex protocols, so OT-2 files are checked
+# with opentrons 9.0.0 in its own environment (OT2_PYTHON); no liquid classes and no liquid sensor on an OT-2
+FLEX = {"name": "Flex", "api": "2.24", "small_ul": 50, "small": ("p50", "flex_1channel_50", "opentrons_flex_96_tiprack_50ul"),
+        "big": ("p1000", "flex_1channel_1000", "opentrons_flex_96_tiprack_1000ul"), "rack": "C2", "big_tips": "C1",
+        "small_tips": "D1", "spare": SPARE_SLOTS, "flex": True}
+OT2 = {"name": "OT-2", "api": "2.20", "small_ul": 20, "small": ("p20", "p20_single_gen2", "opentrons_96_tiprack_20ul"),
+       "big": ("p300", "p300_single_gen2", "opentrons_96_tiprack_300ul"), "rack": "5", "big_tips": "4",
+       "small_tips": "1", "spare": ["2", "3", "6", "9"], "flex": False}  # thermocycler takes 7, 8, 10, 11; trash 12
+ROBOTS = {"Flex": FLEX, "OT-2": OT2}
 LIQUID_COLORS = ["#2f63d8", "#d9480f", "#0f7a5c", "#9c36b5", "#e8590c", "#1098ad", "#5c940d", "#c2255c"]
 
 
@@ -112,7 +121,7 @@ def layout(steps):
     return {n: f"{r}:{w}" for n, (r, w) in {**sources, **dests}.items()}
 
 
-def _plan(steps):
+def _plan(steps, bot=FLEX):
     uses_tc = any(s["action"] == "thermocycle" for s in steps)
     sources, dests = {}, {}
     for s in steps:
@@ -123,8 +132,8 @@ def _plan(steps):
     # tubes fill rack "reagents" (C2), then "reagents2", "reagents3"... in the spare slots, 24 tubes each
     tubes = len(sources) + (0 if uses_tc else len(dests))
     n_racks = -(-tubes // len(RACK_WELLS))
-    if n_racks - 1 > len(SPARE_SLOTS):
-        raise ValueError(f"{tubes} tubes need {n_racks} tube racks; the Flex deck has room for {len(SPARE_SLOTS) + 1}")
+    if n_racks - 1 > len(bot["spare"]):
+        raise ValueError(f"{tubes} tubes need {n_racks} tube racks; the {bot['name']} deck has room for {len(bot['spare']) + 1}")
     if uses_tc and len(dests) > 96:
         raise ValueError(f"{len(dests)} reaction tubes do not fit the 96-well PCR plate")
 
@@ -137,11 +146,11 @@ def _plan(steps):
     return sources, dests, uses_tc
 
 
-def extra_racks(sources, dests):
+def extra_racks(sources, dests, bot=FLEX):
     """Tube racks beyond the first, in load order, each with its deck slot."""
     names = sorted({r for r, _ in {**sources, **dests}.values() if r.startswith("reagents") and r != "reagents"},
                    key=lambda r: int(r[len("reagents"):]))
-    return list(zip(names, SPARE_SLOTS))
+    return list(zip(names, bot["spare"]))
 
 
 def _drawn(steps):
@@ -155,25 +164,25 @@ def _drawn(steps):
     return need
 
 
-def _tip_counts(steps):
+def _tip_counts(steps, bot=FLEX):
     liquid = [s for s in steps if s["action"] in ("transfer", "mix")]
-    n50 = sum(1 for s in liquid if float(s["volume_ul"]) <= 50)  # one fresh tip per transfer / mix
+    n50 = sum(1 for s in liquid if float(s["volume_ul"]) <= bot["small_ul"])  # one fresh tip per transfer / mix
     return n50, len(liquid) - n50
 
 
-def max_reactions(steps):
+def max_reactions(steps, bot=FLEX):
     """How many copies of the filmed reaction the deck can set up in the PCR plate: limited by the plate's wells,
     by a 1.5 mL tube holding every reaction's draw (+10 % and dead volume), and by deck slots for tip racks.
     1 when the protocol has no thermocycler plate (its destinations are named tubes in the rack)."""
-    sources, dests, uses_tc = _plan(steps)
+    sources, dests, uses_tc = _plan(steps, bot)
     if not uses_tc or not dests:
         return 1
     n = 96 // len(dests)
     for _, total in _drawn(steps).values():
         if total > 0:
             n = min(n, int((TUBE_UL - DEAD_UL) / 1.1 / total))
-    n50, n1000 = _tip_counts(steps)
-    free = len(SPARE_SLOTS) - len(extra_racks(sources, dests))
+    n50, n1000 = _tip_counts(steps, bot)
+    free = len(bot["spare"]) - len(extra_racks(sources, dests, bot))
     while n > 1 and max(0, -(-n50 * n // 96) - 1) + max(0, -(-n1000 * n // 96) - 1) > free:
         n -= 1
     return max(n, 1)
@@ -189,18 +198,19 @@ def well_volume(steps):
     return max(1, min(100, round(max(well.values(), default=50))))
 
 
-def generate(steps, title="Show, Don't Code protocol"):
-    """Return (python_source, layout). layout maps each reagent/tube name to a deck location."""
+def generate(steps, title="Show, Don't Code protocol", robot="Flex"):
+    """Return (python_source, layout). layout maps each reagent/tube name to a deck location. robot: "Flex" or "OT-2"."""
+    bot = ROBOTS[robot]
     questions = missing_inputs(steps)
     if questions:
         raise NeedsInput(questions)
-    sources, dests, uses_tc = _plan(steps)
+    sources, dests, uses_tc = _plan(steps, bot)
 
-    n50, n1000 = _tip_counts(steps)
+    n50, n1000 = _tip_counts(steps, bot)
     small = n50 > 0
-    more = extra_racks(sources, dests)
-    free = iter(SPARE_SLOTS[len(more):])  # extra tip racks go to the slots tube racks left; >96 transfers need more
-    top = max_reactions(steps)  # >1: a "Reactions" runtime parameter repeats the filmed reaction down the plate
+    more = extra_racks(sources, dests, bot)
+    free = iter(bot["spare"][len(more):])  # extra tip racks go to the slots tube racks left; >96 transfers need more
+    top = max_reactions(steps, bot)  # >1: a "Reactions" runtime parameter repeats the filmed reaction down the plate
     R = "ctx.params.reactions" if top > 1 else None
 
     def racks(name, count, first_slot):
@@ -215,24 +225,24 @@ def generate(steps, title="Show, Don't Code protocol"):
         return "[" + ", ".join(f"ctx.load_labware({name!r}, {slot!r})" for slot in slots) + "]"
 
     need = _drawn(steps)  # source tube -> (reagent, total uL drawn); one liquid and one liquid class each
-    lc_of = {key: n for n, key in enumerate(need)}
+    lc_of = {key: n for n, key in enumerate(need)} if bot["flex"] else {}
 
     L = [
         "# Generated by Show, Don't Code from a video of a human performing the protocol.",
         "# Review every step against the side-by-side video before running on hardware.",
         f"metadata = {{'protocolName': {title!r}}}",
-        "requirements = {'robotType': 'Flex', 'apiLevel': '2.24'}",
+        f"requirements = {{'robotType': {bot['name']!r}, 'apiLevel': {bot['api']!r}}}",
         "",
     ]
     # thermal programs become Opentrons runtime parameters: the lab adjusts them in the App at run setup, no code
     tcs = [(i, thermal(s)) for i, s in enumerate(steps) if s["action"] == "thermocycle"]
-    if tcs or need:
+    if tcs or R or lc_of:
         L.append("def add_parameters(parameters):")
     if R:  # film one reaction, run a plate: the lab picks the number on the robot's touchscreen
         L.append("    parameters.add_int(variable_name='reactions', display_name='Reactions', description="
                  "'Copies of the filmed reaction, in the next PCR plate wells; tubes are filled for all of them', "
                  f"default=1, minimum=1, maximum={top})")
-    if need:  # the Flex pipettes' pressure sensor: off by default because probing adds seconds to every draw
+    if need and bot["flex"]:  # the Flex pipettes' pressure sensor: off by default because probing adds seconds to every draw
         L.append("    parameters.add_bool(variable_name='detect_liquid', display_name='Check tubes for liquid', "
                  "description='Probe each source tube with the pipette sensor before drawing; an empty tube stops the run', "
                  "default=False)")
@@ -256,12 +266,12 @@ def generate(steps, title="Show, Don't Code protocol"):
                          f"default={st['c']}, minimum=4.0, maximum=99.0, unit='C')")
                 L.append(f"    parameters.add_int(variable_name={f'{pre}{stage}{k + 1}_s'!r}, display_name={name + ' time'!r}, "
                          f"default={st['s']}, minimum=1, maximum=3600, unit='s')")
-    if tcs or need:
+    if tcs or R or lc_of:
         L.append("")
     L += [
         "def run(ctx):",
-        "    ctx.load_trash_bin('A3')",
-        f"    reagents = ctx.load_labware({TUBE_RACK!r}, 'C2', 'reagent tubes')",
+    ] + (["    ctx.load_trash_bin('A3')"] if bot["flex"] else []) + [
+        f"    reagents = ctx.load_labware({TUBE_RACK!r}, {bot['rack']!r}, 'reagent tubes')",
     ]
     L += [f"    {rack} = ctx.load_labware({TUBE_RACK!r}, {slot!r}, {'reagent tubes ' + rack[len('reagents'):]!r})"
           for rack, slot in more]
@@ -271,14 +281,15 @@ def generate(steps, title="Show, Don't Code protocol"):
             "    tc.open_lid()",
             f"    dest = tc.load_labware({PCR_PLATE!r})",
         ]
+    (big, big_model, big_rack), (sm, sm_model, sm_rack) = bot["big"], bot["small"]
     L += [
-        f"    tips1000 = {racks('opentrons_flex_96_tiprack_1000ul', n1000, 'C1')}",
-        "    p1000 = ctx.load_instrument('flex_1channel_1000', 'right', tip_racks=tips1000)",
+        f"    tips{big[1:]} = {racks(big_rack, n1000, bot['big_tips'])}",
+        f"    {big} = ctx.load_instrument({big_model!r}, 'right', tip_racks=tips{big[1:]})",
     ]
     if small:
         L += [
-            f"    tips50 = {racks('opentrons_flex_96_tiprack_50ul', n50, 'D1')}",
-            "    p50 = ctx.load_instrument('flex_1channel_50', 'left', tip_racks=tips50)",
+            f"    tips{sm[1:]} = {racks(sm_rack, n50, bot['small_tips'])}",
+            f"    {sm} = ctx.load_instrument({sm_model!r}, 'left', tip_racks=tips{sm[1:]})",
         ]
     # liquids: the Opentrons App shows these on its deck map and in Liquid Setup before anyone presses run
     for n, (key, (reagent, total)) in enumerate(need.items()):
@@ -288,8 +299,9 @@ def generate(steps, title="Show, Don't Code protocol"):
         what = f"{total:g} uL drawn per reaction" if R else f"{total:g} uL drawn over the run"
         L += [f"    liquid{n} = ctx.define_liquid({name!r}, description={what!r}, "
               f"display_color={LIQUID_COLORS[n % len(LIQUID_COLORS)]!r})",
-              f"    {sources[key][0]}[{sources[key][1]!r}].load_liquid(liquid{n}, {load})",
-              f"    lc{n} = ctx.get_liquid_class(ctx.params.lc{n})"]
+              f"    {sources[key][0]}[{sources[key][1]!r}].load_liquid(liquid{n}, {load})"]
+        if key in lc_of:
+            L.append(f"    lc{n} = ctx.get_liquid_class(ctx.params.lc{n})")
 
     dest_index = {name: i for i, name in enumerate(dests)}
     block_ul = well_volume(steps)
@@ -314,18 +326,19 @@ def generate(steps, title="Show, Don't Code protocol"):
         a = s["action"]
         if a == "transfer":
             v = float(s["volume_ul"])
-            pip = "p50" if v <= 50 else "p1000"
+            pip = sm if v <= bot["small_ul"] else big
             key = s.get("source") or s.get("reagent") or "reagent"
             src, dst = loc(sources[key]), where(s.get("destination") or "sample tube")
-            L += each([f"    {pip}.pick_up_tip()",
-                       "    if ctx.params.detect_liquid:",
-                       f"        {pip}.require_liquid_presence({src})",
-                       f"    {pip}.transfer_with_liquid_class(liquid_class=lc{lc_of[key]}, volume={v}, source={src}, "
-                       f"dest={dst}, new_tip='never')",
-                       f"    {pip}.drop_tip()"])
+            if bot["flex"]:
+                move = ["    if ctx.params.detect_liquid:", f"        {pip}.require_liquid_presence({src})",
+                        f"    {pip}.transfer_with_liquid_class(liquid_class=lc{lc_of[key]}, volume={v}, source={src}, "
+                        f"dest={dst}, new_tip='never')"]
+            else:  # ponytail: OT-2 has no liquid classes, so default flow rates; slow them for a viscous premix if needed
+                move = [f"    {pip}.transfer({v}, {src}, {dst}, new_tip='never')"]
+            L += each([f"    {pip}.pick_up_tip()", *move, f"    {pip}.drop_tip()"])
         elif a == "mix":
             v = float(s["volume_ul"])
-            pip = "p50" if v <= 50 else "p1000"
+            pip = sm if v <= bot["small_ul"] else big
             dst = where(s.get("destination") or "sample tube")
             L += each([f"    {pip}.pick_up_tip()", f"    {pip}.mix(3, {v}, {dst})", f"    {pip}.drop_tip()"])
         elif a == "thermocycle":
@@ -350,10 +363,11 @@ def generate(steps, title="Show, Don't Code protocol"):
     return "\n".join(L) + "\n", layout
 
 
-def analyze(source, json_path, filename="protocol.py", rtp=None):
+def analyze(source, json_path, filename="protocol.py", rtp=None, python=None):
     """Opentrons' own protocol analysis (what the Opentrons App runs on import). Writes the full JSON to json_path
     and returns (ok, summary) where summary lists what to load into which tube before the run. rtp: runtime parameter
-    values to analyse with instead of the defaults, as the App does after run setup."""
+    values to analyse with instead of the defaults, as the App does after run setup. python: the interpreter whose
+    opentrons package analyses it (OT-2 files need opentrons 9.x, see OT2)."""
     import subprocess
     import sys
     import tempfile
@@ -363,7 +377,7 @@ def analyze(source, json_path, filename="protocol.py", rtp=None):
         proto = Path(tmp) / filename  # .py, or .json for a Protocol Designer file
         proto.write_text(source, encoding="utf-8")
         extra = ["--rtp-values", json.dumps(rtp)] if rtp else []
-        p = subprocess.run([sys.executable, "-m", "opentrons.cli", "analyze", "--json-output", str(json_path), *extra,
+        p = subprocess.run([python or sys.executable, "-m", "opentrons.cli", "analyze", "--json-output", str(json_path), *extra,
                             str(proto)],
                            capture_output=True, text=True, timeout=240)
     if p.returncode != 0 or not Path(json_path).exists():
@@ -515,4 +529,16 @@ if __name__ == "__main__":
     assert ps["tips"] == 4 * top and len(ps["plate_wells"]) == top and racks == -(-4 * top // 96), (ps, racks)
     assert ps["plate_wells"][:9] == ["A1", "B1", "C1", "D1", "E1", "F1", "G1", "H1", "A2"], ps  # down the columns
     assert "reactions" not in generate([{**demo[0], "destination": "tube A"}])[0]  # no plate: no parameter
+    # the same steps for an OT-2: its pipettes and slots, none of the Flex-only calls; Flex output unchanged by the switch
+    ot2, _ = generate(demo, robot="OT-2")
+    assert "'robotType': 'OT-2'" in ot2 and "p20.transfer(1.0," in ot2 and "p300.transfer(25.0," in ot2, ot2
+    assert not any(x in ot2 for x in ("liquid_class", "load_trash_bin", "detect_liquid", "flex_")), ot2
+    assert generate(demo)[0] == src
+    import os
+    if os.getenv("OT2_PYTHON"):  # opentrons 9.0.0 (10.x refuses OT-2 files)
+        with tempfile.TemporaryDirectory() as tmp:
+            top2 = max_reactions(demo, OT2)
+            ok, an = analyze(ot2, Path(tmp) / "a.json", rtp={"reactions": top2}, python=os.environ["OT2_PYTHON"])
+        assert ok, an
+        print(f"OT-2: {top2} reactions analysed by opentrons 9.0.0")
     print(json.dumps(layout), f"\n{len(log)} simulator lines OK; {top} reactions analysed")
