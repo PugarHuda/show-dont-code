@@ -1,4 +1,5 @@
 .venv
+.venv-ot2
 data
 out
 .playwright-mcp
