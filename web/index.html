@@ -529,7 +529,7 @@ async function crosscheck(n, compute = false) {
   try {
     const r = await fetch(`${API}/api/runs/${encodeURIComponent(n)}/related/crosscheck${compute ? "?compute=true" : ""}`), x = await r.json();
     if (n !== name) return;
-    if (r.status === 404 && !compute) {  // not read yet for these volumes: it costs model calls, so only on a click
+    if (x.computed === false) {  // not read yet for these volumes: it costs model calls, so only on a click
       const b = document.createElement("button");
       b.type = "button"; b.className = "ghost"; b.textContent = "Compare these volumes with the published protocols (Muse Spark, ~1 min)";
       b.onclick = () => crosscheck(n, true);

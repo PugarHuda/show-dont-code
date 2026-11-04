@@ -216,6 +216,10 @@ def build(run_dir, name, generated, models):
             graph.append({"@id": "https://creativecommons.org/licenses/by/4.0/", "@type": "CreativeWork", "name": "CC BY 4.0"})
     if not edited:
         root["author"] = {"@id": AUTHOR}
+    # the service that built and serves the crate publishes it, whoever filmed the run
+    root["publisher"] = {"@id": "https://show-dont-code.vercel.app"}
+    graph.append({"@id": "https://show-dont-code.vercel.app", "@type": "Organization", "name": "Show, Don't Code",
+                  "url": "https://show-dont-code.vercel.app"})
     meta = {"@context": ["https://w3id.org/ro/crate/1.1/context", {"sha256": "http://schema.org/sha256"}],
             "@graph": graph + [root] + entities + tools + actions}
     buf = io.BytesIO()

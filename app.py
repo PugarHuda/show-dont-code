@@ -699,7 +699,7 @@ def related_crosscheck(name: str, compute: bool = False):
     """This run's volumes next to the volumes published protocols with the same kit use: Muse Spark reads up to three
     of the related protocols.io protocols, and only volumes with a quote that is really in the protocol are kept.
     Cached per run, kit words and volumes; computing it counts as one live model call per protocol read, so a plain
-    GET only serves the cache (404 when there is none) and ?compute=true, a click in the app, computes it."""
+    GET only serves the cache ({"computed": false} when there is none) and ?compute=true, a click in the app, computes it."""
     from sdc import crosscheck, related
 
     d = _run_dir(name)
@@ -715,7 +715,7 @@ def related_crosscheck(name: str, compute: bool = False):
         if c.get("key") == key:
             return c
     if not compute:  # a page load or a crawler never spends model calls; the scientist asks for it
-        raise HTTPException(404, "not computed yet for these volumes: ask for it with ?compute=true")
+        return {"computed": False, "detail": "not computed yet for these volumes: ask for it with ?compute=true"}
     with _rx_locks[f"crosscheck-{d.name}"]:
         cache = d / "crosscheck.json"  # another request may have finished it while this one waited
         if cache.exists() and json.loads(cache.read_text(encoding="utf-8")).get("key") == key:
