@@ -901,6 +901,28 @@ def main():
                                                            and "/upload" not in x and "protocol.py" not in x
                                                            and "c-AAAAAAAAAAAAAAAA" not in x], bad[:5])  # the expired-link check's own 404
         b.close()
+        # ---- the same pages in Firefox (Gecko) and WebKit (Safari's engine): a judge may open the link on an iPhone ----
+        watch = "window.__v=[];document.addEventListener('securitypolicyviolation',e=>window.__v.push(e.violatedDirective))"
+        for engine, ctx_opts in (("firefox", {}), ("webkit", {}), ("webkit", p.devices["iPhone 13"])):
+            label = engine if not ctx_opts else "iPhone 13 (WebKit)"
+            xb = getattr(p, engine).launch()
+            xp = xb.new_context(**ctx_opts).new_page()
+            xerr = []
+            xp.on("pageerror", lambda e: xerr.append(str(e)[:160]))
+            xp.add_init_script(watch)
+            xp.goto(BASE + "/", wait_until="load", timeout=90000)
+            landing_ok = "Pipette it once" in xp.inner_text("h1") and not xp.evaluate("() => window.__v.length")
+            xp.goto(BASE + "/app?run=pcr_1-gt", wait_until="load", timeout=90000)
+            xp.wait_for_function("() => document.querySelectorAll('#steps li').length === 6", timeout=60000)
+            xp.wait_for_timeout(2000)
+            app = xp.evaluate("""() => ({csp: window.__v.length, ok: /simulator passed/.test(document.getElementById('status').textContent),
+                dl: !document.getElementById('dl').disabled, wide: document.documentElement.scrollWidth <= innerWidth + 1,
+                bench: document.getElementById('benchrow').hidden === !('speechSynthesis' in window)})""")
+            check(f"browsers: {label} shows the landing page and pcr_1-gt's steps, verdict and download, with no script "
+                  "error, no CSP block, no sideways scroll, and bench mode only where the browser can speak",
+                  landing_ok and app["ok"] and app["dl"] and app["wide"] and app["bench"] and not app["csp"] and not xerr,
+                  (landing_ok, app, xerr[:2]))
+            xb.close()
     failed = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} passed")
     sys.exit(1 if failed else 0)
