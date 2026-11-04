@@ -820,6 +820,33 @@ def main():
         page_ld = page.evaluate("""() => fetch('/app?run=pcr_1-gt').then(r => r.text())""")
         check("Bioschemas: the run page's LabProtocol names its equipment with OBI DefinedTerms",
               '"termCode": "OBI:0400112"' in page_ld and '"@type": "LabProtocol"' in page_ld)
+        # ---- FAIR Signposting, read by its reference parser (github.com/stain/signposting) ---------------------
+        from signposting import find_signposting_http, find_signposting_linkset
+        sp = find_signposting_http(BASE + "/app?run=pcr_1-gt")
+        kinds = {str(d.type) for d in sp.describedBy} | {str(i.type) for i in sp.items}
+        check("signposting: pcr_1-gt's page links its metadata (LabProtocol JSON-LD, RO-Crate), 7 files with their "
+              "media types, CC BY, the author, its types and a linkset",
+              len(sp.describedBy) == 2 and len(sp.items) == 7 and "application/ld+json" in kinds and "application/vnd.eln+zip" in kinds
+              and sp.license and "by/4.0" in sp.license.target and sp.authors and len(sp.types) == 2 and sp.linksets,
+              (len(sp.describedBy), len(sp.items), sp.license))
+        back = []
+        for s in list(sp.describedBy) + list(sp.items):
+            with urllib.request.urlopen(s.target, timeout=120) as r:
+                link = r.headers.get("Link", "")
+            want = "describes" if s.target in {d.target for d in sp.describedBy} else "collection"
+            back.append(r.status == 200 and f'<{BASE}/app?run=pcr_1-gt>; rel="{want}"' in link)
+        check("signposting: every file and metadata link answers 200 and links back to the run's page", all(back), back)
+        ls = find_signposting_linkset(next(iter(sp.linksets)).target)
+        lpage = ls.for_context(BASE + "/app?run=pcr_1-gt")
+        check("signposting: the linkset (RFC 9264) carries the page's links, and each file's link back to the page",
+              len(lpage.items) == 7 and len(lpage.describedBy) == 2
+              and all(ls.for_context(i.target).collection for i in lpage.items)
+              and all(ls.for_context(d.target).describes for d in lpage.describedBy))
+        open_q = find_signposting_http(BASE + "/app?run=pcr_3", warn_empty=False)
+        check("signposting: a run with open questions links its metadata but no file it can't serve yet",
+              len(open_q.describedBy) == 1 and not open_q.items)
+        check("signposting: a private upload's page announces nothing",
+              not urllib.request.urlopen(BASE + "/app?run=u-AAAAAAAAAAAAAAAA", timeout=60).headers.get("Link"))
         # ---- bench card: Muse Image redraws each step's frame, Muse Spark checks it -------------------------
         card = json.loads(fetch(f"{api}/api/runs/pcr_1-gt/bench-card")[1])
         st, img = fetch(f"{api}/api/runs/pcr_1-gt/bench-card/{card['steps'][0]['step']}.jpg")

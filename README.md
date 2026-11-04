@@ -298,6 +298,14 @@ Then:
   centrifugation. A term is used only where it matches exactly. A pipetted transfer has no exact OBI process term, so
   it stays plain text rather than get a near miss. `python -m sdc.terms`, also in CI, checks every IRI in EBI OLS:
   label unchanged, not obsolete.
+- **FAIR Signposting** ([signposting.org/FAIR](https://signposting.org/FAIR/), levels 1 and 2, as Zenodo and DataCite
+  serve it): a shared run's page answers with an HTTP `Link` header naming its metadata (`describedby`: the Bioschemas
+  LabProtocol JSON-LD, also at `/api/runs/{run}/labprotocol.jsonld`, and the RO-Crate), its files (`item`, each with
+  its media type: protocol.py, .eln, Protocol Designer, Autoprotocol, Tecan worklist, transfer CSV, methods), CC BY,
+  the author and a `linkset` (`/api/runs/{run}/linkset.json`, RFC 9264). Each file links back (`collection`,
+  `describes`). A run with open questions lists only its metadata, since its files would answer 409, and a private
+  upload announces nothing. There is no `cite-as`: a run has no persistent identifier of its own that resolves to its
+  page. The e2e suite reads it all with the reference parser (`signposting`) and fetches every target.
 - **A SiLA 2 server** (`python -m sdc.sila`), so a lab's SiLA scheduler or orchestrator can drive it next to its other
   instruments. It is built on the official `sila2` library, with its own feature definition
   (`sdc/ProtocolGenerator.sila.xml`):
@@ -379,7 +387,7 @@ inline script is hash-listed, nothing the pages need is blocked, the landing pag
 (`get_protocol` must be byte for byte the downloaded file), the bench card (every drawing served, the receipt hashes
 `card.json`, a shared sample can't be redrawn, Enter on a drawing seeks the video), the `.eln` (one root folder, ELN
 1.2+20260923, every file attached and hashed, the body's steps and checks) and the volume cross-check (quotes present,
-the premix share agrees, a half-confirmed run is refused), and the landing page and a finished run again in Firefox, WebKit and an emulated iPhone 13 (no script error, no CSP block, bench mode hidden where the browser has no speech synthesis): 204/204 against production on Nov 4. A live upload, the way a judge would
+the premix share agrees, a half-confirmed run is refused), and the landing page and a finished run again in Firefox, WebKit and an emulated iPhone 13 (no script error, no CSP block, bench mode hidden where the browser has no speech synthesis), and FAIR Signposting through its reference parser: 209/209 against production on Nov 4. A live upload, the way a judge would
 try it (Nov 3: the first 100 s of a BioVL2 PCR video with the access code), ran every stage on production in 3 min 11 s,
 from the bench sheet to the reviewer agent, and its bench card was drawn live in 105 s. That upload also exposed an agent gap: with no legible bench sheet and
 unnamed tubes, the reviewer returned an empty review without calling a tool. It is now told, and reminded in its final
@@ -485,7 +493,7 @@ Known failures:
 ## Run it
 
 ```bash
-uv venv --python 3.12 .venv && uv pip install --python .venv -r requirements.txt remotezip PyLabRobot==0.2.2 playwright roc-validator mcp==2.3.0
+uv venv --python 3.12 .venv && uv pip install --python .venv -r requirements.txt remotezip PyLabRobot==0.2.2 playwright roc-validator mcp==2.3.0 signposting==0.9.9
 printf 'MODEL_API_KEY=...\nBASETEN_API_KEY=...\n' > .env
 .venv/Scripts/python scripts/fetch_biovl2.py                              # annotations + pcr_1..4 videos only
 .venv/Scripts/python -m sdc.pipeline data/BioVL2/videos/pcr/pcr_1.mp4     # all models + simulator

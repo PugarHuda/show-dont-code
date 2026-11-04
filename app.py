@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import Body, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 
 try:  # the MCP SDK needs jsonschema>=4.20 while opentrons 10.1 pins <4.18 (it runs fine on 4.26: the codegen self-check
     # analyses and simulates with it), so modal_app.py installs it in its own step; Vercel only serves the pages
@@ -189,6 +189,15 @@ async def security_headers(request: Request, call_next):
         resp = RedirectResponse(api + request.url.path + q, 307)
     else:
         resp = await call_next(request)
+        m = re.fullmatch(r"/api/runs/([\w.-]{1,100})/([\w.-]+)", request.url.path)
+        names = {n for n, _ in SIGNPOST_ITEMS} | {n for n, _ in SIGNPOST_META}
+        if m and m[2] in names and resp.status_code == 200:  # signposting back links: file -> its run's page
+            sp = _signposts(m[1], _api_origin(request))
+            if sp:
+                rel = "describes" if m[2] in {n for n, _ in SIGNPOST_META} else "collection"
+                resp.headers["Link"] = _link_header([(sp["landing"], rel, None),
+                                                     (f"{_api_origin(request)}/api/runs/{m[1]}/linkset.json", "linkset",
+                                                      "application/linkset+json")])
     resp.headers.update({"X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin",
                          "Strict-Transport-Security": "max-age=31536000",
                          "Permissions-Policy": "camera=(self), geolocation=(), microphone=(self)"})  # voice answers, recording
@@ -238,15 +247,90 @@ def lab_protocol(name):
     return out
 
 
+# FAIR Signposting (https://signposting.org/FAIR/, levels 1 and 2): a shared run's page says in its HTTP Link header
+# where its metadata, files, licence and author are, so a crawler or agent finds them without parsing HTML. No
+# cite-as: a run has no persistent identifier of its own that resolves to its page (the Zenodo DOI is the software's)
+SIGNPOST_ITEMS = (("protocol.py", "text/x-python"), ("run.eln", "application/vnd.eln+zip"),
+                  ("protocol-designer.json", "application/json"), ("autoprotocol.json", "application/json"),
+                  ("tecan.gwl", "text/plain"), ("transfers.csv", "text/csv"), ("methods.md", "text/markdown"))
+SIGNPOST_META = (("labprotocol.jsonld", "application/ld+json"), ("ro-crate.zip", "application/zip"))
+CC_BY = "https://creativecommons.org/licenses/by/4.0/"
+AUTHOR_ID = "https://github.com/PugarHuda"  # the sample runs' author, as in the RO-Crate
+
+
+def _signposts(name, api):
+    """{"landing", "links": [(href, rel, type)], "items", "meta"} for a shared run, None for a private or unknown one.
+    api: the origin the files are served from. Files the run can't serve yet (open questions, failed simulator) are left
+    out, so every link answers 200."""
+    if not re.fullmatch(r"[\w.-]{1,100}", name or "") or name.startswith(PRIVATE):
+        return None
+    f = pipeline.OUT / name / "result.json"
+    if not f.exists():
+        return None
+    r = json.loads(f.read_text(encoding="utf-8"))
+    site, base = os.getenv("PUBLIC_URL", "https://show-dont-code.vercel.app"), f"{api}/api/runs/{name}"
+    ready = bool(r.get("protocol") and r.get("sim_ok"))
+    meta = [(f"{base}/{n}", t) for n, t in SIGNPOST_META if ready or n == "labprotocol.jsonld"]
+    items = [(f"{base}/{n}", t) for n, t in SIGNPOST_ITEMS] if ready else []
+    links = [("https://schema.org/Dataset", "type", None), ("https://schema.org/AboutPage", "type", None),
+             (AUTHOR_ID, "author", None), (f"{base}/linkset.json", "linkset", "application/linkset+json")]
+    src = _source(name)
+    if not (src and src.get("kind") == "document" and not src.get("license")):  # a document's own licence is unknown
+        links.append((CC_BY, "license", None))
+    links += [(h, "describedby", t) for h, t in meta] + [(h, "item", t) for h, t in items]
+    return {"landing": f"{site}/app?run={name}", "links": links, "items": items, "meta": meta}
+
+
+def _api_origin(request):
+    """Where the API answers: API_BASE on the front end, else this server. Behind Modal's proxy the request reads as
+    http, so anything that isn't a local address is https."""
+    if os.getenv("API_BASE"):
+        return os.getenv("API_BASE")
+    u = request.base_url
+    local = u.hostname in ("localhost", "127.0.0.1", "testserver")
+    return f"{'http' if local else 'https'}://{u.netloc}"
+
+
+def _link_header(links):
+    return ", ".join(f'<{h}>; rel="{rel}"' + (f'; type="{t}"' if t else "") for h, rel, t in links)
+
+
+@app.get("/api/runs/{name}/labprotocol.jsonld")
+def labprotocol_file(name: str):
+    """The Bioschemas LabProtocol JSON-LD the run's page embeds, on its own (the page's describedby)."""
+    ld = lab_protocol(name)
+    if not ld:
+        raise HTTPException(404, "no such shared run")
+    return Response(json.dumps(ld, ensure_ascii=False), media_type="application/ld+json")
+
+
+@app.get("/api/runs/{name}/linkset.json")
+def linkset(name: str, request: Request):
+    """FAIR Signposting level 2: every link of the page, its files and its metadata, as an RFC 9264 linkset."""
+    sp = _signposts(name, _api_origin(request))
+    if not sp:
+        raise HTTPException(404, "no such shared run")
+    page = {"anchor": sp["landing"]}
+    for h, rel, t in sp["links"]:
+        page.setdefault(rel, []).append({"href": h, **({"type": t} if t else {})})
+    sets = [page] + [{"anchor": h, "collection": [{"href": sp["landing"]}]} for h, _ in sp["items"]] \
+        + [{"anchor": h, "describes": [{"href": sp["landing"]}]} for h, _ in sp["meta"]]
+    return Response(json.dumps({"linkset": sets}, indent=1), media_type="application/linkset+json")
+
+
 @app.get("/app")
-def index(run: str = ""):
+def index(request: Request, run: str = ""):
     api = os.getenv("API_BASE", "")
     uploads = "true" if api or os.getenv("UPLOADS") == "1" else "false"  # only the Modal backend can take uploads
     pre = f'<link rel="preconnect" href="{api}" crossorigin>\n' if api else ""  # the run's data comes from there first
     ld = lab_protocol(run)
     if ld:  # data, not a script: CSP doesn't run it. "</" is escaped so no text in it can close the tag
         pre += '<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>\n"
-    return _page(ROOT / "web" / "index.html", pre + f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n')
+    page = _page(ROOT / "web" / "index.html", pre + f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n')
+    sp = _signposts(run, _api_origin(request))
+    if sp:
+        page.headers["Link"] = _link_header(sp["links"])
+    return page
 
 
 @app.get("/api/runs")
