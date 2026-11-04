@@ -70,11 +70,16 @@ def _pool(host, ip):
                                        ca_certs=certifi.where(), timeout=TIMEOUT, retries=False)
 
 
-def push(eln, filename, title, url, key):
-    """Import the .eln as one experiment (owner-only read and write). Returns {"id", "url"} of the new entry."""
+def check(url, key):
+    """(host, ip, base) when the key looks like an API key and the address passes target(), else Refused."""
     if not re.fullmatch(r"[\x21-\x7e]{8,200}", key or ""):
         raise Refused("paste the API key from eLabFTW (Settings, API keys, with write access)")
-    host, ip, base = target(url)
+    return target(url)
+
+
+def push(eln, filename, title, url, key):
+    """Import the .eln as one experiment (owner-only read and write). Returns {"id", "url"} of the new entry."""
+    host, ip, base = check(url, key)
     pool = _pool(host, ip)
     head = {"Host": host, "Authorization": key, "User-Agent": "show-dont-code/1.0"}
     r = pool.request("POST", f"{base}/api/v2/import", headers=head, redirect=False, preload_content=False, fields={

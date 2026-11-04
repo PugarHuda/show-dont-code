@@ -69,7 +69,7 @@ def spend_live_call(n=1):
 
 
 def _run_dir(name):
-    if not re.fullmatch(r"[\w.-]+", name) or not (pipeline.OUT / name / "result.json").exists():
+    if not re.fullmatch(r"[\w.-]{1,100}", name) or not (pipeline.OUT / name / "result.json").exists():
         raise HTTPException(404, "unknown run")
     return pipeline.OUT / name
 
@@ -145,7 +145,7 @@ def icon(size: int):
 @app.get("/media/{name}")
 def media(name: str):  # local preview only; on Vercel public/media is served by the CDN before this runs
     path = ROOT / "public" / "media" / name
-    if not re.fullmatch(r"[\w.-]+", name) or not path.exists():
+    if not re.fullmatch(r"[\w.-]{1,100}", name) or not path.exists():
         raise HTTPException(404, "no such file")
     return FileResponse(path)
 
@@ -197,7 +197,7 @@ def landing():
 def lab_protocol(name):
     """Bioschemas LabProtocol (0.8-DRAFT) JSON-LD for a shared run, so search engines and FAIR crawlers can read the
     protocol from the page: steps, reagents, equipment, source and licence. None for a private run or no run."""
-    if not re.fullmatch(r"[\w.-]+", name or "") or name.startswith(PRIVATE):
+    if not re.fullmatch(r"[\w.-]{1,100}", name or "") or name.startswith(PRIVATE):
         return None
     f = pipeline.OUT / name / "result.json"
     if not f.exists():
@@ -273,6 +273,8 @@ def result(name: str):
 def video(name: str):
     d = _run_dir(name)
     video = pipeline.asset(d, "video.mp4")
+    if not video.exists():  # a protocols.io or document import has no footage
+        raise HTTPException(404, "this run has no video")
     if ON_VERCEL:  # public/ is served by the CDN and is not inside the function bundle
         return RedirectResponse(f"/runs/{video.parent.name}/video.mp4")
     return FileResponse(video, media_type="video/mp4")
@@ -311,6 +313,12 @@ def protocol_file(name: str):
     if not r.get("sim_ok"):  # a file the Opentrons simulator rejects would be rejected by the robot too
         raise HTTPException(409, "this protocol failed the Opentrons simulator; see the simulator log")
     return PlainTextResponse(r["protocol"], headers={"Content-Disposition": f'attachment; filename="{name}.py"'})
+
+
+def _source(name):
+    """source.json of a protocols.io or document import (an edit copy reads its sample's), else None for a video."""
+    f = pipeline.asset(_run_dir(name), "source.json")
+    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
 
 
 def _confirmed_steps(name):
@@ -363,7 +371,7 @@ def labels_zpl(name: str, request: Request, reactions: int = 1):
 def methods_file(name: str):
     from sdc import export
 
-    return PlainTextResponse(export.methods_markdown(_confirmed_steps(name), f"Show, Don't Code run {name}"),
+    return PlainTextResponse(export.methods_markdown(_confirmed_steps(name), f"Show, Don't Code run {name}", _source(name)),
                              media_type="text/markdown", headers={"Content-Disposition": f'attachment; filename="{name}-methods.md"'})
 
 
@@ -374,7 +382,7 @@ def notebook_file(name: str, request: Request):
 
     steps = _confirmed_steps(name)
     src = protocol_file(name).body.decode("utf-8")  # same checks as protocol.py: confirmed and simulator-passing
-    nb = export.notebook(steps, src, f"Show, Don't Code run {name}", _app_link(name, request))
+    nb = export.notebook(steps, src, f"Show, Don't Code run {name}", _app_link(name, request), _source(name))
     return JSONResponse(nb, headers={"Content-Disposition": f'attachment; filename="{name}.ipynb"'})
 
 
@@ -409,7 +417,9 @@ def tecan_worklist_file(name: str, robot: str = "evo", aqueous: str = "", viscou
 
     if robot not in ("evo", "fluent"):
         raise HTTPException(422, "robot must be evo or fluent")
-    classes = {"water": aqueous[:64], "glycerol_50": viscous[:64], "ethanol_80": volatile[:64]}
+    classes = {"water": aqueous, "glycerol_50": viscous, "ethanol_80": volatile}
+    if not all(export.CLASS_NAME.fullmatch(v) for v in classes.values() if v):
+        raise HTTPException(422, "liquid class names: letters, digits, spaces and _ . ( ) + - only, up to 32")
     try:
         gwl = export.tecan_worklist(_confirmed_steps(name), robot, classes)
     except Exception as e:  # robotools' volume tracking: an over-filled well is refused, not written
@@ -685,10 +695,11 @@ def related_protocols(name: str):
 
 
 @app.get("/api/runs/{name}/related/crosscheck")
-def related_crosscheck(name: str):
+def related_crosscheck(name: str, compute: bool = False):
     """This run's volumes next to the volumes published protocols with the same kit use: Muse Spark reads up to three
     of the related protocols.io protocols, and only volumes with a quote that is really in the protocol are kept.
-    Cached per run, kit words and volumes; computing it counts as one live model call per protocol read."""
+    Cached per run, kit words and volumes; computing it counts as one live model call per protocol read, so a plain
+    GET only serves the cache (404 when there is none) and ?compute=true, a click in the app, computes it."""
     from sdc import crosscheck, related
 
     d = _run_dir(name)
@@ -703,6 +714,8 @@ def related_crosscheck(name: str):
         c = json.loads(cache.read_text(encoding="utf-8"))
         if c.get("key") == key:
             return c
+    if not compute:  # a page load or a crawler never spends model calls; the scientist asks for it
+        raise HTTPException(404, "not computed yet for these volumes: ask for it with ?compute=true")
     with _rx_locks[f"crosscheck-{d.name}"]:
         cache = d / "crosscheck.json"  # another request may have finished it while this one waited
         if cache.exists() and json.loads(cache.read_text(encoding="utf-8")).get("key") == key:
@@ -833,7 +846,7 @@ def _run_files(name, request):
     d, steps = _run_dir(name), _confirmed_steps(name)
     r = json.loads((d / "result.json").read_text(encoding="utf-8"))
     title = f"Show, Don't Code run {name}"
-    gen = {"protocol.py": r["protocol"].encode("utf-8"), "methods.md": export.methods_markdown(steps, title).encode("utf-8"),
+    gen = {"protocol.py": r["protocol"].encode("utf-8"), "methods.md": export.methods_markdown(steps, title, _source(name)).encode("utf-8"),
            "autoprotocol.json": json.dumps(export.autoprotocol(steps), indent=1).encode("utf-8"),
            "transfers.csv": export.transfer_csv(steps).encode("utf-8"),
            "receipt.json": json.dumps(rec, indent=1).encode("utf-8"),
@@ -862,7 +875,7 @@ def _run_files(name, request):
 
 
 _exports = {}  # (kind, run) -> (version, bytes): the last build of each export
-_export_slots = threading.BoundedSemaphore(2)  # builds take seconds on the one web container: two at a time, else 429
+_export_slots = threading.BoundedSemaphore(2)  # builds take seconds on the one web container: two at a time, the rest wait up to 45 s
 
 
 def _export(name, request, kind, build):
@@ -875,7 +888,7 @@ def _export(name, request, kind, build):
     hit = _exports.get((kind, d.name))
     if hit and hit[0] == version:
         return hit[1]
-    if not _export_slots.acquire(blocking=False):
+    if not _export_slots.acquire(timeout=45):  # three quick clicks (crate, ARC, .eln) queue rather than fail
         raise HTTPException(429, "busy building other downloads; try again in a few seconds")
     try:
         body = build(*_run_files(name, request))
@@ -957,6 +970,10 @@ def send_to_elabftw(name: str, request: Request, url: str = Body(...), key: str 
     no CORS, so this server forwards it; the key is used for this request only and never stored or logged."""
     from sdc import elab
 
+    try:  # a bad address or key is refused before any .eln is built
+        elab.check(url, key)
+    except elab.Refused as e:
+        raise HTTPException(400, str(e))
     eln = eln_file(name, request).body
     if not _elab_slots.acquire(timeout=30):
         raise HTTPException(429, "busy: try again in a minute")
@@ -1272,7 +1289,7 @@ if MCPServer:
         """This run's per-reaction volumes next to those of published protocols.io protocols that use the same kit, read by
         Muse Spark: each match has the published volume, its verbatim quote (checked to be in the protocol's text), both
         reagents' share of the reaction and whether they agree within 20 %."""
-        return _http(related_crosscheck, name)
+        return _http(related_crosscheck, name, True)
 
     @mcp.tool()
     def get_receipt(name: str) -> dict:

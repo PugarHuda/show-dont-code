@@ -45,7 +45,7 @@
     header > span:empty { display: none; }
     #status { order: 1; flex: 1 1 0; text-align: right; }
     #run { order: 2; flex: 1 1 100%; }
-    #upbtn, #download { order: 3; }
+    #upbtn, #dl { order: 3; }
   }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
   h2 { font: 900 18px/1.15 var(--display); letter-spacing: -0.015em; color: var(--ink); margin: 0 0 10px; }
@@ -190,7 +190,7 @@
   <span id="status" class="pill">loading…</span>
   <span style="flex:1"></span>
   <button id="upbtn" type="button" class="ghost">Upload your video</button>
-  <a id="download"><button id="dl" disabled>Download protocol.py</button></a>
+  <button id="dl" type="button" disabled>Download protocol.py</button>
 </header>
 <dialog id="updlg" aria-labelledby="uptitle">
   <form id="upform" method="dialog">
@@ -376,7 +376,10 @@ async function init() {
     : n.startsWith("pcr") ? `${n} · PCR setup` : n.startsWith("miniprep") ? `${n} · plasmid miniprep` : n;
   $("run").innerHTML = runs.map((n) => `<option value="${esc(n)}">${esc(label(n))}</option>`).join("");
   if (want && runs.includes(want)) $("run").value = want;
-  $("run").onchange = () => openRun($("run").value);
+  $("run").onchange = () => {  // the address bar names the run on screen, so reload and share open the same one
+    history.replaceState(null, "", `?run=${encodeURIComponent($("run").value)}`);
+    openRun($("run").value);
+  };
   if (upload) {
     try { await load(upload); tubeFromLink(want); }  // finished: open it
     catch {  // still running, or a link that no longer exists (edit copies are kept 7 days)
@@ -388,6 +391,11 @@ async function init() {
   }
   if (!runs.length) { $("status").textContent = "no runs yet"; return; }
   await openRun($("run").value);
+  if (want && !runs.includes(want)) {  // a mistyped or expired link: say so instead of silently showing another run
+    history.replaceState(null, "", `?run=${encodeURIComponent($("run").value)}`);
+    $("status").className = "pill bad";
+    $("status").textContent = `No run named “${want}” (edit copies are kept for 7 days); showing ${$("run").value} instead.`;
+  }
   tubeFromLink(want);
 }
 
@@ -513,11 +521,18 @@ async function related(n) {
 
 // volumes next to published ones: Muse Spark read the related protocols; each volume shown comes with its quote,
 // which the server checked is really in that protocol's text
-async function crosscheck(n) {
-  $("xline").textContent = "Muse Spark is reading the published protocols for their volumes…"; $("xcheck").replaceChildren();
+async function crosscheck(n, compute = false) {
+  $("xline").textContent = compute ? "Muse Spark is reading the published protocols for their volumes…" : ""; $("xcheck").replaceChildren();
   try {
-    const r = await fetch(`${API}/api/runs/${encodeURIComponent(n)}/related/crosscheck`), x = await r.json();
+    const r = await fetch(`${API}/api/runs/${encodeURIComponent(n)}/related/crosscheck${compute ? "?compute=true" : ""}`), x = await r.json();
     if (n !== name) return;
+    if (r.status === 404 && !compute) {  // not read yet for these volumes: it costs model calls, so only on a click
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "ghost"; b.textContent = "Compare these volumes with the published protocols (Muse Spark, ~1 min)";
+      b.onclick = () => crosscheck(n, true);
+      $("xline").replaceChildren(b);
+      return;
+    }
     if (!r.ok) throw new Error(x.detail || r.status);
     const rows = x.protocols.flatMap((p) => p.rows.map((w) => ({ p, w })));
     const same = rows.filter(({ w }) => w.agree).length;
@@ -561,7 +576,7 @@ function pyodide() {
   return pyReady;
 }
 async function flexRun(base) {
-  const n = $("rxbox").hidden ? 1 : Math.max(1, Math.round(+$("rx").value) || 1), line = $("flexline"), btn = $("flexrun");
+  const n = $("rxbox").hidden ? 1 : rxValid() || 1, line = $("flexline"), btn = $("flexrun");
   const top = R.max_reactions || 1, offered = [...new Set([1, 2, 8, 24, top])].filter((k) => k <= top);
   if (!/^[ucp]-/.test(name) && !offered.includes(n)) {  // the server keeps a shared sample's receipt to these counts
     line.textContent = `On this shared sample the robot-server run takes ${offered.join(", ")} reactions; ${n} is checked by Opentrons' analysis above.`;
@@ -668,7 +683,7 @@ function render() {
     $("here-evo").onclick = () => runHere(`${base}/tecan-evo.py`, "Tecan Freedom EVO 150", R.evo);
     $("flexrun").onclick = () => flexRun(base);
   }
-  $("download").href = R.protocol && R.sim_ok ? `${API}/api/runs/${encodeURIComponent(name)}/protocol.py` : "#";
+  $("dl").onclick = () => { if (R.protocol && R.sim_ok) location.href = `${API}/api/runs/${encodeURIComponent(name)}/protocol.py`; };
   $("code").textContent = R.protocol || "Answer the questions to generate the protocol.";
   $("sim").textContent = R.sim_log.join("\n") || "—";
 
@@ -725,7 +740,7 @@ function render() {
       <b>${esc(tb.name || `Tube #${tb.id + 1}`)}</b> <span class="t">clicked at ${fmt(tb.t)}</span>
       <small>drawn from at: ${list(tb.source_steps)} · filled at: ${list(tb.destination_steps)}</small>
       <small>${esc(tb.reasoning)}</small>
-      <form data-id="${tb.id}"><input name="label" placeholder="What is in this tube? e.g. Primer 1" value="${esc(tb.name || "")}" required>
+      <form data-id="${tb.id}"><input name="label" aria-label="What is in this tube" placeholder="What is in this tube? e.g. Primer 1" value="${esc(tb.name || "")}" required>
       <button>Apply</button></form></li>`;
   }).join("");
   $("tubes").querySelectorAll("form").forEach((f) => f.onsubmit = async (ev) => {
@@ -737,7 +752,7 @@ function render() {
 
   const issues = R.review || [];
   // shown whenever the agent ran, findings or not: an empty review is a result too, and the visitor should see it
-  $("reviewbox").hidden = !R.review_model && !R.review_error;
+  $("reviewbox").hidden = !R.review_model && !R.review_error && !(R.review || []).length && !(R.agent_log || []).length;
   $("reviewstale").hidden = !R.review_before_edits;
   // which host ran the open-weights reviewer; the Fireworks backup sees frames only, never the whole video
   $("reviewhost").textContent = !R.review_model ? "" : R.review_model.startsWith("fireworks")
@@ -934,8 +949,13 @@ $("scanbtn").onclick = scanStart;
 
 // protocol.py's Reactions runtime parameter repeats the filmed reaction down the PCR plate; the labels say how much to
 // fill each tube for the number the lab will pick on the robot's touchscreen
+// the typed number if it is a whole number the deck allows, else null: every part of the page then shows 1 reaction
+function rxValid() {
+  const v = $("rx").value.trim(), n = +v, top = R.max_reactions || 1;
+  return v !== "" && Number.isInteger(n) && n >= 1 && n <= top ? n : null;
+}
 function labelLinks() {
-  const top = R.max_reactions || 1, n = Math.min(Math.max(Math.round(+$("rx").value) || 1, 1), top);
+  const top = R.max_reactions || 1, n = rxValid() || 1;
   const q = n > 1 ? `?reactions=${n}` : "", base = `${API}/api/runs/${encodeURIComponent(name)}`;
   $("f-labels").href = `${base}/labels.svg${q}`;
   $("f-zpl").href = `${base}/labels.zpl${q}`;
@@ -950,9 +970,12 @@ function setupRows(liquids) {
     `<tr><td><i class="dot" style="background:${esc(x.color)}"></i>${esc(x.liquid)}</td><td>${esc(x.labware)} ${esc(x.well)}</td><td class="t">${esc(x.volume_ul)} µL</td></tr>`).join("");
 }
 async function rxAnalysis() {
-  const n = Math.round(+$("rx").value), top = R.max_reactions || 1, seq = ++rxSeq, line = $("rxline");
-  if (!(n >= 1 && n <= top)) { line.textContent = `Pick 1 to ${top} reactions.`; return; }
-  if (n === 1) { rxWells = []; rxTips = []; setupRows(R.analysis?.liquid_setup); line.textContent = ""; if (!replaying) deck(active); return; }
+  const n = rxValid(), top = R.max_reactions || 1, seq = ++rxSeq, line = $("rxline");
+  if (n === null || n === 1) {  // an invalid number shows the one filmed reaction everywhere, never a mix of two numbers
+    rxWells = []; rxTips = []; setupRows(R.analysis?.liquid_setup); if (!replaying) deck(active);
+    line.textContent = n === null && $("rx").value.trim() !== "" ? `Pick a whole number from 1 to ${top}; showing 1 reaction meanwhile.` : "";
+    return;
+  }
   line.textContent = `Running Opentrons' analysis with Reactions = ${n}…`;
   try {
     const r = await fetch(`${API}/api/runs/${encodeURIComponent(name)}/reactions/${n}`);

@@ -254,8 +254,10 @@ Then:
   the results by shared reagent words and lists them with their DOIs, so the filmed volumes can be checked against
   how other labs wrote the same kit up (also MCP `get_related_protocols`). **Volumes cross-checked against them**
   (`sdc/crosscheck.py`): Muse Spark reads up to three of those protocols and gives the volume each uses for this run's
-  reagents with a verbatim quote; plain code keeps only quotes that are really in the protocol's text and compares each
-  reagent's share of its reaction. On pcr_1-gt, a published PrimeSTAR protocol uses "PrimeStar Mix (2X) 25 uL" in a
+  reagents with a verbatim quote; plain code keeps only quotes that are really in the protocol's text and that state
+  that volume themselves (a real quote with a different number is dropped), and compares each reagent's share of its
+  reaction. It costs model calls, so it runs when the scientist clicks for it (`?compute=true`); a page load or a
+  crawler only gets the cached result. On pcr_1-gt, a published PrimeSTAR protocol uses "PrimeStar Mix (2X) 25 uL" in a
   50 uL reaction, the same 50 % share as the filmed premix; its primers (1 uL) differ from the filmed 1.5 uL, and the
   app says so (MCP `crosscheck_volumes`).
 - **Citable and forkable**: `scripts/zenodo_deposit.py <run>` deposits the run's RO-Crate on Zenodo with metadata

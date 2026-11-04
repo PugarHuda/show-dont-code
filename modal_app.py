@@ -364,7 +364,7 @@ def web():
 
     @api.get("/api/runs/{name}/progress")
     def run_progress(name: str):
-        if not re.fullmatch(r"[\w.-]+", name):
+        if not re.fullmatch(r"[\w.-]{1,100}", name):
             raise HTTPException(404, "unknown run")
         f = Path(RUNS) / name / "progress.json"
         if not f.exists():

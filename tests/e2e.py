@@ -155,6 +155,17 @@ def main():
             # a run read from a published protocol has no video: its source is the protocols.io record instead
             check(f"run {run}: steps, {'source protocol' if pub else 'video'}, deck",
                   n_steps > 0 and (src or pub.startswith("https://www.protocols.io/")) and wells > 0, (n_steps, (src or pub)[-40:], wells))
+        check("app: picking a run puts it in the address bar, so reload and share open it",
+              page.evaluate("() => new URLSearchParams(location.search).get('run')") == runs[-1])
+        page.goto(BASE + "/app?run=no_such_run")
+        page.wait_for_function("() => /No run named/.test(document.getElementById('status').textContent)", timeout=60000)
+        check("app: a mistyped run link says so instead of silently showing another run",
+              page.evaluate("() => new URLSearchParams(location.search).get('run')") != "no_such_run")
+        page.goto(BASE + "/app?run=pcr_2")
+        page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
+        page.wait_for_timeout(800)
+        check("app: pcr_2's reviewer findings are shown (its review predates the host field)",
+              page.evaluate("() => !document.getElementById('reviewbox').hidden"))
         page.goto(BASE + "/app?run=pcr_3")
         page.wait_for_function("() => document.querySelectorAll('#steps li').length > 0", timeout=60000)
         page.wait_for_function("() => document.getElementById('video').readyState >= 1", timeout=60000)
@@ -267,6 +278,11 @@ def main():
             check(f"download: {path}", st == 200 and needle in data, (st, data[:80]))
         st, _ = fetch(f"{api}/api/runs/pcr_3/protocol.py")
         check("download: protocol refused while questions are open", st == 409, st)
+        long_name = "a" * 300
+        check("security: a 300-character run name is a 404, not a server error",
+              fetch(f"{api}/api/runs/{long_name}")[0] == 404 and fetch(f"{BASE}/app?run={long_name}")[0] == 200)
+        check("api: a run read from a protocol has no video: 404, not a server error",
+              fetch(f"{api}/api/runs/protocolsio_q5/video")[0] == 404)
 
         st, evo = fetch(f"{api}/api/runs/pcr_1-gt/tecan-evo.py")
         ok, elog = export.run_pylabrobot(evo.decode("utf-8")) if st == 200 else (False, {})

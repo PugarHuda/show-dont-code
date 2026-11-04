@@ -8,6 +8,7 @@
 Everything reads model text only as data: names land in string literals or markdown text, never in code.
 """
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -54,10 +55,20 @@ def flow_rates(cls, volume):
     return interp(tip.aspirate.flowRateByVolume), interp(tip.singleDispense.flowRateByVolume)
 
 
-def methods_markdown(steps, title="Protocol"):
+def _origin(source):
+    """Where the steps came from, for people: the video, a published protocol, or a photographed/scanned document."""
+    if not source:
+        return ["Recovered from a first-person video by Show, Don't Code and confirmed by the scientist.",
+                "Times in brackets point to the moment in the source video."]
+    doi = f" (doi:{_clean(source['doi'])})" if source.get("doi") else ""
+    what = "a photo or PDF of the protocol" if source.get("kind") == "document" else "the published protocol"
+    return [f"Read from {what} “{_clean(source.get('title'), 120)}”{doi} by Show, Don't Code and confirmed by the "
+            "scientist. Steps are numbered in the order the text gives them."]
+
+
+def methods_markdown(steps, title="Protocol", source=None):
     need = _needs(steps)
-    lines = [f"# {_clean(title)}", "", "Recovered from a first-person video by Show, Don't Code and confirmed by the scientist.",
-             "Times in brackets point to the moment in the source video.", "", "## Materials", "",
+    lines = [f"# {_clean(title)}", "", *_origin(source), "", "## Materials", "",
              "| Reagent | Prepare at least | Used for | Pipetted as |", "|---|---|---|---|"]
     for name, total, n in need.values():
         cls, _ = liquid_class(name)
@@ -65,7 +76,7 @@ def methods_markdown(steps, title="Protocol"):
                      f"| {LIQUID_CLASSES[cls].lower()} |")
     lines += ["", "## Procedure", ""]
     for i, s in enumerate(steps, 1):
-        when = f"[{float(s['start']):.0f}–{float(s['end']):.0f} s]"
+        when = "" if source else f" [{float(s['start']):.0f}–{float(s['end']):.0f} s]"  # a text has no video seconds
         if s["action"] == "transfer":
             text = (f"Transfer {float(s['volume_ul']):g} µL of {_clean(s.get('reagent') or s.get('source'))} "
                     f"into {_clean(s.get('destination') or 'the sample tube')}.")
@@ -79,7 +90,7 @@ def methods_markdown(steps, title="Protocol"):
                     + (f"; then {fmt(p['final'])}" if p["final"] else "") + f"; hold at 4 °C ({p['source']}).")
         else:
             text = _clean(s["description"], 200).rstrip(".") + "."
-        lines.append(f"{i}. {text} {when}")
+        lines.append(f"{i}. {text}{when}")
     return "\n".join(lines) + "\n"
 
 
@@ -278,7 +289,7 @@ def tube_labels_zpl(steps, link, reactions=1):
     return "\n".join(out) + "\n", len(tubes)
 
 
-def notebook(steps, source, title, link):
+def notebook(steps, source, title, link, origin=None):
     """A Jupyter notebook (nbformat 4, opens in JupyterLab, VS Code or Colab): the methods, protocol.py written to disk
     by a cell, and the Opentrons simulator run on it, so a lab re-checks the file without installing our app."""
     ids = iter(range(10))
@@ -292,7 +303,8 @@ def notebook(steps, source, title, link):
     return {"nbformat": 4, "nbformat_minor": 5,
             "metadata": {"kernelspec": {"name": "python3", "display_name": "Python 3", "language": "python"},
                          "language_info": {"name": "python"}},
-            "cells": [cell("markdown", methods_markdown(steps, title) + f"\n\nSource video, step by step: {link}\n"),
+            "cells": [cell("markdown", methods_markdown(steps, title, origin) +
+                           f"\n\n{'Source' if origin else 'Source video'}, step by step: {link}\n"),
                       code("%pip install -q opentrons==10.1.0"),
                       code("%%writefile protocol.py\n" + source),
                       code("from opentrons.simulate import simulate\n\n"
@@ -317,6 +329,7 @@ def run_pylabrobot(source, timeout=120):
 
 # Tecan liquid class names differ per installation: these are only defaults, renamed per request (?aqueous= etc.).
 # EVOware/FluentControl stop on a class name they don't have instead of pipetting with a guessed one.
+CLASS_NAME = re.compile(r"[A-Za-z0-9 _.()+-]{1,32}")
 TECAN_CLASSES = {"water": "Water Free Single", "glycerol_50": "Glycerol Free Single", "ethanol_80": "Ethanol Free Single"}
 
 
@@ -327,6 +340,9 @@ def tecan_worklist(steps, robot="evo", classes=None):
     import robotools
 
     cls_names = {**TECAN_CLASSES, **{k: v for k, v in (classes or {}).items() if v}}
+    for k, v in cls_names.items():  # a ';' or line break would start a new worklist record: refuse, don't guess
+        if not CLASS_NAME.fullmatch(v):
+            raise ValueError(f"liquid class name {v[:40]!r}: letters, digits, spaces and _ . ( ) + - only, up to 32")
     sources, dests, _ = _plan(steps)
     need = _needs(steps)
     src_well = {k: f"{w[0]}{int(w[1:]):02d}" for k, w in zip(sources, WELLS_96)}  # robotools names wells A01
@@ -347,7 +363,7 @@ def tecan_worklist(steps, robot="evo", classes=None):
             cls, _ = liquid_class(s.get("reagent") or s.get("source"))
             wl.transfer(reagents, src_well[s.get("source") or s.get("reagent") or "reagent"], reactions,
                         dst_well[s.get("destination") or "sample tube"], float(s["volume_ul"]),
-                        liquid_class=_clean(cls_names[cls], 32).replace(";", ""), label=_clean(s.get("reagent"), 40))
+                        liquid_class=cls_names[cls], label=_clean(s.get("reagent"), 40))
         elif s["action"] == "mix":
             w, v = dst_well[s.get("destination") or "sample tube"], float(s["volume_ul"])
             for _ in range(3):
@@ -390,6 +406,8 @@ if __name__ == "__main__":
         {"start": 80, "end": 90, "action": "thermocycle", "description": "Set in DNA engine", "cycles": 35},
     ]
     md = methods_markdown(demo, "Demo")
+    doc = methods_markdown(demo, "Demo", {"kind": "document", "title": "Colony PCR"})
+    assert "photo or PDF" in doc and "first-person video" not in doc and "[30–45 s]" not in doc and "[30–45 s]" in md, doc
     assert "35 cycles" in md and "| water |" in md and "aqueous (water) |" in md, md
     ap = autoprotocol(demo)
     assert [i["op"] for i in ap["instructions"]] == ["pipette", "pipette", "seal", "thermocycle"], ap
@@ -432,6 +450,12 @@ if __name__ == "__main__":
     assert "A;reagents;;;1;;20.00;Water Free Single" in gwl and "\nimport os" not in gwl, gwl
     assert all(x.split(";")[0] in ("A", "D", "W", "W1", "C", "B", "F") for x in lines), gwl  # EVOware record types
     assert "C;" in tecan_worklist(demo, "fluent")
+    for bad in ("x;D;reactions;;;1;;99", "Water\r\nA;reagents", "a" * 33):
+        try:
+            tecan_worklist(demo, classes={"water": bad})
+            raise AssertionError(f"{bad!r} must be refused")
+        except ValueError as e:
+            assert "liquid class name" in str(e), e
     try:  # 300 µL into one 200 µL PCR well must not become a worklist
         tecan_worklist([{**demo[0], "volume_ul": 150}] * 2)
         raise AssertionError("robotools must refuse overfilling a well")
