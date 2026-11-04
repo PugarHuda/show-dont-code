@@ -825,15 +825,21 @@ def main():
               "files with media types, PROV derivation and generation)",
               all(ld.get(k) for k in ("creator", "publisher", "datePublished", "keywords", "isAccessibleForFree",
                                       "conditionsOfAccess", "prov:wasDerivedFrom", "prov:wasGeneratedBy"))
-              and len(ld.get("distribution", [])) == 7 and all(d.get("encodingFormat") for d in ld["distribution"]),
+              and len(ld.get("distribution", [])) == 9 and all(d.get("encodingFormat") for d in ld["distribution"]),
               sorted(ld))
+        vid = next(d for d in ld["distribution"] if d["contentUrl"].endswith("/video"))
+        with urllib.request.urlopen(urllib.request.Request(vid["contentUrl"], headers={"Range": "bytes=0-0"}), timeout=60) as r:
+            served = r.headers.get("Content-Range", "").rsplit("/", 1)[-1]
+        check("FAIR: the video's contentSize is the size the server sends, and the files point at the API directly",
+              vid.get("contentSize") == f"{served} B" and all(d["contentUrl"].startswith(api) for d in ld["distribution"]),
+              (vid.get("contentSize"), served))
         # ---- FAIR Signposting, read by its reference parser (github.com/stain/signposting) ---------------------
         from signposting import find_signposting_http, find_signposting_linkset
         sp = find_signposting_http(BASE + "/app?run=pcr_1-gt")
         kinds = {str(d.type) for d in sp.describedBy} | {str(i.type) for i in sp.items}
-        check("signposting: pcr_1-gt's page links its metadata (LabProtocol JSON-LD, RO-Crate), 7 files with their "
+        check("signposting: pcr_1-gt's page links its metadata (LabProtocol JSON-LD, RO-Crate), its data, video and 7 files with their "
               "media types, CC BY, the author, its types and a linkset",
-              len(sp.describedBy) == 2 and len(sp.items) == 7 and "application/ld+json" in kinds and "application/vnd.eln+zip" in kinds
+              len(sp.describedBy) == 2 and len(sp.items) == 9 and "video/mp4" in kinds and "application/ld+json" in kinds and "application/vnd.eln+zip" in kinds
               and sp.license and "by/4.0" in sp.license.target and sp.authors and len(sp.types) == 2 and sp.linksets,
               (len(sp.describedBy), len(sp.items), sp.license))
         back = []
@@ -846,12 +852,16 @@ def main():
         ls = find_signposting_linkset(next(iter(sp.linksets)).target)
         lpage = ls.for_context(BASE + "/app?run=pcr_1-gt")
         check("signposting: the linkset (RFC 9264) carries the page's links, and each file's link back to the page",
-              len(lpage.items) == 7 and len(lpage.describedBy) == 2
+              len(lpage.items) == 9 and len(lpage.describedBy) == 2
               and all(ls.for_context(i.target).collection for i in lpage.items)
               and all(ls.for_context(d.target).describes for d in lpage.describedBy))
         open_q = find_signposting_http(BASE + "/app?run=pcr_3", warn_empty=False)
-        check("signposting: a run with open questions links its metadata but no file it can't serve yet",
-              len(open_q.describedBy) == 1 and not open_q.items)
+        open_ok = [urllib.request.urlopen(i.target, timeout=120).status == 200 for i in open_q.items]
+        check("signposting: a run with open questions links its metadata, its data and video (both answer 200), but no "
+              "file it can't serve yet",
+              len(open_q.describedBy) == 1 and len(open_q.items) == 2 and all(open_ok)
+              and not [i for i in open_q.items if i.target.endswith((".py", ".eln", ".gwl"))],
+              ([i.target for i in open_q.items], open_ok))
         check("signposting: a private upload's page announces nothing",
               not urllib.request.urlopen(BASE + "/app?run=u-AAAAAAAAAAAAAAAA", timeout=60).headers.get("Link"))
         # ---- bench card: Muse Image redraws each step's frame, Muse Spark checks it -------------------------

@@ -190,15 +190,15 @@ async def security_headers(request: Request, call_next):
         resp = RedirectResponse(api + request.url.path + q, 307)
     else:
         resp = await call_next(request)
-        m = re.fullmatch(r"/api/runs/([\w.-]{1,100})/([\w.-]+)", request.url.path)
-        names = {n for n, _ in SIGNPOST_ITEMS} | {n for n, _ in SIGNPOST_META}
-        if m and m[2] in names and resp.status_code == 200:  # signposting back links: file -> its run's page
-            sp = _signposts(m[1], _api_origin(request))
-            if sp:
-                rel = "describes" if m[2] in {n for n, _ in SIGNPOST_META} else "collection"
-                resp.headers["Link"] = _link_header([(sp["landing"], rel, None),
-                                                     (f"{_api_origin(request)}/api/runs/{m[1]}/linkset.json", "linkset",
-                                                      "application/linkset+json")])
+        m = re.fullmatch(r"/api/runs/([\w.-]{1,100})(/[\w.-]+)?", request.url.path)
+        sp = _signposts(m[1], _api_origin(request)) if m and resp.status_code in (200, 206) else None
+        here = f"{_api_origin(request)}{request.url.path}"
+        rel = sp and ("describes" if here in {h for h, _ in sp["meta"]} else
+                      "collection" if here in {h for h, _ in sp["items"]} else None)
+        if rel:  # signposting back links: a file or metadata resource -> its run's page
+            resp.headers["Link"] = _link_header([(sp["landing"], rel, None),
+                                                 (f"{_api_origin(request)}/api/runs/{m[1]}/linkset.json", "linkset",
+                                                  "application/linkset+json")])
     resp.headers.update({"X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin",
                          "Strict-Transport-Security": "max-age=31536000",
                          "Permissions-Policy": "camera=(self), geolocation=(), microphone=(self)"})  # voice answers, recording
@@ -211,7 +211,7 @@ def landing():
     return _page(page if page.exists() else ROOT / "web" / "index.html")
 
 
-def lab_protocol(name):
+def lab_protocol(name, api=None):
     """Bioschemas LabProtocol (0.8-DRAFT) JSON-LD for a shared run, so search engines and FAIR crawlers can read the
     protocol from the page: steps, reagents, equipment, source and licence. None for a private run or no run."""
     if not re.fullmatch(r"[\w.-]{1,100}", name or "") or name.startswith(PRIVATE):
@@ -258,11 +258,13 @@ def lab_protocol(name):
         ["PCR"] if any(s.get("action") == "thermocycle" for s in steps) or "pcr" in name else [])
     out["isAccessibleForFree"] = True
     out["conditionsOfAccess"] = "Open: anyone with the link can read the run and download its files; no account."
-    if r.get("protocol") and r.get("sim_ok"):
-        api = os.getenv("API_BASE") or site
-        out["distribution"] = [{"@type": "DataDownload", "contentUrl": f"{api}/api/runs/{name}/{n}", "encodingFormat": t,
-                                **({"contentSize": f"{len(r['protocol'].encode('utf-8'))} B"} if n == "protocol.py" else {})}
-                               for n, t in SIGNPOST_ITEMS]
+    sp = _signposts(name, api or os.getenv("API_BASE") or site)  # the same files the page's Link header lists
+    video = pipeline.asset(pipeline.OUT / name, "video.mp4")
+    size = {"/protocol.py": len((r.get("protocol") or "").encode("utf-8")),
+            "/video": video.stat().st_size if video.exists() else 0}  # sizes known here, without building a file
+    out["distribution"] = [{"@type": "DataDownload", "contentUrl": h, "encodingFormat": t,
+                            **{"contentSize": f"{n} B" for k, n in size.items() if n and h.endswith(k)}}
+                           for h, t in sp["items"]]
     if based:
         out["prov:wasDerivedFrom"] = based
     out["prov:wasGeneratedBy"] = {"@id": "https://github.com/PugarHuda/show-dont-code", "@type": "prov:SoftwareAgent"}
@@ -292,11 +294,13 @@ def _signposts(name, api):
     r = json.loads(f.read_text(encoding="utf-8"))
     site, base = os.getenv("PUBLIC_URL", "https://show-dont-code.vercel.app"), f"{api}/api/runs/{name}"
     ready = bool(r.get("protocol") and r.get("sim_ok"))
+    src = _source(name)
     meta = [(f"{base}/{n}", t) for n, t in SIGNPOST_META if ready or n == "labprotocol.jsonld"]
-    items = [(f"{base}/{n}", t) for n, t in SIGNPOST_ITEMS] if ready else []
+    # the run's own data answers from the start, protocol or not: its steps and questions, and the filmed video
+    items = [(base, "application/json")] + ([(f"{base}/video", "video/mp4")] if not src else []) \
+        + ([(f"{base}/{n}", t) for n, t in SIGNPOST_ITEMS] if ready else [])
     links = [("https://schema.org/Dataset", "type", None), ("https://schema.org/AboutPage", "type", None),
              (AUTHOR_ID, "author", None), (f"{base}/linkset.json", "linkset", "application/linkset+json")]
-    src = _source(name)
     if not (src and src.get("kind") == "document" and not src.get("license")):  # a document's own licence is unknown
         links.append((CC_BY, "license", None))
     links += [(h, "describedby", t) for h, t in meta] + [(h, "item", t) for h, t in items]
@@ -318,9 +322,9 @@ def _link_header(links):
 
 
 @app.get("/api/runs/{name}/labprotocol.jsonld")
-def labprotocol_file(name: str):
+def labprotocol_file(name: str, request: Request):
     """The Bioschemas LabProtocol JSON-LD the run's page embeds, on its own (the page's describedby)."""
-    ld = lab_protocol(name)
+    ld = lab_protocol(name, _api_origin(request))
     if not ld:
         raise HTTPException(404, "no such shared run")
     return Response(json.dumps(ld, ensure_ascii=False), media_type="application/ld+json")
@@ -345,7 +349,7 @@ def index(request: Request, run: str = ""):
     api = os.getenv("API_BASE", "")
     uploads = "true" if api or os.getenv("UPLOADS") == "1" else "false"  # only the Modal backend can take uploads
     pre = f'<link rel="preconnect" href="{api}" crossorigin>\n' if api else ""  # the run's data comes from there first
-    ld = lab_protocol(run)
+    ld = lab_protocol(run, _api_origin(request))
     if ld:  # data, not a script: CSP doesn't run it. "</" is escaped so no text in it can close the tag
         pre += '<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>\n"
     page = _page(ROOT / "web" / "index.html", pre + f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n')
@@ -359,6 +363,22 @@ def index(request: Request, run: str = ""):
 def runs():
     # uploads (u-*) are private: reachable only through the link their uploader got
     return sorted(p.parent.name for p in pipeline.OUT.glob("*/result.json") if not p.parent.name.startswith(PRIVATE))
+
+
+@app.get("/sitemap.xml")
+def sitemap():
+    """sitemaps.org 0.9: the landing page and every shared run's page, each with when its result last changed, so search
+    engines and FAIR harvesters find the runs without following links. Private runs are never listed."""
+    from xml.sax.saxutils import escape
+
+    site = os.getenv("PUBLIC_URL", "https://show-dont-code.vercel.app")
+    when = lambda f: datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).strftime("%Y-%m-%d")
+    urls = [f"<url><loc>{site}/</loc></url>"] + [
+        f"<url><loc>{escape(f'{site}/app?run={n}')}</loc><lastmod>{when(pipeline.OUT / n / 'result.json')}</lastmod></url>"
+        for n in runs()]
+    body = ('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "\n".join(urls) + "\n</urlset>\n")
+    return Response(body, media_type="application/xml", headers={"Cache-Control": "public, max-age=0, s-maxage=3600"})
 
 
 @app.get("/api/runs/{name}")
