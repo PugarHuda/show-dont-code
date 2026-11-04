@@ -264,6 +264,13 @@ def build(run_dir, steps, answers=None, review=True):
             result["review_saw_video"] = out["saw_video"]
         except Exception as e:  # reviewer is advisory; a provider outage must not block protocol generation
             result["review"], result["review_error"] = [], f"{type(e).__name__}: {e}"[:300]
+        src_file = asset(run_dir, "source.json")  # a photo, PDF or published protocol: text someone else wrote
+        if src_file.exists():
+            from .agent import injection_finding
+
+            hit = injection_finding(json.loads(src_file.read_text(encoding="utf-8")).get("text"))
+            if hit:
+                result["review"] = [hit] + result.get("review", [])
     gt = run_dir / "gt.csv"
     if gt.exists():
         result["eval"] = evaluate.score(evaluate.load_gt(gt), steps)

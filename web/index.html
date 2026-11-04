@@ -762,10 +762,17 @@ function render() {
   // which host ran the open-weights reviewer; the Fireworks backup sees frames only, never the whole video
   $("reviewhost").textContent = !R.review_model ? "" : R.review_model.startsWith("fireworks")
     ? "on Fireworks (backup host, frames only)" : "on Baseten";
-  const toolLog = (R.agent_log || []).map((c, k) => {
+  let sims = 0;
+  const toolLog = (R.agent_log || []).map((c) => {
     if (c.tool === "look_at_moment") {
       return `<li class="info look" data-t="${Number(c.args.seconds) || 0}" tabindex="0"><b>Agent looked at ${fmt(Number(c.args.seconds) || 0)}</b><span>${esc(c.args.why || "")}${c.result.error ? ` (${esc(c.result.error)})` : ""}</span></li>`;
     }
+    if (c.tool === "published_volumes") {  // what it read, not the raw quotes: those are in the cross-check below
+      const ps = c.result.protocols || [];
+      return `<li class="info"><b>Agent read ${ps.length} published protocol${ps.length === 1 ? "" : "s"} with the same kit</b><span>${ps.map((p) =>
+        `${p.doi ? `<a href="https://doi.org/${esc(p.doi)}" target="_blank" rel="noopener">${esc(p.title)}</a>` : esc(p.title)} (${(p.volume_lines || []).length} volume line${(p.volume_lines || []).length === 1 ? "" : "s"})`).join(" · ") || esc(c.result.error || "none found")}</span></li>`;
+    }
+    const k = sims++;
     const res = c.result.ran ? `simulator passed · ${Object.entries(c.result.total_ul_per_tube || {}).map(([t, v]) => `${esc(t)} ${v} µL`).join(", ")}`
       : esc(c.result.error || (c.result.rejected || []).join("; ") || JSON.stringify(c.result.missing_or_invalid_volume_for || c.result));
     return `<li class="info"><b>Agent ran the simulator (${k + 1})</b><span>${esc(Object.entries(c.args.volumes_ul || {}).map(([r, v]) => `${r} ${v} µL`).join(" · "))}<br>→ ${res}</span></li>`;
@@ -773,8 +780,9 @@ function render() {
   const fixLabel = (f) => f.kind === "set_reagent" ? `Name ${f.steps.length} step${f.steps.length > 1 ? "s" : ""} “${f.value}”`
     : f.kind === "set_volume" ? `Set ${f.value} µL on ${f.steps.length} step${f.steps.length > 1 ? "s" : ""}`
     : `Skip ${f.steps.length} step${f.steps.length > 1 ? "s" : ""} that did not happen`;
-  $("issues").innerHTML = R.review_error ? `<li><b>Reviewer unavailable</b><span>${esc(R.review_error)}</span></li>`
-    : toolLog + issues.map((it, k) => {
+  // the model reviewer can fail while deterministic checks (text addressed to an AI in a document) still hold: show both
+  $("issues").innerHTML = (R.review_error ? `<li><b>Reviewer unavailable</b><span>${esc(R.review_error)}</span></li>` : "")
+    + toolLog + issues.map((it, k) => {
       const f = it.fix || { kind: "none" };
       const action = f.kind === "none" ? "" : it.applied ? `<em class="applied">Applied: ${esc(fixLabel(f))}</em>`
         : `<button type="button" class="ghost fix" data-k="${k}">${esc(fixLabel(f))}</button>`;

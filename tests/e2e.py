@@ -161,8 +161,13 @@ def main():
             # a run read from a published protocol has no video: its source is the protocols.io record instead
             check(f"run {run}: steps, {'source protocol' if pub else 'video'}, deck",
                   n_steps > 0 and (src or pub.startswith("https://www.protocols.io/")) and wells > 0, (n_steps, (src or pub)[-40:], wells))
-        check("app: picking a run puts it in the address bar, so reload and share open it",
-              page.evaluate("() => new URLSearchParams(location.search).get('run')") == runs[-1])
+        try:
+            page.wait_for_function("(r) => new URLSearchParams(location.search).get('run') === r", arg=runs[-1], timeout=5000)
+        except Exception:
+            pass
+        shown = page.evaluate("() => new URLSearchParams(location.search).get('run')")
+        check("app: picking a run puts it in the address bar, so reload and share open it", shown == runs[-1],
+              (shown, runs[-1], page.input_value("#run")))
         page.goto(BASE + "/app?run=no_such_run")
         page.wait_for_function("() => /No run named/.test(document.getElementById('status').textContent)", timeout=60000)
         check("app: a mistyped run link says so instead of silently showing another run",
