@@ -1326,10 +1326,11 @@ async function follow(run, note = "") {
     const last = {};
     for (const e of p.events) last[e.stage] = e.state;
     $("upsteps").innerHTML = Object.entries(last).filter(([k]) => k !== "finished")
-      .map(([k, st]) => `<li class="${st === "running" ? "" : st === "error" ? "error" : "done"}">${esc(k)}${st === "running" ? " …" : st === "error" ? ": failed" : ""}</li>`).join("");
+      .map(([k, st]) => `<li class="${st === "running" ? "" : st === "error" ? "error" : "done"}">${esc(k)}${st === "running" ? " …" : st === "error" ? (last.failed ? ": failed" : ": skipped, the run goes on without it") : ""}</li>`).join("");
     if (p.ready) { location.search = `?run=${encodeURIComponent(run)}`; return; }
-    if (Object.values(last).includes("error")) {
-      const bad = Object.keys(last).find((k) => last[k] === "error" && k !== "failed");
+    // only the worker's own "failed" ends a run: an optional stage (speech) can error while the run goes on
+    if (last.failed === "error") {
+      const bad = Object.keys(last).filter((k) => last[k] === "error" && k !== "failed").pop();
       $("upmsg").textContent = `The analysis failed${bad ? ` at "${bad}"` : ""}. If the video is long or dark, try a shorter or brighter one; otherwise a model service may be down, so try again later, or open one of the sample runs.`;
       return;
     }

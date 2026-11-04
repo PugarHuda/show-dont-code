@@ -5,6 +5,7 @@ decides *how* a robot does it, so a bad generation can never produce unsafe code
 """
 import io
 import json
+import os
 
 from opentrons.simulate import simulate as _simulate
 
@@ -379,7 +380,8 @@ def analyze(source, json_path, filename="protocol.py", rtp=None, python=None):
         extra = ["--rtp-values", json.dumps(rtp)] if rtp else []
         p = subprocess.run([python or sys.executable, "-m", "opentrons.cli", "analyze", "--json-output", str(json_path), *extra,
                             str(proto)],
-                           capture_output=True, text=True, timeout=240)
+                           capture_output=True, text=True, timeout=240, encoding="utf-8", errors="replace",
+                           env={**os.environ, "PYTHONIOENCODING": "utf-8"})
     if p.returncode != 0 or not Path(json_path).exists():
         return False, {"error": (p.stderr or p.stdout)[-300:]}
     a = json.loads(Path(json_path).read_text(encoding="utf-8"))

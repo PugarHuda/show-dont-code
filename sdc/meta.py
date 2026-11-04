@@ -195,6 +195,10 @@ def transcribe(video, wav_path, keywords=None):
     import requests
 
     wav_path = Path(wav_path)
+    has_audio = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries", "stream=index",
+                                "-of", "csv=p=0", str(video)], capture_output=True, text=True).stdout.strip()
+    if not has_audio:  # a muted phone, a screen recording, a lab camera with no microphone: nobody spoke
+        return []
     if not wav_path.exists():
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(video), "-vn", "-ac", "1", "-ar", "16000",
                         "-sample_fmt", "s16", str(wav_path)], check=True)

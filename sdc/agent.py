@@ -219,6 +219,21 @@ def _ul(v):
     """A volume the robot can pipette; model output may put anything (a string, null, a bool) here."""
     return isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 1000
 
+def _demojibake(o):
+    """Open-weights models sometimes emit UTF-8 bytes as cp1252 characters ('â€“' for '–', 'Âµ' for 'µ'). Undo it
+    where the round trip is exact; text that merely contains those letters fails it and stays as it is."""
+    if isinstance(o, dict):
+        return {k: _demojibake(v) for k, v in o.items()}
+    if isinstance(o, list):
+        return [_demojibake(v) for v in o]
+    if isinstance(o, str) and ("â€" in o or "Â" in o or "Ã" in o):
+        try:
+            return o.encode("cp1252").decode("utf-8")
+        except UnicodeError:
+            return o
+    return o
+
+
 def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, fps=2, published=None):
     """simulator: status string. simulate: callable(volumes_ul) -> dict, exposed to the model as a tool.
     frames_dir: <index>.jpg stills of the video at `fps`, exposed as the look_at_moment tool.
@@ -290,7 +305,7 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
     choice = r.choices[0]
     if not choice.message.content:
         raise RuntimeError(f"reviewer returned no content (finish_reason={choice.finish_reason})")
-    out = json.loads(choice.message.content)
+    out = _demojibake(json.loads(choice.message.content))
     # model output is untrusted: keep only indices and reagents that exist, volumes a pipette can do
     for it in out["issues"]:
         it["steps"] = [i for i in it["steps"] if isinstance(i, int) and 0 <= i < len(steps)]
@@ -315,6 +330,10 @@ def review(steps, sheet, simulator, video=None, simulate=None, frames_dir=None, 
 
 
 if __name__ == "__main__":  # python -m sdc.agent: host failover and fix validation, no network
+    assert _demojibake({"f": ["a â€“ b", "20 ÂµL"]}) == {"f": ["a – b", "20 µL"]}
+    assert _demojibake("SÃ£o Paulo â€“ ok") == "São Paulo – ok"
+    assert _demojibake("plain – text, 5 µL") == "plain – text, 5 µL"  # nothing to undo
+    assert _demojibake("Ã alone") == "Ã alone"  # not a round trip: left as written
     from types import SimpleNamespace as NS
 
     def host(name, fail):

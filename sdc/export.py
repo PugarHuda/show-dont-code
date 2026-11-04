@@ -321,7 +321,8 @@ def run_pylabrobot(source, timeout=120):
         script = Path(tmp) / "plr_protocol.py"
         script.write_text(source, encoding="utf-8")
         p = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, timeout=timeout,
-                           env={"PYTHONIOENCODING": "utf-8", **__import__("os").environ})
+                           encoding="utf-8", errors="replace",  # the child writes UTF-8 (µL); Windows' default reads cp1252
+                           env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"})
     out = (p.stdout + p.stderr).strip().splitlines()
     actions = sum(1 for line in out if line.startswith(("Aspirating", "Dispensing")))
     return p.returncode == 0, {"actions": actions, "tail": out[-6:]}
@@ -463,4 +464,6 @@ if __name__ == "__main__":
         assert type(e).__name__ == "VolumeOverflowError", e
     csv_ = transfer_csv(demo + [{**demo[0], "reagent": "=HYPERLINK(1)", "destination": "tube 2"}])
     assert csv_.count("\n") == 4 and ",'=HYPERLINK(1)," in csv_, csv_
+    tail = " ".join(log["tail"])  # the simulator's UTF-8 survives the pipe (Windows read it as cp1252: "ÂµL")
+    assert "µL" in tail and "Â" not in tail, tail
     print("export self-check OK:", json.dumps(log))
