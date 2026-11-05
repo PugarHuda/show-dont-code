@@ -109,8 +109,11 @@ def autoprotocol(steps):
     refs = {"reagents": {"new": "96-deep", "discard": True}, "reactions": {"new": "96-pcr", "store": {"where": "cold_4"}}}
     # Autoprotocol addresses wells by container/index; reagent tubes become wells of a deep-well plate here
     # one index per tube, so tubes from different racks never share a well
-    src_idx = {k: f"reagents/{i}" for i, k in enumerate(sources)}
-    dst_idx = {k: f"reactions/{WELLS_96.index(w[1]) if uses_tc else i}" for i, (k, w) in enumerate(dests.items())}
+    # Autoprotocol numbers wells across the rows (A1=0, A2=1); the tubes sit in the same wells as in transfers.csv,
+    # tecan.gwl and the PyLabRobot scripts (down the columns: A1, B1, C1...), the reactions in protocol.py's plate wells
+    row = lambda w: "ABCDEFGH".index(w[0]) * 12 + int(w[1:]) - 1  # noqa: E731
+    src_idx = {k: f"reagents/{row(WELLS_96[i])}" for i, k in enumerate(sources)}
+    dst_idx = {k: f"reactions/{row(w[1] if uses_tc else WELLS_96[i])}" for i, (k, w) in enumerate(dests.items())}
     instructions = []
     for s in steps:
         if s["action"] == "transfer":
@@ -421,6 +424,8 @@ if __name__ == "__main__":
     assert "35 cycles" in md and "| water |" in md and "aqueous (water) |" in md, md
     ap = autoprotocol(demo)
     assert [i["op"] for i in ap["instructions"]] == ["pipette", "pipette", "seal", "thermocycle"], ap
+    two = autoprotocol(demo[:1] + [{**demo[0], "reagent": "dNTP", "destination": "tube 2"}])["instructions"]
+    assert two[1]["groups"][0]["transfer"][0]["from"] == "reagents/12", two  # B1, as in transfers.csv
     mx = autoprotocol(demo[:1] + [{**demo[0], "action": "mix", "volume_ul": 15}])["instructions"][1]
     assert mx["groups"][0]["mix"][0] == {"well": "reactions/0", "volume": "15:microliter", "repetitions": 3}, mx
     src = pylabrobot_script(demo)

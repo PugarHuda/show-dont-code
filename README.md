@@ -137,7 +137,7 @@ Then:
   50 µL pipette, ±1.25 % and 0.4 % at 50 µL; log-interpolated between the published points), the run page and
   `methods.md` give each reagent's share of its well with its worst-case systematic and random error. A share moves with
   its own transfer and, the other way, with every other transfer into the well. On pcr_1-gt the 1.5 µL primers come out
-  at ±8.3 % (5.7 % CV) and the 25 µL premix at ±1.9 %, so the scientist sees which volume is the weak spot before the
+  at ±8.5 % (5.7 % CV) and the 25 µL premix at ±1.9 %, so the scientist sees which volume is the weak spot before the
   run, and that a master mix (one larger draw) is the fix. `python -m sdc.protocol` checks the interpolation and shares.
 - **Liquid presence detection** is one switch at run setup ("Check tubes for liquid", off by default because it adds
   seconds per draw): when on, the Flex pipette's pressure sensor probes each source tube with the tip it is about to

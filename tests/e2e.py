@@ -223,7 +223,7 @@ def main():
         check("app: liquid setup lists what to load", len(page.query_selector_all("#setup tr")) >= 3)
         err = page.inner_text("#err")
         check("app: pipetting error from Opentrons' published Flex accuracy: 1.5 uL primers flagged, the 25 uL premix within 2 %",
-              len(page.query_selector_all("#err tr")) == 5 and "±8.33 %" in err and "±1.89 %" in err
+              len(page.query_selector_all("#err tr")) == 5 and "±8.46 %" in err and "±1.9 %" in err
               and "Primer1 (1.5 µL) is the weak spot" in page.inner_text("#errline"), err)
         page.click("#speak")
         page.keyboard.press("Space")
@@ -305,7 +305,7 @@ def main():
               abs(sum(r["share"] for r in pe) - 100) < 0.5 and all(r["pipettes"] == ["p50"] for r in pe)
               and json.loads(fetch(f"{api}/api/runs/pcr_3")[1])["pipetting"] == [], pe)
         check("download: methods.md has the expected pipetting error table",
-              "| sample tube | Primer1 | 1.5 | 3 % | ±8.33 % |".encode() in fetch(f"{api}/api/runs/pcr_1-gt/methods.md")[1])
+              "| sample tube | Primer1 | 1.5 | 3 % | ±8.46 % |".encode() in fetch(f"{api}/api/runs/pcr_1-gt/methods.md")[1])
         st, _ = fetch(f"{api}/api/runs/pcr_3/protocol.py")
         check("download: protocol refused while questions are open", st == 409, st)
         long_name = "a" * 300
@@ -501,9 +501,12 @@ def main():
 
         # ---- input validation and security edges ----------------------------------------------------
         for bad_answers, why in (({"0": -5}, "negative volume"), ({"99": 5}, "unknown step"), ({"5:cycles": 2.5}, "fractional cycles"),
-                                 ({"0; rm": 5}, "malformed key")):
+                                 ({"0; rm": 5}, "malformed key"), ({"0:cycles": 30}, "a cycle count on a transfer step"),
+                                 ({"5": 10}, "a volume on the thermocycler step"), ({"٠": 22}, "a non-ASCII digit as step")):
             st, _ = fetch(f"{api}/api/runs/pcr_1-gt/answers", "POST", json.dumps(bad_answers).encode(), {"Content-Type": "application/json"})
             check(f"api: rejects {why}", st == 422, st)
+        st, _ = fetch(f"{api}/api/runs/pcr_1/tubes", "POST", b'{"t": 1e300, "x": 1, "y": 1}', {"Content-Type": "application/json"})
+        check("api: a tube click at t=1e300 is a 422, not a server error", st == 422, st)
         for name in ("..%2F..%2Fetc", "pcr_1%00", "nope"):
             st, _ = fetch(f"{api}/api/runs/{name}")
             check(f"api: unknown run {name} -> 404", st == 404, st)
@@ -960,6 +963,23 @@ def main():
                                                            and "/upload" not in x and "protocol.py" not in x
                                                            and "c-AAAAAAAAAAAAAAAA" not in x], bad[:5])  # the expired-link check's own 404
         b.close()
+        # ---- switching runs carries nothing over (found by exploratory QA, Nov 5) -------------------------------------
+        sb2 = p.chromium.launch()
+        wp = sb2.new_context(service_workers="block").new_page()  # page.route can't see a service worker's fetches
+        wp.goto(f"{BASE}/app?run=pcr_1-gt"); wp.wait_for_selector("#replaybox:not([hidden])", timeout=60000)
+        wp.click("#replay"); wp.wait_for_timeout(1200); wp.select_option("#run", "pcr_2"); wp.wait_for_timeout(3000)
+        check("switch: a robot replay stops when another run opens (no seeks, no filled wells on the new deck)",
+              wp.inner_text("#replaycap") == "" and wp.locator("#deck .filled").count() == 0)
+        wp.select_option("#run", "pdf_colony_pcr"); wp.wait_for_timeout(3000)
+        check("switch: a filmed run's footage is unloaded when a run read from a document opens",
+              wp.evaluate("document.getElementById('video').readyState") == 0)
+        wp.go_back(); wp.wait_for_timeout(4000)
+        check("switch: Back returns to the run picked before", "run=pcr_2" in wp.url and wp.input_value("#run") == "pcr_2", wp.url)
+        wp.route("**/api/runs/pcr_4", lambda r: r.fulfill(status=503, body='{"detail":"down"}', content_type="application/json"))
+        wp.select_option("#run", "pcr_4"); wp.wait_for_timeout(3000)
+        check("switch: a run that fails to load leaves the one on screen in charge (selector, link, status)",
+              wp.input_value("#run") == "pcr_2" and "run=pcr_2" in wp.url and "pcr_4 could not be opened" in wp.inner_text("#status"))
+        sb2.close()
         # ---- the same pages in Firefox (Gecko) and WebKit (Safari's engine): a judge may open the link on an iPhone ----
         watch = "window.__v=[];document.addEventListener('securitypolicyviolation',e=>window.__v.push(e.violatedDirective))"
         for engine, ctx_opts in (("firefox", {}), ("webkit", {}), ("webkit", p.devices["iPhone 13"])):

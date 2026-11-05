@@ -5,7 +5,7 @@
 const CACHE = "sdc-v2";  // a new name drops what v1 kept, private runs included
 const API = "https://pugarhuda--show-dont-code-web.us-east.modal.run";
 
-self.addEventListener("install", (e) => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/app"]))); });
+self.addEventListener("install", (e) => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then((c) => c.addAll(["/", "/app"]))); });
 self.addEventListener("activate", (e) => e.waitUntil(
   caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())));
 
@@ -19,5 +19,6 @@ self.addEventListener("fetch", (e) => {
     const cc = res.headers.get("cache-control") || "";
     if (res.ok && !priv && !/no-store|private/.test(cc)) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(r, copy)); }
     return res;
-  }).catch(() => caches.match(r, { ignoreVary: true }).then((hit) => hit || caches.match(u.pathname === "/app" ? "/app" : r))));
+  }).catch(() => caches.match(r, { ignoreVary: true }).then((hit) => hit || caches.match(u.pathname === "/app" ? "/app" : r))
+    .then((hit) => hit || new Response("Offline, and this page was not opened before on this device.", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } }))));
 });

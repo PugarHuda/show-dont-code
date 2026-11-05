@@ -71,7 +71,7 @@
   ol.steps li:hover { background: var(--bg); }
   ol.steps li.active { background: var(--accent-soft); }
   .t { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-  .tag { font-size: 11px; font-weight: 700; white-space: nowrap; background: var(--ink); color: var(--panel); border-radius: 999px; padding: 2px 9px; align-self: start; }
+  .tag { font-size: 11px; font-weight: 700; overflow-wrap: anywhere; background: var(--ink); color: var(--panel); border-radius: 999px; padding: 2px 9px; align-self: start; }
   .tag.ask { background: var(--accent); color: var(--on-accent); }
   svg.deck { width: 100%; height: auto; }
   .slot { fill: var(--bg); stroke: var(--line); }
@@ -230,7 +230,7 @@
     </section>
     <section id="humanbox">
       <h2>Human, filmed once</h2>
-      <div class="stage"><video id="video" controls muted playsinline crossorigin="anonymous"></video><canvas id="overlay"></canvas></div>
+      <div class="stage"><video id="video" controls muted playsinline crossorigin="anonymous" aria-label="The scientist's video of this protocol"></video><canvas id="overlay" aria-hidden="true"></canvas></div>
       <div class="now" id="now"></div>
       <div class="timeline" id="timeline" style="margin-left:34px">
         <div class="lane" id="lane-pred"><span class="lane-label">model</span></div>
@@ -297,7 +297,7 @@
       <p class="hint" id="relline" aria-live="polite"></p>
       <ul class="issues" id="rel"></ul>
       <p class="hint" id="xline" aria-live="polite"></p>
-      <div id="xbox" hidden class="tablewrap"><table class="setup xcheck"><thead><tr><th scope="col">Reagent</th><th scope="col">Filmed</th>
+      <div id="xbox" hidden class="tablewrap" tabindex="0" role="region" aria-label="Volumes compared with published protocols"><table class="setup xcheck"><thead><tr><th scope="col">Reagent</th><th scope="col">Filmed</th>
         <th scope="col">Published</th><th scope="col">Where it says so</th></tr></thead><tbody id="xcheck"></tbody></table></div>
     </section>
     <section id="cardbox" hidden>
@@ -317,7 +317,7 @@
       <table class="setup"><thead><tr><th scope="col">Load</th><th scope="col">Into</th><th scope="col">Volume</th></tr></thead><tbody id="setup"></tbody></table>
       <div id="errbox" hidden>
         <p class="hint" id="errline"></p>
-        <div class="tablewrap"><table class="setup"><thead><tr><th scope="col">Reagent</th><th scope="col">Share of the well</th>
+        <div class="tablewrap" tabindex="0" role="region" aria-label="Expected pipetting error"><table class="setup"><thead><tr><th scope="col">Reagent</th><th scope="col">Share of the well</th>
           <th scope="col">Systematic, worst case</th><th scope="col">Random (CV)</th></tr></thead><tbody id="err"></tbody></table></div>
       </div>
       <div id="paramsbox" hidden>
@@ -385,7 +385,7 @@ async function init() {
   $("run").innerHTML = runs.map((n) => `<option value="${esc(n)}">${esc(label(n))}</option>`).join("");
   if (want && runs.includes(want)) $("run").value = want;
   $("run").onchange = () => {  // the address bar names the run on screen, so reload and share open the same one
-    history.replaceState(null, "", `?run=${encodeURIComponent($("run").value)}`);
+    history.pushState(null, "", `?run=${encodeURIComponent($("run").value)}`);
     openRun($("run").value);
   };
   if (upload) {
@@ -414,10 +414,26 @@ function tubeFromLink(want) {
 }
 
 // a run that can't be opened (a stale link, the API restarting) says so in the status pill, not as an uncaught error
-const openRun = (n) => load(n).catch((e) => { $("status").className = "pill bad"; $("status").textContent = e.message; });
+const openRun = (n) => {
+  const prev = name, prevSrc = $("video").getAttribute("src");
+  return load(n).catch((e) => {  // a run that failed to load leaves the one on screen in charge: its name, link and video
+    if (R && prev && prev !== n) {
+      name = prev; $("run").value = prev; history.replaceState(null, "", `?run=${encodeURIComponent(prev)}`);
+      if ($("video").getAttribute("src") !== prevSrc) { if (prevSrc) $("video").src = prevSrc; else { $("video").removeAttribute("src"); $("video").load(); } }
+    }
+    $("status").className = "pill bad"; $("status").textContent = prev && prev !== n ? `${n} could not be opened: ${e.message}` : e.message;
+  });
+};
+addEventListener("popstate", () => {  // Back and Forward walk through the runs picked from the list
+  const r = new URLSearchParams(location.search).get("run");
+  if (r && r !== name) { $("run").value = r; openRun(r); }
+});
 
 async function load(n) {
-  if (n !== name) { placed.clear(); hereTube = null; scanStop(); rxWells = []; rxTips = []; $("rx").value = 1; $("rxline").textContent = ""; $("zplview").hidden = true; $("zplview").replaceChildren(); }
+  if (n !== name) {  // nothing of the previous run carries over: its replay, a Reactions analysis still on its way
+    if (replaying) replaying.stop = true;
+    clearTimeout(rxTimer); rxSeq++; $("replaycap").textContent = $("replaystep").textContent = "";
+    placed.clear(); hereTube = null; scanStop(); rxWells = []; rxTips = []; $("rx").value = 1; $("rxline").textContent = ""; $("zplview").hidden = true; $("zplview").replaceChildren(); }
   name = n;
   // a sample's footage starts loading from the CDN before its run data arrives from the backend (largest paint)
   // ponytail: filmed samples are the BioVL2 runs (pcr_*, miniprep_*); a sample read from a protocol has no footage
@@ -431,7 +447,7 @@ async function load(n) {
       ? `“${esc(R.source.title)}”, ${R.source.pages} photographed or scanned page${R.source.pages > 1 ? "s" : ""} read by Muse Spark${R.source.license ? ` (${esc(R.source.license)})` : ""}`
       : `<a href="${esc(R.source.url)}" target="_blank" rel="noopener">${esc(R.source.title)}</a>${R.source.doi
       ? ` · <a href="https://doi.org/${esc(R.source.doi)}" target="_blank" rel="noopener">doi:${esc(R.source.doi)}</a>` : ""}`;
-    $("video").removeAttribute("src");
+    $("video").removeAttribute("src"); $("video").load();  // unloads the previous run's footage, which would play on
   } else if (!early) $("video").src = API && !n.startsWith("u-")  // hosted: a sample's footage (or an edit copy's) is on the CDN, near the viewer
     ? `/runs/${encodeURIComponent(R.copy_of || n)}/video.mp4` : `${API}/api/runs/${encodeURIComponent(n)}/video`;
   // captions of the speech in the video (Muse Voice Transcribe); a fresh <track> per run, none when nobody spoke
@@ -478,7 +494,7 @@ function showCard(c, base) {
   $("card").innerHTML = shown.map((s) => {
     const st = R.steps[s.step], title = esc(st.description || st.action), what = st.action === "transfer" && st.volume_ul
       ? `${st.volume_ul} µL ${esc(st.reagent || "")}${st.destination ? ` into ${esc(st.destination)}` : ""}` : "";
-    return `<li><figure><button type="button" class="seek" data-t="${s.t}" aria-label="Play step ${s.step + 1} in the video, at ${fmt(s.t)}"><img loading="lazy" src="${base}/${s.step}.jpg?w=640" srcset="${base}/${s.step}.jpg?w=640 640w, ${base}/${s.step}.jpg 1280w" sizes="(max-width: 600px) 90vw, 330px" alt="Illustration of step ${s.step + 1}: ${title}"></button>
+    return `<li><figure><button type="button" class="seek" data-t="${s.t}" aria-label="Play step ${s.step + 1} in the video, at ${fmt(s.t)}"><img loading="lazy" crossorigin="anonymous" src="${base}/${s.step}.jpg?w=640" srcset="${base}/${s.step}.jpg?w=640 640w, ${base}/${s.step}.jpg 1280w" sizes="(max-width: 600px) 90vw, 330px" alt="Illustration of step ${s.step + 1}: ${title}"></button>
       <figcaption><b>${s.step + 1}. ${title}</b>${what && what !== title ? ` · ${what}` : ""}
       <span>video ${fmt(s.t)} · ${s.faithful ? "✓ Muse Spark: same scene" : `⚠ Muse Spark: ${esc(s.differences.join("; "))}`}</span></figcaption></figure></li>`;
   }).join("");

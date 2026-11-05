@@ -65,7 +65,7 @@
   .deck .tube { fill: none; stroke: currentColor; stroke-width: 1.2; }
   .deck .lit .tube { stroke: var(--black); fill: none; }
   .deck .lit .tube.on { fill: var(--red); stroke: var(--red); }
-  @media (prefers-reduced-motion: reduce) { .deck rect, .deck text { transition: none; } }
+  @media (prefers-reduced-motion: reduce) { .deck .slot rect, .deck .tc rect, .deck text { transition: none; } }
 
   /* the white sheet that rides up over the band */
   .sheet { background: var(--paper); border-radius: 44px 44px 0 0; margin: -84px auto 0; max-width: 980px; padding: 52px 24px 0; text-align: center; position: relative; }

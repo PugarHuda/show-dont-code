@@ -227,7 +227,9 @@ def lab_protocol(name, api=None):
     based = ({"@id": f"https://doi.org/{source['doi']}"} if source and source.get("doi") else
              None if source else {"@id": "https://zenodo.org/records/21495188"})
     out = {
-        "@context": {"@vocab": "https://schema.org/", "dct": "http://purl.org/dc/terms/"},
+        # Bioschemas' own type lives at bioschemas.org; its properties are linked to schema.org by the profile
+        "@context": {"@vocab": "https://schema.org/", "dct": "http://purl.org/dc/terms/",
+                     "LabProtocol": "https://bioschemas.org/LabProtocol"},
         "@type": "LabProtocol", "@id": f"{site}/app?run={name}", "url": f"{site}/app?run={name}",
         "dct:conformsTo": {"@id": "https://bioschemas.org/profiles/LabProtocol/0.8-DRAFT"},
         "name": f"Opentrons Flex protocol: {name}",
@@ -236,7 +238,10 @@ def lab_protocol(name, api=None):
         "license": "https://creativecommons.org/licenses/by/4.0/",
         "labEquipment": ["Opentrons Flex"] + [{"@type": "DefinedTerm", "name": t[0], "termCode": t[2].replace("_", ":"),
                                                "url": terms.iri(t)} for t in terms.equipment(steps)],
-        "reagentUsed": sorted({s["reagent"] for s in steps if s.get("reagent")}),
+        "reagent": sorted({s["reagent"] for s in steps if s.get("reagent")}),  # LabProtocol 0.8-DRAFT minimum
+        "intendedUse": "Running this protocol on an Opentrons Flex liquid handler instead of by hand",
+        **({"bioSample": bio} if (bio := sorted({s["reagent"] for s in steps if s.get("reagent") and re.search(
+            r"template|sample|colon|culture|cell|lysate|dna", s["reagent"], re.I)})) else {}),
         "step": [{"@type": "HowToStep", "position": i + 1, "text": " ".join(str(x) for x in (
             s.get("description") or s["action"], f"{s['volume_ul']} µL" if s.get("volume_ul") else "") if x),
             **({"additionalType": terms.iri(terms.ACTION[s["action"]])} if s["action"] in terms.ACTION else {})}
@@ -251,9 +256,10 @@ def lab_protocol(name, api=None):
     if source and source.get("kind") == "document" and not source.get("license"):
         del out["license"]  # a document's own licence is unknown: claim none
     out["@context"]["prov"] = "http://www.w3.org/ns/prov#"
-    out["creator"] = {"@type": "Person", "@id": AUTHOR_ID, "name": "Pugar Huda Mantoro"}
+    out["creator"] = out["author"] = {"@type": "Person", "@id": AUTHOR_ID, "name": "Pugar Huda Mantoro"}
     out["publisher"] = {"@type": "Organization", "@id": site, "name": "Show, Don't Code", "url": site}
-    out["datePublished"] = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
+    if _real_mtime(f):  # the Vercel bundle normalises file times to 2018: no date beats a wrong one
+        out["datePublished"] = datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
     out["keywords"] = ["Opentrons Flex", "lab automation", "liquid handling", "Show Don't Code"] + (
         ["PCR"] if any(s.get("action") == "thermocycle" for s in steps) or "pcr" in name else [])
     out["isAccessibleForFree"] = True
@@ -307,6 +313,10 @@ def _signposts(name, api):
     return {"landing": f"{site}/app?run={name}", "links": links, "items": items, "meta": meta}
 
 
+def _real_mtime(f):
+    return f.stat().st_mtime > 1577836800  # after 2020-01-01: older is the deploy bundle's placeholder time
+
+
 def _api_origin(request):
     """Where the API answers: API_BASE on the front end, else this server. Behind Modal's proxy the request reads as
     http, so anything that isn't a local address is https."""
@@ -350,6 +360,8 @@ def index(request: Request, run: str = ""):
     uploads = "true" if api or os.getenv("UPLOADS") == "1" else "false"  # only the Modal backend can take uploads
     pre = f'<link rel="preconnect" href="{api}" crossorigin>\n' if api else ""  # the run's data comes from there first
     ld = lab_protocol(run, _api_origin(request))
+    if ld and api:  # a shared run: its data starts downloading with the page, not after the script runs (largest paint)
+        pre += f'<link rel="preload" as="fetch" crossorigin="anonymous" href="{api}/api/runs/{quote(run)}">\n'
     if ld:  # data, not a script: CSP doesn't run it. "</" is escaped so no text in it can close the tag
         pre += '<script type="application/ld+json">' + json.dumps(ld, ensure_ascii=False).replace("</", "<\\/") + "</script>\n"
     page = _page(ROOT / "web" / "index.html", pre + f'<script>window.API_BASE = "{api}"; window.UPLOADS = {uploads};</script>\n')
@@ -372,9 +384,10 @@ def sitemap():
     from xml.sax.saxutils import escape
 
     site = os.getenv("PUBLIC_URL", "https://show-dont-code.vercel.app")
-    when = lambda f: datetime.fromtimestamp(f.stat().st_mtime, timezone.utc).strftime("%Y-%m-%d")
+    def when(f):  # lastmod is optional: left out where the file time is the bundle's normalised one
+        return f"<lastmod>{datetime.fromtimestamp(f.stat().st_mtime, timezone.utc):%Y-%m-%d}</lastmod>" if _real_mtime(f) else ""
     urls = [f"<url><loc>{site}/</loc></url>"] + [
-        f"<url><loc>{escape(f'{site}/app?run={n}')}</loc><lastmod>{when(pipeline.OUT / n / 'result.json')}</lastmod></url>"
+        f"<url><loc>{escape(f'{site}/app?run={n}')}</loc>{when(pipeline.OUT / n / 'result.json')}</url>"
         for n in runs()]
     body = ('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
             + "\n".join(urls) + "\n</urlset>\n")
@@ -446,7 +459,8 @@ def protocol_file(name: str):
         raise HTTPException(409, "protocol not generated yet: answer the open questions first")
     if not r.get("sim_ok"):  # a file the Opentrons simulator rejects would be rejected by the robot too
         raise HTTPException(409, "this protocol failed the Opentrons simulator; see the simulator log")
-    return PlainTextResponse(r["protocol"], headers={"Content-Disposition": f'attachment; filename="{name}.py"'})
+    return PlainTextResponse(r["protocol"], media_type="text/x-python",  # the type its signposts announce
+                             headers={"Content-Disposition": f'attachment; filename="{name}.py"'})
 
 
 def _source(name):
@@ -1091,7 +1105,7 @@ def eln_file(name: str, request: Request):
                          modified=eln._iso((d / "result.json").stat().st_mtime))
 
     body = _export(name, request, "eln", build)
-    return Response(body, media_type="application/zip",
+    return Response(body, media_type="application/vnd.eln+zip",  # the ELN Consortium's registered-style type
                     headers={"Content-Disposition": f'attachment; filename="show-dont-code-{name}.eln"'})
 
 
@@ -1165,7 +1179,6 @@ async def voice(name: str, request: Request):
         fmt = "wav"
     else:
         raise HTTPException(415, "send WebM, Ogg, MP4 or WAV audio")
-    spend_live_call()  # only now: junk bytes or a run with nothing to ask cost no model call
     keywords = sorted({s.get("reagent") for s in r["steps"] if s.get("reagent")})[:20]
     with tempfile.TemporaryDirectory() as tmp:
         clip, wav = Path(tmp) / "voice.in", Path(tmp) / "voice.wav"
@@ -1176,6 +1189,9 @@ async def voice(name: str, request: Request):
                 "-vn", "-ac", "1", "-ar", "16000", "-sample_fmt", "s16", str(wav)], check=True, capture_output=True, timeout=60)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
             raise HTTPException(422, "that recording could not be read; try again")
+        if not wav.exists() or wav.stat().st_size < 3200:  # under 0.1 s of 16 kHz audio: a header with nothing in it
+            raise HTTPException(422, "that recording could not be read; try again")
+        spend_live_call()  # only now: junk bytes, an undecodable clip or a run with nothing to ask cost no model call
         try:  # transcribe() skips its own ffmpeg step because the wav already exists
             turns = await asyncio.to_thread(meta.transcribe, clip, wav, keywords)
         except Exception:
@@ -1235,9 +1251,11 @@ def _check_answers(d, answers):
         raise HTTPException(422, "no answers given")
     steps = json.loads((d / "result.json").read_text(encoding="utf-8"))["steps"]
     for k, v in answers.items():
-        m = re.fullmatch(r"(\d+)(:cycles)?", k)
+        m = re.fullmatch(r"(\d+)(:cycles)?", k, re.ASCII)
         if not m or int(m[1]) >= len(steps):
             raise HTTPException(422, f"unknown step {k!r}")
+        if (steps[int(m[1])]["action"] == "thermocycle") != bool(m[2]) or steps[int(m[1])]["action"] not in ("transfer", "mix", "thermocycle"):
+            raise HTTPException(422, f"step {int(m[1]) + 1} has no {'cycle count' if m[2] else 'volume'} to set")
         if m[2] and not (1 <= v <= 99 and v == int(v)):
             raise HTTPException(422, "cycles must be a whole number from 1 to 99")
         if not m[2] and not protocol.MIN_UL <= v <= 1000:
@@ -1263,7 +1281,7 @@ def identify_tube(name: str, t: float = Body(...), x: float = Body(...), y: floa
     d = _run_dir(name)
     if not (d / "sam_file.json").exists():
         raise HTTPException(409, "this run has no SAM video (ground-truth replays can't track)")
-    frame = pipeline.asset(d, "sam_frames") / f"{round(t * pipeline.SAM_FPS):05d}.jpg" if math.isfinite(t) and t >= 0 else None
+    frame = pipeline.asset(d, "sam_frames") / f"{round(t * pipeline.SAM_FPS):05d}.jpg" if math.isfinite(t) and 0 <= t < 86400 else None
     if not (frame and frame.exists()):  # checked before a live call is spent
         raise HTTPException(422, "no video frame at that time")
     from PIL import Image

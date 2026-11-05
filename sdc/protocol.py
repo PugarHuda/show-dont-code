@@ -223,7 +223,7 @@ def pipetting_error(steps, bot=FLEX):
     """Expected error of every reagent's share of its reaction, from the Flex pipettes' published accuracy.
     Each transfer's volume is off by up to %D (systematic) with %CV scatter; a reagent's share a/V of its well
     moves with its own error and, the other way, with every other transfer into that well. Worst-case systematic
-    errors add; random ones add in quadrature."""
+    errors add, at their exact worst; random ones add in quadrature (first order)."""
     wells = {}
     for s in steps:
         if s["action"] != "transfer" or not s.get("volume_ul"):
@@ -245,7 +245,9 @@ def pipetting_error(steps, bot=FLEX):
             rows.append({"destination": dest, "reagent": name, "ul": round(g["ul"], 2), "share": round(sh * 100, 1),
                          "pipettes": sorted(g["pip"]), "transfer_d": round(g["worst"], 2),
                          "share_cv": round(100 * ((((1 - sh) ** 2) * g["var"] + sh ** 2 * others_var) ** 0.5) / g["ul"], 2),
-                         "share_d": round(100 * ((1 - sh) * g["sys"] + sh * others_sys) / g["ul"], 2)})
+                         # worst case, exact: own volume high and every other low, or the other way round
+                         "share_d": round(100 * max((g["ul"] + g["sys"]) / (total + g["sys"] - others_sys) / sh - 1,
+                                                    1 - (g["ul"] - g["sys"]) / (total - g["sys"] + others_sys) / sh), 2)})
     return rows
 
 
