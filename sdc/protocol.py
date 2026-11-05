@@ -199,6 +199,56 @@ def well_volume(steps):
     return max(1, min(100, round(max(well.values(), default=50))))
 
 
+# Opentrons' published Flex 1-channel accuracy, docs.opentrons.com/flex/system-description/pipettes/:
+# (volume uL, random error %CV, systematic error %D). p50 points use the 50 uL tips this protocol loads; p1000 points
+# are with 50/200/1000 uL tips (Opentrons publishes no 1000 uL-tip figure below 1000 uL)
+FLEX_SPEC = {"flex_1channel_50": [(1, 7.0, 8.0), (10, 0.5, 1.5), (50, 0.4, 1.25)],
+             "flex_1channel_1000": [(50, 0.3, 0.5), (200, 0.15, 0.5), (1000, 0.15, 0.5)]}
+
+
+def _spec(pipette, ul):
+    """(%CV, %D) at ul, log-linear between Opentrons' published points; held at the ends outside them."""
+    import math
+    pts = FLEX_SPEC[pipette]
+    if ul <= pts[0][0]:
+        return pts[0][1:]
+    for (v0, c0, d0), (v1, c1, d1) in zip(pts, pts[1:]):
+        if ul <= v1:
+            f = math.log(ul / v0) / math.log(v1 / v0)
+            return c0 + f * (c1 - c0), d0 + f * (d1 - d0)
+    return pts[-1][1:]
+
+
+def pipetting_error(steps, bot=FLEX):
+    """Expected error of every reagent's share of its reaction, from the Flex pipettes' published accuracy.
+    Each transfer's volume is off by up to %D (systematic) with %CV scatter; a reagent's share a/V of its well
+    moves with its own error and, the other way, with every other transfer into that well. Worst-case systematic
+    errors add; random ones add in quadrature."""
+    wells = {}
+    for s in steps:
+        if s["action"] != "transfer" or not s.get("volume_ul"):
+            continue
+        v = float(s["volume_ul"])
+        pip = bot["small"][1] if v <= bot["small_ul"] else bot["big"][1]
+        cv, d = _spec(pip, v)
+        g = wells.setdefault(s.get("destination") or "sample tube", {}).setdefault(
+            s.get("reagent") or s.get("source") or "reagent", {"ul": 0.0, "var": 0.0, "sys": 0.0, "pip": set(), "worst": 0.0})
+        g["ul"] += v; g["var"] += (cv / 100 * v) ** 2; g["sys"] += d / 100 * v
+        g["pip"].add(bot["small"][0] if v <= bot["small_ul"] else bot["big"][0]); g["worst"] = max(g["worst"], d)
+    rows = []
+    for dest, gs in wells.items():
+        total = sum(g["ul"] for g in gs.values())
+        for name, g in gs.items():
+            sh = g["ul"] / total
+            others_var = sum(h["var"] for k, h in gs.items() if k != name)
+            others_sys = sum(h["sys"] for k, h in gs.items() if k != name)
+            rows.append({"destination": dest, "reagent": name, "ul": round(g["ul"], 2), "share": round(sh * 100, 1),
+                         "pipettes": sorted(g["pip"]), "transfer_d": round(g["worst"], 2),
+                         "share_cv": round(100 * ((((1 - sh) ** 2) * g["var"] + sh ** 2 * others_var) ** 0.5) / g["ul"], 2),
+                         "share_d": round(100 * ((1 - sh) * g["sys"] + sh * others_sys) / g["ul"], 2)})
+    return rows
+
+
 def generate(steps, title="Show, Don't Code protocol", robot="Flex"):
     """Return (python_source, layout). layout maps each reagent/tube name to a deck location. robot: "Flex" or "OT-2"."""
     bot = ROBOTS[robot]
@@ -475,6 +525,11 @@ if __name__ == "__main__":
             assert e.questions[0]["field"] == field, e.questions
     evil, _ = generate([{**demo[4], "description": "x\nimport os; os.system('calc')"}])
     assert "\nimport os" not in evil, "description must stay inside the comment/string"
+    assert _spec("flex_1channel_50", 1) == (7.0, 8.0) and _spec("flex_1channel_50", 50) == (0.4, 1.25)
+    assert abs(_spec("flex_1channel_50", 10 ** 0.5)[1] - 4.75) < 1e-9  # halfway between 1 and 10 uL in log volume
+    pe = {r["reagent"]: r for r in pipetting_error(demo)}
+    assert pe["Primer1"]["share_d"] > 7 > pe["PrimeSTAR Max Premix"]["share_d"], pe  # 1 uL is the weak transfer
+    assert pe["water"]["pipettes"] == ["p50"] and abs(sum(r["share"] for r in pe.values()) - 100) < 0.2, pe
     src, layout = generate(demo)
     ok, log = simulate(src)
     assert ok, log

@@ -315,6 +315,11 @@
       <h2>Before you run</h2>
       <p class="hint" id="analysisline"></p>
       <table class="setup"><thead><tr><th scope="col">Load</th><th scope="col">Into</th><th scope="col">Volume</th></tr></thead><tbody id="setup"></tbody></table>
+      <div id="errbox" hidden>
+        <p class="hint" id="errline"></p>
+        <div class="tablewrap"><table class="setup"><thead><tr><th scope="col">Reagent</th><th scope="col">Share of the well</th>
+          <th scope="col">Systematic, worst case</th><th scope="col">Random (CV)</th></tr></thead><tbody id="err"></tbody></table></div>
+      </div>
       <div id="paramsbox" hidden>
         <p class="hint" id="paramsline"></p>
         <table class="setup"><thead><tr><th scope="col">Setting</th><th scope="col">Value</th></tr></thead><tbody id="params"></tbody></table>
@@ -664,6 +669,14 @@ function render() {
       : R.analysis_ok ? `Opentrons' own protocol analysis passed: ${an.commands} commands, the same check the Opentrons App runs when you import the file.${an.cycling_s ? ` The thermocycler needs at least ${hm(an.cycling_s)} for this program (every hold, plus ramps at the module's rated 4.25 °C/s heating and 2.0 °C/s cooling).` : ""}`
       : `Opentrons' protocol analysis reported a problem: ${(an.errors || [an.error]).join("; ")}`;
     if (!rxWells.length) setupRows(an?.liquid_setup);
+    // expected error of each reagent's share, from Opentrons' published Flex pipette accuracy (computed server-side)
+    const pe = R.pipetting || [], many = new Set(pe.map((x) => x.destination)).size > 1;
+    const worst = pe.reduce((a, x) => (x.share_d > (a?.share_d ?? -1) ? x : a), null);
+    $("errbox").hidden = !pe.length;
+    $("errline").textContent = !worst ? "" : `Expected pipetting error, from the accuracy Opentrons publishes for the Flex pipettes: each reagent's share of its well can be off by the systematic error at worst, and scatters by the random one. `
+      + (worst.share_d > 5 ? `${worst.reagent} (${worst.ul} µL) is the weak spot at ±${worst.share_d} %: below about 10 µL the 50 µL pipette's error grows to ±8 % at 1 µL; a master mix pipettes it as one larger volume.` : `Every share is within ±${worst.share_d} %.`);
+    $("err").innerHTML = pe.map((x) => `<tr><td>${esc(x.reagent)}${many ? ` → ${esc(x.destination)}` : ""} <span class="t">${esc(x.ul)} µL, ${esc(x.pipettes.join(", "))}</span></td><td class="t">${esc(x.share)} %</td>`
+      + `<td class="t">${x.share_d > 5 ? "<strong>" : ""}±${esc(x.share_d)} %${x.share_d > 5 ? "</strong>" : ""}</td><td class="t">${esc(x.share_cv)} %</td></tr>`).join("");
     const params = an?.parameters || [], tc = R.steps.find((x) => x.action === "thermocycle");
     $("paramsbox").hidden = !params.length;
     $("paramsline").textContent = `How each reagent is pipetted (an Opentrons liquid class picked from its name: viscous for enzyme mixes, volatile for ethanol, otherwise aqueous), whether the pipette sensor checks each tube for liquid first${tc ? ` and the thermal cycling program (${tc.profile?.found && tc.profile.cycle?.length ? "read off the bench sheet by Muse Spark" : "default; none legible on the bench sheet"})` : ""}. These are Opentrons runtime parameters: change them in the Opentrons App at run setup, no code editing.`;

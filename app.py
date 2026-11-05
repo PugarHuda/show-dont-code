@@ -395,6 +395,7 @@ def result(name: str):
     r["can_track"] = (d / "sam_file.json").exists()
     r["captions"] = len(_speech(d))
     r["max_reactions"] = protocol.max_reactions(r["steps"]) if r.get("protocol") else 1
+    r["pipetting"] = protocol.pipetting_error(r["steps"]) if r.get("protocol") else []
     r["copy_of"] = (d / "copy_of").read_text().strip() if (d / "copy_of").exists() else None
     r["bench_card"] = card_state(d)  # the app asks for the card only when there is one: no 404 in the console
     src = d / "source.json"  # a run started from a published protocol instead of a video

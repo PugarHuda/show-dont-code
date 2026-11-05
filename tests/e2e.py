@@ -221,6 +221,10 @@ def main():
         check("app: replay moved the human video to that step", page.evaluate("() => document.getElementById('video').currentTime") > 0)
         page.click("#replay")
         check("app: liquid setup lists what to load", len(page.query_selector_all("#setup tr")) >= 3)
+        err = page.inner_text("#err")
+        check("app: pipetting error from Opentrons' published Flex accuracy: 1.5 uL primers flagged, the 25 uL premix within 2 %",
+              len(page.query_selector_all("#err tr")) == 5 and "±8.33 %" in err and "±1.89 %" in err
+              and "Primer1 (1.5 µL) is the weak spot" in page.inner_text("#errline"), err)
         page.click("#speak")
         page.keyboard.press("Space")
         page.keyboard.press("Space")
@@ -296,6 +300,12 @@ def main():
                              ("pylabrobot.py", b"set_volume_tracking(True)"), ("pylabrobot.py", b"# glycerol_50: Opentrons liquid class rates")):
             st, data = fetch(f"{api}/api/runs/pcr_1-gt/{path}")
             check(f"download: {path}", st == 200 and needle in data, (st, data[:80]))
+        pe = json.loads(fetch(f"{api}/api/runs/pcr_1-gt")[1])["pipetting"]
+        check("api: pipetting error shares add up to 100 % and every row names its pipette",
+              abs(sum(r["share"] for r in pe) - 100) < 0.5 and all(r["pipettes"] == ["p50"] for r in pe)
+              and json.loads(fetch(f"{api}/api/runs/pcr_3")[1])["pipetting"] == [], pe)
+        check("download: methods.md has the expected pipetting error table",
+              "| sample tube | Primer1 | 1.5 | 3 % | ±8.33 % |".encode() in fetch(f"{api}/api/runs/pcr_1-gt/methods.md")[1])
         st, _ = fetch(f"{api}/api/runs/pcr_3/protocol.py")
         check("download: protocol refused while questions are open", st == 409, st)
         long_name = "a" * 300

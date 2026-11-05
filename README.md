@@ -132,6 +132,13 @@ Then:
   premixes are pipetted as *viscous* (slower flow, delays, the tuned air gap and blowout for glycerol), ethanol as
   *volatile*, everything else as *aqueous*. The class is picked from the reagent's name, and each reagent's class is a
   runtime parameter, so the lab switches it in the Opentrons App if the name guessed wrong.
+- **Expected pipetting error**: from the accuracy Opentrons publishes for the Flex 1-channel pipettes
+  ([docs](https://docs.opentrons.com/flex/system-description/pipettes/): ±8 % systematic and 7 % CV at 1 µL on the
+  50 µL pipette, ±1.25 % and 0.4 % at 50 µL; log-interpolated between the published points), the run page and
+  `methods.md` give each reagent's share of its well with its worst-case systematic and random error. A share moves with
+  its own transfer and, the other way, with every other transfer into the well. On pcr_1-gt the 1.5 µL primers come out
+  at ±8.3 % (5.7 % CV) and the 25 µL premix at ±1.9 %, so the scientist sees which volume is the weak spot before the
+  run, and that a master mix (one larger draw) is the fix. `python -m sdc.protocol` checks the interpolation and shares.
 - **Liquid presence detection** is one switch at run setup ("Check tubes for liquid", off by default because it adds
   seconds per draw): when on, the Flex pipette's pressure sensor probes each source tube with the tip it is about to
   aspirate with (`require_liquid_presence`), and an empty tube stops the run instead of dispensing air. The self-check

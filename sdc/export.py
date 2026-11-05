@@ -14,7 +14,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .protocol import DEAD_UL, LIQUID_CLASSES, _plan, liquid_class, thermal, well_volume
+from .protocol import DEAD_UL, LIQUID_CLASSES, _plan, liquid_class, pipetting_error, thermal, well_volume
 
 WELLS_96 = [f"{r}{c}" for c in range(1, 13) for r in "ABCDEFGH"]
 
@@ -74,6 +74,14 @@ def methods_markdown(steps, title="Protocol", source=None):
         cls, _ = liquid_class(name)
         lines.append(f"| {_clean(name)} | {total * 1.1 + DEAD_UL:.1f} µL | {n} transfer{'s' * (n != 1)}, {total:g} µL in total "
                      f"| {LIQUID_CLASSES[cls].lower()} |")
+    err = pipetting_error(steps)
+    if err:
+        lines += ["", "## Expected pipetting error (Opentrons Flex)", "",
+                  "Each reagent's share of its reaction, with the error the Flex pipettes' published accuracy allows "
+                  "(docs.opentrons.com/flex/system-description/pipettes/): worst-case systematic, then random (CV).", "",
+                  "| Into | Reagent | µL | Share | Systematic | Random |", "|---|---|---|---|---|---|"]
+        lines += [f"| {_clean(r['destination'])} | {_clean(r['reagent'])} | {r['ul']:g} | {r['share']:g} % | ±{r['share_d']:g} % "
+                  f"| {r['share_cv']:g} % |" for r in err]
     lines += ["", "## Procedure", ""]
     for i, s in enumerate(steps, 1):
         when = "" if source else f" [{float(s['start']):.0f}–{float(s['end']):.0f} s]"  # a text has no video seconds
@@ -409,6 +417,7 @@ if __name__ == "__main__":
     md = methods_markdown(demo, "Demo")
     doc = methods_markdown(demo, "Demo", {"kind": "document", "title": "Colony PCR"})
     assert "photo or PDF" in doc and "first-person video" not in doc and "[30–45 s]" not in doc and "[30–45 s]" in md, doc
+    assert "## Expected pipetting error" in md and "\nimport os" not in md, md
     assert "35 cycles" in md and "| water |" in md and "aqueous (water) |" in md, md
     ap = autoprotocol(demo)
     assert [i["op"] for i in ap["instructions"]] == ["pipette", "pipette", "seal", "thermocycle"], ap
